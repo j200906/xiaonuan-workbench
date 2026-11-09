@@ -488,6 +488,7 @@
       temperature: opts.temperature != null ? opts.temperature : state.cfg.tutor.temperature,
       stream: false
     };
+    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
     if (opts.tools && opts.tools.length) {
       body.tools = opts.tools;
       body.tool_choice = 'auto';
@@ -1159,7 +1160,14 @@
     }
 
     if (window.XN_EMO) {
-      try { state.lastEmo = await window.XN_EMO.analyze(text, null); } catch (e) {}
+      try {
+        // 先用关键词，够用就不多打一次模型
+        var quick = window.XN_EMO.analyze ? null : null;
+        var chatFn = (state.cfg.tutor.emoLLM === true)
+          ? function (m) { return apiChatRaw(m, { maxTokens: 90, temperature: 0 }).then(function (r) { return r.content; }); }
+          : null;
+        state.lastEmo = await window.XN_EMO.analyze(text, chatFn);
+      } catch (e) { state.lastEmo = null; }
     }
     if (window.XN_MEM) {
       try {
