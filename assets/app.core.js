@@ -1,12 +1,13 @@
-/* 小暖工作台 · 核心：配置、门禁、导航、对话 */
+/* 小暖 · 核心：会话、配置、门禁、对话 */
 (function (N) {
   'use strict';
 
-  /* ---------- 常量 ---------- */
   var ADMIN_PASSWORD = 'xiaonuanai';
   var KEYS = {
     cfg: 'xn.cfg.v1',
-    chat: 'xn.chat.v1',
+    sessions: 'xn.sessions.v1',
+    current: 'xn.current.v1',
+    legacyChat: 'xn.chat.v1',
     notes: 'xn.notes.v1',
     goals: 'xn.goals.v1',
     fb: 'xn.fb.v1',
@@ -18,19 +19,11 @@
   };
 
   var VIEW_META = {
-    chat: { title: '对话', hint: '和小暖聊，或者把今天要啃的东西丢进来。' },
-    study: { title: '学习台', hint: '目标、专注、笔记。数据只存在这台设备上。' },
-    feedback: { title: '反馈箱', hint: '哪里别扭、哪里断了，写下来。' },
-    arch: { title: '架构', hint: '改布局、配色、文案和小暖的设定，改完立刻生效。' },
-    settings: { title: '设置', hint: '接口、Key 和本机数据。' }
-  };
-
-  var ICONS = {
-    chat: '<path d="M20 12a7 7 0 0 1-7 7H8l-4 3v-6.2A7 7 0 0 1 11 5h2a7 7 0 0 1 7 7Z"/>',
-    study: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20"/>',
-    feedback: '<path d="M4 6h16v10H9l-5 3Z"/><path d="M8 10h8M8 13h5"/>',
-    arch: '<path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/>',
-    settings: '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/>'
+    chat: { title: '新对话' },
+    study: { title: '学习台' },
+    feedback: { title: '反馈箱' },
+    arch: { title: '架构' },
+    settings: { title: '设置' }
   };
 
   /* ---------- 工具 ---------- */
@@ -43,12 +36,6 @@
   }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
   function clamp(n, lo, hi) { n = Number(n); if (isNaN(n)) return lo; return Math.min(hi, Math.max(lo, n)); }
-  function debounce(fn, wait) {
-    var t; return function () {
-      var a = arguments, self = this;
-      clearTimeout(t); t = setTimeout(function () { fn.apply(self, a); }, wait || 200);
-    };
-  }
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
   function fmtTime(ts) {
     var d = new Date(ts || Date.now());
@@ -56,7 +43,7 @@
   }
   function fmtDate(ts) {
     var d = new Date(ts || Date.now());
-    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + fmtTime(ts);
+    return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
   }
   function todayStr() {
     var d = new Date();
@@ -75,7 +62,7 @@
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2400);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2200);
   }
 
   function download(name, text, type) {
@@ -89,9 +76,7 @@
   }
 
   function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(text);
-    }
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
     return new Promise(function (resolve, reject) {
       try {
         var ta = document.createElement('textarea');
@@ -102,7 +87,6 @@
     });
   }
 
-  /* ---------- 存储 ---------- */
   function readJSON(key, fallback) {
     try {
       var raw = localStorage.getItem(key);
@@ -113,18 +97,16 @@
   }
   function writeJSON(key, val) {
     try { localStorage.setItem(key, JSON.stringify(val)); return true; }
-    catch (e) { toast('本机存储写不进去了（可能已满）'); return false; }
+    catch (e) { toast('本机存储写不进去了（可能满了）'); return false; }
   }
 
-  /* ---------- 默认配置 ---------- */
+  /* ---------- 配置 ---------- */
   function defaultConfig() {
     return {
-      version: 1,
+      version: 2,
       brand: '小暖',
-      brandSub: 'workbench',
-      labels: { chat: '对话', study: '学习台', feedback: '反馈箱', arch: '架构', settings: '设置' },
+      labels: { study: '学习台', feedback: '反馈箱', arch: '架构', settings: '设置' },
       nav: [
-        { id: 'chat', show: true },
         { id: 'study', show: true },
         { id: 'feedback', show: true },
         { id: 'arch', show: true },
@@ -163,13 +145,15 @@
     key: '',
     admin: false,
     cfg: defaultConfig(),
-    messages: [],
+    sessions: [],
+    currentId: '',
     notes: [],
     goals: { date: todayStr(), items: [] },
     feedback: [],
     timer: { min: 25, left: 25 * 60, running: false, endsAt: 0, done: 0, date: todayStr() },
     sending: false,
     abort: null,
+    pendingText: '',
     view: 'chat',
     conn: 'idle'
   };
@@ -197,9 +181,7 @@
     var c = hex2rgb(hex).map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   }
-  N.colorMix = mix;
 
-  /* ---------- 配置应用 ---------- */
   function resolvedTheme() {
     var local = localStorage.getItem(KEYS.theme);
     var t = local || (state.cfg.style && state.cfg.style.theme) || 'light';
@@ -226,62 +208,65 @@
     root.style.setProperty('--fs', clamp(cfg.style.fontSize, 12, 20) + 'px');
 
     if ($('#brandName')) $('#brandName').textContent = cfg.brand || '小暖';
-    if ($('#brandSub')) $('#brandSub').textContent = cfg.brandSub || 'workbench';
-    document.title = (cfg.brand || '小暖') + '工作台';
+    document.title = (cfg.brand || '小暖');
 
-    renderNav();
-    updateHeaderForView();
+    renderSideLinks();
+    updateHeader();
   }
 
-  function allowedViews() {
-    return (state.cfg.nav || []).filter(function (item) {
-      if (item.id === 'arch') return state.admin && item.show;
-      return item.show !== false;
+  function renderSideLinks() {
+    var order = (state.cfg.nav || []).filter(function (n) { return n.id !== 'chat'; });
+    order.forEach(function (item) {
+      var btn = document.querySelector('.side-link[data-view="' + item.id + '"]');
+      if (!btn) return;
+      var label = (state.cfg.labels && state.cfg.labels[item.id]) || VIEW_META[item.id].title;
+      var span = btn.querySelector('span');
+      if (span) span.textContent = label;
+      var visible = item.show !== false && (item.id !== 'arch' || state.admin);
+      btn.hidden = !visible;
     });
   }
 
-  function renderNav() {
-    var nav = $('#nav');
-    if (!nav) return;
-    var items = allowedViews();
-    nav.innerHTML = items.map(function (item) {
-      var meta = VIEW_META[item.id] || { title: item.id };
-      var label = (state.cfg.labels && state.cfg.labels[item.id]) || meta.title;
-      var on = item.id === state.view ? ' on' : '';
-      return '<button type="button" data-view="' + item.id + '" class="' + on.trim() + '">' +
-        '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" ' +
-        'stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[item.id] || '') + '</svg>' +
-        '<span>' + esc(label) + '</span></button>';
-    }).join('');
-    $$('#nav button').forEach(function (btn) {
-      btn.addEventListener('click', function () { switchView(btn.dataset.view); });
-    });
-    if (!items.some(function (i) { return i.id === state.view; })) {
-      if (items.length) switchView(items[0].id);
+  function updateHeader() {
+    var titleEl = $('#mainTitle');
+    if (!titleEl) return;
+    if (state.view === 'chat') {
+      var s = currentSession();
+      titleEl.textContent = s && s.messages.length ? sessionTitle(s) : ((state.cfg.labels && state.cfg.labels.chat) || '新对话');
+    } else {
+      titleEl.textContent = (state.cfg.labels && state.cfg.labels[state.view]) || VIEW_META[state.view].title;
     }
-  }
-
-  function updateHeaderForView() {
-    var meta = VIEW_META[state.view] || { title: state.view, hint: '' };
-    var label = (state.cfg.labels && state.cfg.labels[state.view]) || meta.title;
-    if ($('#viewTitle')) $('#viewTitle').textContent = label;
-    if ($('#viewHint')) $('#viewHint').textContent = meta.hint;
-    $$('#nav button').forEach(function (b) {
-      b.classList.toggle('on', b.dataset.view === state.view);
+    $$('.side-link').forEach(function (b) {
+      b.classList.toggle('on', state.view !== 'chat' && b.dataset.view === state.view);
     });
+    var pill = $('#modelPill');
+    if (pill) pill.textContent = state.cfg.tutor.model || 'deepseek-chat';
   }
 
   function switchView(id) {
-    if (!id) return;
-    if (!allowedViews().some(function (i) { return i.id === id; })) id = 'chat';
+    if (id !== 'chat' && id !== 'settings' && id !== 'study' && id !== 'feedback' && id !== 'arch') id = 'chat';
+    if (id === 'arch' && !state.admin) id = 'settings';
     state.view = id;
-    $$('.view').forEach(function (v) { v.hidden = v.dataset.view !== id; });
-    updateHeaderForView();
+    $$('.pane').forEach(function (v) { v.hidden = v.dataset.view !== id; });
+    updateHeader();
     try { sessionStorage.setItem(KEYS.view, id); } catch (e) {}
     if (N.views && N.views[id] && N.views[id].onShow) N.views[id].onShow();
-    if (id === 'chat') setTimeout(scrollBottom, 30);
+    if (id === 'chat') setTimeout(function () { scrollBottom(true); }, 30);
+    closeSide();
   }
   N.switchView = switchView;
+
+  function closeSide() {
+    document.getElementById('app').classList.remove('side-open');
+    var scrim = $('#scrim');
+    if (scrim) scrim.hidden = true;
+  }
+  function openSide() {
+    document.getElementById('app').classList.add('side-open');
+    var scrim = $('#scrim');
+    if (scrim) scrim.hidden = false;
+  }
+
   N.state = state;
   N.$ = $; N.$$ = $$; N.esc = esc; N.uid = uid; N.toast = toast;
   N.readJSON = readJSON; N.writeJSON = writeJSON; N.download = download;
@@ -291,11 +276,11 @@
 
   function saveConfig() {
     writeJSON(KEYS.cfg, state.cfg);
-    N.onConfigChange && N.onConfigChange();
+    if (N.onConfigChange) N.onConfigChange();
   }
   N.saveConfig = saveConfig;
   N.applyConfig = applyConfig;
-  N.renderNav = renderNav;
+  N.renderSideLinks = renderSideLinks;
 
   /* ---------- Markdown ---------- */
   function inlineMd(s) {
@@ -316,9 +301,7 @@
         para = [];
       }
     }
-    function closeList() {
-      if (list) { html += '</' + list + '>'; list = null; }
-    }
+    function closeList() { if (list) { html += '</' + list + '>'; list = null; } }
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i].replace(/\s+$/, '');
       if (!line.trim()) { flushPara(); closeList(); continue; }
@@ -346,9 +329,7 @@
         html += '<blockquote>' + inlineMd(line.replace(/^>\s?/, '')) + '</blockquote>';
         continue;
       }
-      if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-        flushPara(); closeList(); html += '<hr>'; continue;
-      }
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) { flushPara(); closeList(); html += '<hr>'; continue; }
       para.push(line);
     }
     flushPara(); closeList();
@@ -381,21 +362,16 @@
 
   function friendlyError(status, detail) {
     var low = String(detail || '').toLowerCase();
-    if (status === 401 || status === 403) return 'Key 无效或没有权限（' + status + '）。检查一下有没有复制完整。';
+    if (status === 401 || status === 403) return 'Key 无效或没有权限（' + status + '）。检查一下是不是没复制完整。';
     if (status === 402 || low.indexOf('insufficient') >= 0 || low.indexOf('balance') >= 0) return '余额不足（' + status + '）。去服务商后台充点再试。';
-    if (status === 404) return '接口路径或模型名不对（404）。检查 Base URL 是否带 /v1，模型名是否存在。';
-    if (status === 429) return '请求太频繁被限流（429）。等十几秒再试。';
-    if (status >= 500) return '服务商那边出错了（' + status + '）。不是你写错了，过会儿再试。';
-    return '请求失败（' + status + '）。' + (detail ? String(detail).slice(0, 220) : '');
+    if (status === 404) return '接口路径或模型名不对（404）。确认 Base URL 带 /v1，模型名存在。';
+    if (status === 429) return '请求太频繁（429）。等十几秒再试。';
+    if (status >= 500) return '服务商那边出错了（' + status + '）。不是你写错了，过一会儿再试。';
+    return '请求失败（' + status + '）。' + (detail ? String(detail).slice(0, 200) : '');
   }
 
-  function apiBase() {
-    return String(state.cfg.tutor.baseUrl || '').trim().replace(/\/+$/, '');
-  }
-
-  // Base URL 填成 /api 时走同源后端代理：Key 留在服务器，浏览器不带 Key
+  function apiBase() { return String(state.cfg.tutor.baseUrl || '').trim().replace(/\/+$/, ''); }
   function isProxy() { return apiBase().charAt(0) === '/'; }
-
   function chatUrl() { return isProxy() ? apiBase() + '/chat' : apiBase() + '/chat/completions'; }
 
   function buildMessages(extraSystem) {
@@ -403,7 +379,8 @@
     if (extraSystem) sys += '\n\n' + extraSystem;
     var msgs = [{ role: 'system', content: sys }];
     var turns = clamp(state.cfg.tutor.historyTurns, 2, 40);
-    var hist = state.messages.filter(function (m) {
+    var s = currentSession();
+    var hist = (s ? s.messages : []).filter(function (m) {
       return m.role === 'user' || (m.role === 'assistant' && m.content && !m.pending);
     }).slice(-turns * 2);
     hist.forEach(function (m) {
@@ -428,19 +405,17 @@
     };
     if (opts.maxTokens) body.max_tokens = opts.maxTokens;
 
-    var res;
     var headers = { 'Content-Type': 'application/json' };
     if (key) headers['Authorization'] = 'Bearer ' + key;
+
+    var res;
     try {
       res = await fetch(chatUrl(), {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(body),
-        signal: opts.signal
+        method: 'POST', headers: headers, body: JSON.stringify(body), signal: opts.signal
       });
     } catch (e) {
       if (e && e.name === 'AbortError') throw e;
-      throw ApiError('请求没发出去。可能是断网、代理拦截，或者这个服务商不允许浏览器直连（CORS）。');
+      throw ApiError('请求没发出去。可能是断网、代理拦截，或者这个服务商不允许浏览器直连。');
     }
 
     if (!res.ok) {
@@ -462,11 +437,11 @@
     }
 
     if (!res.body || !res.body.getReader) {
-      var data2 = await res.json();
-      var msg2 = (data2.choices && data2.choices[0] && data2.choices[0].message) || {};
-      var t2 = (msg2.content || '').trim();
+      var d2 = await res.json();
+      var m2 = (d2.choices && d2.choices[0] && d2.choices[0].message) || {};
+      var t2 = (m2.content || '').trim();
       if (t2 && opts.onDelta) opts.onDelta(t2);
-      return { text: t2, reasoning: (msg2.reasoning_content || '').trim() };
+      return { text: t2, reasoning: (m2.reasoning_content || '').trim() };
     }
 
     var reader = res.body.getReader();
@@ -498,167 +473,107 @@
         }
       }
     }
-    if (buf && buf.indexOf('data:') === 0) {
-      var tail = buf.slice(5).trim();
-      if (tail && tail !== '[DONE]') {
-        try {
-          var jt = JSON.parse(tail);
-          var dt = (jt.choices && jt.choices[0] && jt.choices[0].delta) || {};
-          if (dt.content) { acc += dt.content; if (opts.onDelta) opts.onDelta(dt.content); }
-        } catch (e) {}
-      }
-    }
     return { text: acc, reasoning: reasoning };
   }
   N.apiChat = apiChat;
 
-  /* ---------- 门禁 ---------- */
-  function gateMsg(text, kind) {
-    var el = $('#gateMsg');
-    if (!el) return;
-    el.textContent = text || '';
-    el.className = 'gate-msg' + (kind ? ' ' + kind : '');
+  /* ---------- 会话 ---------- */
+  function sessionTitle(s) {
+    var first = (s.messages || []).filter(function (m) { return m.role === 'user' && m.content; })[0];
+    var text = first ? first.content.replace(/\s+/g, ' ').trim() : '新对话';
+    return text.length > 22 ? text.slice(0, 21) + '…' : text;
+  }
+  N.sessionTitle = sessionTitle;
+
+  function currentSession() {
+    return state.sessions.filter(function (s) { return s.id === state.currentId; })[0] || null;
+  }
+  N.currentSession = currentSession;
+
+  function saveSessions() {
+    var keep = state.sessions
+      .filter(function (s) { return s.messages && s.messages.length; })
+      .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); })
+      .slice(0, 30)
+      .map(function (s) {
+        return {
+          id: s.id, ts: s.ts, title: sessionTitle(s),
+          messages: s.messages.filter(function (m) { return !m.pending; }).slice(-60)
+        };
+      });
+    writeJSON(KEYS.sessions, keep);
+    writeJSON(KEYS.current, state.currentId);
+  }
+  N.saveSessions = saveSessions;
+
+  function newSession() {
+    var s = { id: uid(), ts: Date.now(), messages: [] };
+    state.sessions.unshift(s);
+    state.currentId = s.id;
+    renderSessions();
+    renderThread();
+    switchView('chat');
+    setTimeout(function () { $('#input').focus(); }, 50);
+    return s;
+  }
+  N.newSession = newSession;
+
+  function openSession(id) {
+    state.currentId = id;
+    renderSessions();
+    renderThread();
+    switchView('chat');
   }
 
-  function storedKey() {
-    try {
-      return localStorage.getItem(KEYS.key) || sessionStorage.getItem(KEYS.key) || '';
-    } catch (e) { return ''; }
-  }
-
-  function saveKey(key, remember) {
-    try {
-      if (!key) {
-        localStorage.removeItem(KEYS.key);
-        sessionStorage.removeItem(KEYS.key);
-        return;
-      }
-      if (remember) {
-        localStorage.setItem(KEYS.key, key);
-        sessionStorage.removeItem(KEYS.key);
-      } else {
-        sessionStorage.setItem(KEYS.key, key);
-        localStorage.removeItem(KEYS.key);
-      }
-    } catch (e) {}
-  }
-
-  async function validate(key) {
-    var probe = await apiChat(
-      [{ role: 'user', content: '只回一个字：好' }],
-      { key: key, stream: false, maxTokens: 8, temperature: 0 }
-    );
-    return probe;
-  }
-
-  function openApp() {
-    $('#gate').hidden = true;
-    $('#shell').hidden = false;
-    $('#brandName').textContent = state.cfg.brand || '小暖';
-    $('#brandSub').textContent = state.cfg.brandSub || 'workbench';
-    $('#modeBadge').textContent = state.admin ? '架构模式' : '访客';
-    $('#modeBadge').className = 'badge' + (state.admin ? ' admin' : '');
-    applyConfig();
-    var want = 'chat';
-    try { want = sessionStorage.getItem(KEYS.view) || 'chat'; } catch (e) {}
-    switchView(want);
-    if (N.views && N.views.chat) N.views.chat.onShow();
-    updateConn('ok');
-  }
-
-  function lock() {
-    state.admin = false;
-    try { sessionStorage.removeItem(KEYS.admin); } catch (e) {}
-    try { sessionStorage.removeItem(KEYS.key); } catch (e) {}
-    state.key = '';
-    state.messages = [];
-    $('#shell').hidden = true;
-    $('#gate').hidden = false;
-    $('#gateKey').value = '';
-    $('#gatePwd').value = '';
-    gateMsg('已退出。Key 若未勾选「记住」就已经从本机清掉了。', 'ok');
-    renderNav();
-  }
-
-  function updateConn(mode) {
-    var dot = $('#connDot'), text = $('#whoText');
-    if (!dot) return;
-    dot.classList.toggle('off', mode === 'off');
-    if (text) {
-      text.textContent = mode === 'off' ? '未连接' :
-        (mode === 'busy' ? '生成中…' : (state.admin ? '架构模式 · 已连接' : '已连接'));
+  function deleteSession(id, ev) {
+    if (ev) ev.stopPropagation();
+    var s = state.sessions.filter(function (x) { return x.id === id; })[0];
+    if (!s) return;
+    if (s.messages.length && !confirm('删掉这个对话？删了就找不回来。')) return;
+    state.sessions = state.sessions.filter(function (x) { return x.id !== id; });
+    if (state.currentId === id) {
+      var next = state.sessions.filter(function (x) { return x.messages.length; })[0];
+      state.currentId = next ? next.id : '';
+      if (!state.currentId) newSession();
     }
-  }
-  N.updateConn = updateConn;
-
-  async function onGateSubmit(ev) {
-    ev.preventDefault();
-
-    var base = $('#gateBase').value.trim();
-    var model = $('#gateModel').value.trim();
-    if (base) state.cfg.tutor.baseUrl = base;
-    if (model) state.cfg.tutor.model = model;
-
-    var key = $('#gateKey').value.trim();
-    var pwd = $('#gatePwd').value;
-    var proxy = isProxy();
-
-    if (!key && !proxy) { gateMsg('先填 API Key。'); $('#gateKey').focus(); return; }
-    if (pwd && !proxy && pwd !== ADMIN_PASSWORD) {
-      gateMsg('管理密码不对。留空就只能调用小暖，不会进架构。');
-      return;
-    }
-
-    var btn = $('#gateGo');
-    btn.disabled = true;
-    gateMsg(proxy ? '正在通过服务器验证…' : '正在验证 Key…', 'working');
-    try {
-      await validate(key);
-    } catch (e) {
-      gateMsg(e.message || '验证失败。');
-      btn.disabled = false;
-      return;
-    }
-
-    // 走后端代理时，密码交给服务器校验（服务器没配密码才回落到本地）
-    if (pwd && proxy) {
-      try {
-        var vr = await fetch('/api/admin/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: pwd })
-        });
-        var vj = await vr.json();
-        if (vj && vj.reason === 'not_configured') {
-          if (pwd !== ADMIN_PASSWORD) {
-            gateMsg('管理密码不对。');
-            btn.disabled = false;
-            return;
-          }
-        } else if (!vj || !vj.ok) {
-          gateMsg('服务器说密码不对。');
-          btn.disabled = false;
-          return;
-        }
-      } catch (err) {
-        gateMsg('问不到服务器，没法确认密码。');
-        btn.disabled = false;
-        return;
-      }
-    }
-
-    btn.disabled = false;
-
-    state.key = key;
-    if (key) saveKey(key, $('#gateRemember').checked);
-    state.admin = !!pwd;
-    try { sessionStorage.setItem(KEYS.admin, state.admin ? '1' : '0'); } catch (e) {}
-    saveConfig();
-    gateMsg(state.admin ? '通过。架构已解锁。' : '通过。', 'ok');
-    setTimeout(openApp, 160);
+    saveSessions();
+    renderSessions();
+    renderThread();
+    toast('删掉了');
   }
 
-  /* ---------- 对话 ---------- */
+  function renderSessions() {
+    var box = $('#sessionList');
+    if (!box) return;
+    var list = state.sessions
+      .filter(function (s) { return s.messages && s.messages.length; })
+      .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+    $('#sessionEmpty').hidden = list.length > 0;
+    $('#sessionLabel').hidden = list.length === 0;
+    box.innerHTML = list.map(function (s) {
+      return '<div class="session' + (s.id === state.currentId ? ' on' : '') + '" data-id="' + s.id + '">' +
+        '<button class="ses-main" type="button">' +
+        '<span class="ses-title">' + esc(sessionTitle(s)) + '</span>' +
+        '<span class="ses-time">' + fmtTime(s.ts) + '</span>' +
+        '</button>' +
+        '<button class="ses-del" type="button" title="删除">×</button>' +
+        '</div>';
+    }).join('');
+
+    $$('.ses-main', box).forEach(function (b) {
+      b.addEventListener('click', function () {
+        openSession(b.closest('.session').dataset.id);
+      });
+    });
+    $$('.ses-del', box).forEach(function (b) {
+      b.addEventListener('click', function (ev) {
+        deleteSession(b.closest('.session').dataset.id, ev);
+      });
+    });
+  }
+  N.renderSessions = renderSessions;
+
+  /* ---------- 对话渲染 ---------- */
   function scrollBottom(force) {
     var box = $('#messages');
     if (!box) return;
@@ -667,81 +582,71 @@
   }
   N.scrollBottom = scrollBottom;
 
+  function greeting() {
+    var h = new Date().getHours();
+    if (h < 5) return '还没睡？';
+    if (h < 11) return '早上好';
+    if (h < 14) return '中午好';
+    if (h < 18) return '下午好';
+    return '晚上好';
+  }
+
   function emptyState() {
     var starters = (window.XN_PERSONA && window.XN_PERSONA.starters) || [];
     return '<div class="empty" id="chatEmpty">' +
-      '<div class="empty-mark">暖</div>' +
-      '<h3>今天想动哪一块？</h3>' +
-      '<p>小暖不会替你写完作业，但会陪你把卡住的地方拆开。</p>' +
+      '<h2>' + greeting() + '</h2>' +
+      '<p>今天想动哪一块？小暖不替你写完作业，但会陪你把卡住的拆开。</p>' +
       '<div class="chips">' + starters.map(function (s) {
-        return '<button class="chip" data-prompt="' + esc(s) + '">' + esc(s.length > 16 ? s.slice(0, 15) + '…' : s) + '</button>';
+        return '<button class="chip" type="button" data-prompt="' + esc(s) + '">' +
+          esc(s.length > 18 ? s.slice(0, 17) + '…' : s) + '</button>';
       }).join('') + '</div></div>';
   }
 
-  function toolRow(m, index) {
-    return '<div class="msg-tools">' +
-      '<button type="button" data-copy>复制</button>' +
-      '<button type="button" data-retry>重新生成</button>' +
-      '</div>';
-  }
-
-  function messageNode(m, index) {
-    var isUser = m.role === 'user';
+  function messageNode(m) {
     var div = document.createElement('div');
-    div.className = 'msg ' + (isUser ? 'user' : 'bot');
-    div.dataset.index = index;
-
-    if (isUser) {
-      div.innerHTML = '<div class="body"><div class="who-line">你 · ' + fmtTime(m.ts) + '</div>' +
-        '<div class="content"></div></div>';
+    if (m.role === 'user') {
+      div.className = 'msg user';
+      div.innerHTML = '<div class="body"><div class="content"></div></div>';
       div.querySelector('.content').textContent = m.content;
       return div;
     }
 
-    var errHtml = m.error ? '<p class="err">' + esc(m.error) + '</p>' : '';
-    div.innerHTML = '<div class="av">暖</div><div class="body">' +
-      '<div class="who-line">小暖 · ' + fmtTime(m.ts) + '</div>' +
+    div.className = 'msg bot';
+    div.innerHTML = '<div class="body">' +
+      '<div class="who-line"><span>小暖</span><span>' + fmtTime(m.ts) + '</span></div>' +
       (m.reasoning ? '<div class="reasoning"></div>' : '') +
-      '<div class="content"></div>' + errHtml + toolRow(m, index) + '</div>';
-    if (m.reasoning) {
-      var r = div.querySelector('.reasoning');
-      r.textContent = m.reasoning;
-    }
-    var content = div.querySelector('.content');
-    if (m.pending) {
-      content.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
-    } else if (m.content) {
-      content.innerHTML = md(m.content);
-    }
-    bindTools(div, m);
-    return div;
-  }
+      '<div class="content"></div>' +
+      (m.error ? '<p class="err">' + esc(m.error) + '</p>' : '') +
+      '<div class="msg-tools">' +
+      '<button type="button" data-copy>复制</button>' +
+      '<button type="button" data-retry>重新生成</button>' +
+      '</div></div>';
 
-  function bindTools(node, m) {
-    var copy = node.querySelector('[data-copy]');
-    var retry = node.querySelector('[data-retry]');
-    if (copy) copy.addEventListener('click', function () {
-      copyText(m.content || '').then(function () { toast('复制好了'); },
-        function () { toast('复制失败，手动选吧'); });
+    if (m.reasoning) div.querySelector('.reasoning').textContent = m.reasoning;
+    var content = div.querySelector('.content');
+    if (m.pending) content.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+    else if (m.content) content.innerHTML = md(m.content);
+
+    div.querySelector('[data-copy]').addEventListener('click', function () {
+      copyText(m.content || '').then(function () { toast('复制好了'); }, function () { toast('复制失败'); });
     });
-    if (retry) retry.addEventListener('click', function () {
-      var idx = state.messages.indexOf(m);
-      if (idx < 0) return;
-      var prevUser = null;
-      for (var i = idx - 1; i >= 0; i--) {
-        if (state.messages[i].role === 'user') { prevUser = state.messages[i]; break; }
-      }
-      if (!prevUser) return;
-      state.messages = state.messages.slice(0, i + 1);
+    div.querySelector('[data-retry]').addEventListener('click', function () {
+      var s = currentSession();
+      if (!s) return;
+      var idx = s.messages.indexOf(m);
+      if (idx < 1) return;
+      s.messages = s.messages.slice(0, idx);
       renderThread();
       runAssistant();
     });
+    return div;
   }
 
   function renderThread() {
     var box = $('#messages');
     if (!box) return;
-    if (!state.messages.length) {
+    var s = currentSession();
+    if (!s || !s.messages.length) {
       box.innerHTML = emptyState();
       $$('.chip[data-prompt]', box).forEach(function (chip) {
         chip.addEventListener('click', function () {
@@ -755,23 +660,18 @@
     }
     var thread = document.createElement('div');
     thread.className = 'thread';
-    state.messages.forEach(function (m, i) { thread.appendChild(messageNode(m, i)); });
+    s.messages.forEach(function (m) { thread.appendChild(messageNode(m)); });
     box.innerHTML = '';
     box.appendChild(thread);
     scrollBottom(true);
   }
   N.renderThread = renderThread;
 
-  function saveChat() {
-    var keep = state.messages.filter(function (m) { return !m.pending; }).slice(-60);
-    writeJSON(KEYS.chat, keep);
-  }
-
   function autoGrow() {
     var input = $('#input');
     if (!input) return;
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 220) + 'px';
+    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
   }
 
   function setSending(on) {
@@ -782,9 +682,25 @@
     updateConn(on ? 'busy' : 'ok');
   }
 
+  function updateConn(mode) {
+    var dot = $('#connDot'), text = $('#connText');
+    if (!dot) return;
+    var connected = !!state.key || isProxy();
+    dot.classList.toggle('off', mode === 'off' || !connected);
+    if (!text) return;
+    if (mode === 'busy') text.textContent = '生成中…';
+    else if (!connected) text.textContent = '未配置 Key';
+    else if (mode === 'off') text.textContent = '连接有问题';
+    else text.textContent = (state.admin ? '架构模式 · ' : '') + (state.cfg.tutor.model || '已连接');
+  }
+  N.updateConn = updateConn;
+
   async function runAssistant() {
+    var s = currentSession();
+    if (!s) s = newSession();
     var bot = { role: 'assistant', content: '', reasoning: '', ts: Date.now(), pending: true };
-    state.messages.push(bot);
+    s.messages.push(bot);
+    s.ts = Date.now();
     renderThread();
     var nodes = $$('#messages .msg.bot');
     var node = nodes[nodes.length - 1];
@@ -830,7 +746,7 @@
       }
       if (!bot.content.trim()) {
         bot.content = '';
-        bot.error = '模型返回了空内容。可能是被安全策略拦了，或者模型名不对。';
+        bot.error = '模型返回了空内容。可能被安全策略拦了，或者模型名不对。';
       }
       node.classList.remove('streaming');
       contentEl.innerHTML = bot.content ? md(bot.content) : '';
@@ -838,8 +754,9 @@
         var p = document.createElement('p');
         p.className = 'err';
         p.textContent = bot.error;
-        node.querySelector('.body').appendChild(p);
+        bodyEl.appendChild(p);
       }
+      state.conn = 'ok';
     } catch (e) {
       node.classList.remove('streaming');
       if (e && e.name === 'AbortError') {
@@ -851,41 +768,189 @@
         var pe = document.createElement('p');
         pe.className = 'err';
         pe.textContent = bot.error;
-        node.querySelector('.body').appendChild(pe);
+        bodyEl.appendChild(pe);
+        if (e && e.status === 401) updateConn('off');
       }
     } finally {
       bot.pending = false;
       state.abort = null;
       setSending(false);
-      saveChat();
+      saveSessions();
+      renderSessions();
+      updateHeader();
     }
   }
 
+  /* ---------- Key 行内提示 ---------- */
+  function showKeyBar(pending) {
+    if (pending) state.pendingText = pending;
+    var bar = $('#keyBar');
+    bar.hidden = false;
+    var msg = $('#keyMsg');
+    msg.textContent = '';
+    msg.className = 'keybar-msg';
+    $('#keyBase').value = state.cfg.tutor.baseUrl || '';
+    $('#keyModel').value = state.cfg.tutor.model || '';
+    setTimeout(function () { $('#keyInput').focus(); }, 30);
+  }
+  N.showKeyBar = showKeyBar;
+
+  function hideKeyBar() {
+    var bar = $('#keyBar');
+    if (bar) bar.hidden = true;
+    state.pendingText = '';
+  }
+
+  async function saveKeyFromBar() {
+    var key = $('#keyInput').value.trim();
+    var base = $('#keyBase').value.trim();
+    var model = $('#keyModel').value.trim();
+    var msg = $('#keyMsg');
+    if (base) state.cfg.tutor.baseUrl = base;
+    if (model) state.cfg.tutor.model = model;
+
+    if (!key && !isProxy()) {
+      msg.textContent = '先填一个 Key。';
+      $('#keyInput').focus();
+      return;
+    }
+
+    var btn = $('#keySave');
+    btn.disabled = true;
+    msg.className = 'keybar-msg';
+    msg.textContent = '正在试一下…';
+    try {
+      await apiChat([{ role: 'user', content: '只回一个字：好' }],
+        { key: key, stream: false, maxTokens: 8, temperature: 0 });
+    } catch (e) {
+      msg.textContent = e.message || '没通。';
+      btn.disabled = false;
+      return;
+    }
+    btn.disabled = false;
+
+    state.key = key;
+    saveStoredKey(key, true);
+    saveConfig();
+    updateConn('ok');
+    msg.className = 'keybar-msg ok';
+    msg.textContent = '通了。';
+    var pending = state.pendingText;
+    hideKeyBar();
+    if (pending) sendMessage(pending);
+    else toast('接上了');
+  }
+
+  function saveStoredKey(key, remember) {
+    try {
+      if (!key) { localStorage.removeItem(KEYS.key); sessionStorage.removeItem(KEYS.key); return; }
+      if (remember) {
+        localStorage.setItem(KEYS.key, key);
+        sessionStorage.removeItem(KEYS.key);
+      } else {
+        sessionStorage.setItem(KEYS.key, key);
+        localStorage.removeItem(KEYS.key);
+      }
+    } catch (e) {}
+  }
+  N.saveStoredKey = saveStoredKey;
+
+  function storedKey() {
+    try { return localStorage.getItem(KEYS.key) || sessionStorage.getItem(KEYS.key) || ''; } catch (e) { return ''; }
+  }
+
+  /* ---------- 管理模式 ---------- */
+  async function unlockAdmin(password) {
+    var pwd = String(password || '');
+    if (!pwd) return { ok: false, error: '先填密码。' };
+    if (isProxy()) {
+      try {
+        var r = await fetch('/api/admin/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
+        });
+        var j = await r.json();
+        if (j && j.reason === 'not_configured') {
+          if (pwd !== ADMIN_PASSWORD) return { ok: false, error: '密码不对。' };
+        } else if (!j || !j.ok) {
+          return { ok: false, error: '服务器说密码不对。' };
+        }
+      } catch (e) {
+        return { ok: false, error: '问不到服务器，没法确认密码。' };
+      }
+    } else if (pwd !== ADMIN_PASSWORD) {
+      return { ok: false, error: '密码不对。' };
+    }
+
+    state.admin = true;
+    try { sessionStorage.setItem(KEYS.admin, '1'); } catch (e) {}
+    renderSideLinks();
+    updateConn('ok');
+    var navArch = $('#navArch');
+    if (navArch) navArch.hidden = false;
+    return { ok: true };
+  }
+  N.unlockAdmin = unlockAdmin;
+
+  function lockAdmin() {
+    state.admin = false;
+    try { sessionStorage.removeItem(KEYS.admin); } catch (e) {}
+    renderSideLinks();
+    updateConn('ok');
+    if (state.view === 'arch') switchView('settings');
+  }
+  N.lockAdmin = lockAdmin;
+
+  /* ---------- 发送 ---------- */
   async function sendMessage(raw) {
     if (state.sending) return;
     var text = String(raw == null ? $('#input').value : raw).trim();
     if (!text) return;
-    if (!state.key) { toast('先填 API Key'); return; }
 
-    state.messages.push({ role: 'user', content: text, ts: Date.now() });
+    if (!state.key && !isProxy()) {
+      showKeyBar(text);
+      return;
+    }
+
+    var s = currentSession();
+    if (!s) s = newSession();
+    s.messages.push({ role: 'user', content: text, ts: Date.now() });
+    s.ts = Date.now();
+    if (!s.title) s.title = sessionTitle(s);
+
     var input = $('#input');
     input.value = '';
     autoGrow();
     renderThread();
+    renderSessions();
+    updateHeader();
     await runAssistant();
   }
   N.sendMessage = sendMessage;
 
   /* ---------- 绑定 ---------- */
   function bind() {
-    $('#gateForm').addEventListener('submit', onGateSubmit);
-    $('#btnLock').addEventListener('click', lock);
+    $('#btnNew').addEventListener('click', function () {
+      if (currentSession() && !currentSession().messages.length) { $('#input').focus(); return; }
+      newSession();
+    });
+
+    $$('.side-link').forEach(function (b) {
+      b.addEventListener('click', function () { switchView(b.dataset.view); });
+    });
+
+    $('#sideOpen').addEventListener('click', openSide);
+    $('#sideClose').addEventListener('click', closeSide);
+    $('#scrim').addEventListener('click', closeSide);
 
     $('#btnTheme').addEventListener('click', function () {
       var next = resolvedTheme() === 'dark' ? 'light' : 'dark';
       try { localStorage.setItem(KEYS.theme, next); } catch (e) {}
       applyConfig();
     });
+
+    $('#modelPill').addEventListener('click', function () { switchView('settings'); });
 
     var input = $('#input');
     input.addEventListener('input', autoGrow);
@@ -895,39 +960,54 @@
         if (!state.sending) sendMessage();
       }
     });
-    $('#btnSend').addEventListener('click', function () { sendMessage(); });
+    $('#composerForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (!state.sending) sendMessage();
+    });
     $('#btnStop').addEventListener('click', function () {
       if (state.abort) state.abort.abort();
     });
 
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && state.sending && state.abort) state.abort.abort();
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        if (!$('#shell').hidden) { switchView('chat'); $('#input').focus(); }
-      }
+    $('#keySave').addEventListener('click', saveKeyFromBar);
+    $('#keyInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); saveKeyFromBar(); }
     });
 
-    window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').addEventListener &&
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
-        if ((localStorage.getItem(KEYS.theme) || state.cfg.style.theme) === 'auto') applyConfig();
-      });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        if (state.sending && state.abort) state.abort.abort();
+        closeSide();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        newSession();
+      }
+    });
   }
 
   /* ---------- 启动 ---------- */
   function boot() {
     var saved = readJSON(KEYS.cfg, null);
     state.cfg = saved ? mergeConfig(defaultConfig(), saved) : defaultConfig();
+    state.cfg.nav = (state.cfg.nav || []).filter(function (n) { return n.id !== 'chat'; });
+    if (!state.cfg.nav.length) state.cfg.nav = defaultConfig().nav;
+    state.cfg.labels = mergeConfig(defaultConfig().labels, state.cfg.labels || {});
 
-    var baseEl = $('#gateBase'), modelEl = $('#gateModel');
-    if (baseEl) baseEl.value = state.cfg.tutor.baseUrl;
-    if (modelEl) modelEl.value = state.cfg.tutor.model;
-
-    state.messages = readJSON(KEYS.chat, []);
+    state.key = storedKey();
     state.notes = readJSON(KEYS.notes, []);
     state.feedback = readJSON(KEYS.fb, []);
     state.goals = readJSON(KEYS.goals, { date: todayStr(), items: [] });
     state.timer = readJSON(KEYS.timer, { min: 25, left: 25 * 60, running: false, endsAt: 0, done: 0, date: todayStr() });
+
+    var sessions = readJSON(KEYS.sessions, null);
+    if (!sessions) {
+      var legacy = readJSON(KEYS.legacyChat, []);
+      sessions = legacy && legacy.length
+        ? [{ id: uid(), ts: Date.now(), title: '', messages: legacy }]
+        : [];
+    }
+    state.sessions = sessions || [];
+    state.currentId = readJSON(KEYS.current, '') || '';
 
     if (state.goals.date !== todayStr()) {
       state.goals.date = todayStr();
@@ -940,6 +1020,8 @@
       writeJSON(KEYS.timer, state.timer);
     }
 
+    try { state.admin = sessionStorage.getItem(KEYS.admin) === '1'; } catch (e) {}
+
     applyConfig();
     bind();
 
@@ -948,19 +1030,23 @@
         if (N.views[k] && N.views[k].init) N.views[k].init();
       });
     }
-    renderThread();
 
-    var key = storedKey();
-    var adminFlag = false;
-    try { adminFlag = sessionStorage.getItem(KEYS.admin) === '1'; } catch (e) {}
-    if (key) {
-      state.key = key;
-      // 架构解锁只在同一标签页内有效：换标签、换浏览器都要重新输密码
-      state.admin = adminFlag;
-      openApp();
-    } else {
-      $('#gate').hidden = false;
+    if (!state.sessions.length) {
+      state.sessions.push({ id: uid(), ts: Date.now(), messages: [] });
+      state.currentId = state.sessions[0].id;
+    } else if (!currentSession()) {
+      state.currentId = state.sessions[0].id;
     }
+
+    renderSessions();
+    renderThread();
+    var navArch = $('#navArch');
+    if (navArch) navArch.hidden = !state.admin;
+    updateConn(state.key || isProxy() ? 'ok' : 'idle');
+
+    var want = 'chat';
+    try { want = sessionStorage.getItem(KEYS.view) || 'chat'; } catch (e) {}
+    switchView(want === 'arch' && !state.admin ? 'settings' : want);
   }
 
   N.boot = boot;

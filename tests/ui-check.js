@@ -1,7 +1,8 @@
-/* 用 CDP 驱动无头 Edge 做交互验收：量几何、抓报错、模拟点击与提交 */
+/* 无头 Edge + CDP 端到端验收（无依赖） */
 const fs = require('fs');
 
 const BASE = process.argv[2] || 'http://127.0.0.1:8099';
+const PASSWORD = 'xiaonuanai';
 let msgId = 0;
 const pending = new Map();
 let ws;
@@ -17,13 +18,9 @@ function send(method, params = {}) {
   });
 }
 
-async function evaluate(expr, awaitPromise = false) {
-  const r = await send('Runtime.evaluate', {
-    expression: expr, returnByValue: true, awaitPromise, userGesture: true
-  });
-  if (r.exceptionDetails) {
-    throw new Error('JS 异常: ' + (r.exceptionDetails.exception?.description || r.exceptionDetails.text));
-  }
+async function evaluate(expr) {
+  const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, userGesture: true });
+  if (r.exceptionDetails) throw new Error('JS 异常: ' + (r.exceptionDetails.exception?.description || r.exceptionDetails.text));
   return r.result.value;
 }
 
@@ -33,28 +30,27 @@ const SEED = `
   (() => {
     var now = Date.now();
     localStorage.setItem('xn.notes.v1', JSON.stringify([
-      {id:'n1',title:'含参导数：先比根，再分区',body:'临界点大小关系不确定时，分类标准是 a 的符号，不是 x 的范围。写完三类再画表格。',tag:'数学',ts:now-86400000,updated:now-3600000},
-      {id:'n2',title:'英语阅读错因',body:'细节题错多半是选项偷换了主语，不是没读懂。做题时把主语圈出来。',tag:'英语',ts:now-172800000,updated:now-7200000},
-      {id:'n3',title:'港大面试：为什么是这座城市',body:'别答「国际化」。答一个只有香港能给的具体东西。',tag:'面试',ts:now-259200000,updated:now-10800000}
+      {id:'n1',title:'含参导数：先比根，再分区',body:'临界点大小关系不确定时，分类标准是 a 的符号。',tag:'数学',ts:now-86400000,updated:now-3600000},
+      {id:'n2',title:'英语阅读错因',body:'细节题错多半是选项偷换了主语，不是没读懂。',tag:'英语',ts:now-172800000,updated:now-7200000},
+      {id:'n3',title:'港大面试：为什么是这座城市',body:'别答「国际化」。答一个只有这座城市能给的具体东西。',tag:'面试',ts:now-259200000,updated:now-10800000}
     ]));
     localStorage.setItem('xn.goals.v1', JSON.stringify({date:new Date().toISOString().slice(0,10),items:[
-      {id:'g1',text:'数学：含参导数 20 道（只写分类条件）',done:true,ts:now},
+      {id:'g1',text:'数学：含参导数 20 道',done:true,ts:now},
       {id:'g2',text:'英语：精读一篇 + 圈主语',done:false,ts:now},
-      {id:'g3',text:'把昨天那条错题用自己的话写进笔记',done:false,ts:now}
+      {id:'g3',text:'把昨天那条错题写进笔记',done:false,ts:now}
     ]}));
     localStorage.setItem('xn.fb.v1', JSON.stringify([
-      {id:'f1',type:'想法',body:'希望学习台能按科目分组。',contact:'',ts:now-5400000,status:'local'},
+      {id:'f1',type:'想法',body:'希望笔记能按科目分组。',contact:'',ts:now-5400000,status:'local'},
       {id:'f2',type:'故障',body:'手机上聊天框挡住最后一条消息。',contact:'wx: xiaonuan',ts:now-86400000,status:'local'}
     ]));
     localStorage.setItem('xn.timer.v1', JSON.stringify({min:25,left:1122,running:false,endsAt:0,done:2,date:new Date().toISOString().slice(0,10)}));
-    return Object.keys(localStorage).filter(k=>k.indexOf('xn.')===0);
+    return true;
   })()`;
 
 async function main() {
   const list = await (await fetch('http://127.0.0.1:9222/json/list')).json();
   const page = list.find((t) => t.type === 'page');
   ws = new WebSocket(page.webSocketDebuggerUrl);
-
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
@@ -80,113 +76,119 @@ async function main() {
     console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`);
   };
 
-  // ---------- 1. 门禁 ----------
+  /* ---------- 1. 首屏 ---------- */
   await send('Page.navigate', { url: BASE + '/index.html' });
-  await sleep(1000);
+  await sleep(900);
   await evaluate(`localStorage.clear(); sessionStorage.clear();`);
   await send('Page.reload');
-  await sleep(1200);
+  await sleep(1300);
 
-  const gate = await evaluate(`(() => {
-    const card = document.querySelector('.gate-card').getBoundingClientRect();
-    const btn = document.querySelector('#gateGo').getBoundingClientRect();
+  const first = await evaluate(`(() => {
+    const empty = document.querySelector('#messages .empty');
+    const side = document.querySelector('#side').getBoundingClientRect();
     return {
-      w: innerWidth, h: innerHeight,
+      app: !!document.querySelector('#app'),
+      empty: !!empty,
+      emptyText: empty ? empty.querySelector('h2').textContent : '',
+      keybarHidden: document.querySelector('#keyBar').hidden,
+      conn: document.querySelector('#connText').textContent,
+      sideW: Math.round(side.width),
       overflowX: document.documentElement.scrollWidth > innerWidth + 1,
-      cardW: Math.round(card.width), cardH: Math.round(card.height),
-      centered: Math.abs((card.left + card.right) / 2 - innerWidth / 2) < 3,
-      btnVisible: btn.top > 0 && btn.bottom <= innerHeight,
       errs: window.__errs.slice()
     };
   })()`);
-  check('门禁页无横向溢出', !gate.overflowX, `viewport ${gate.w}x${gate.h}`);
-  check('门禁卡片居中', gate.centered, `宽 ${gate.cardW} 高 ${gate.cardH}`);
-  check('进入按钮在首屏内', gate.btnVisible);
-  check('门禁页无 JS 报错', gate.errs.length === 0, gate.errs.join(' | '));
+  check('首屏无门禁，直接是对话', first.app && first.empty, first.emptyText);
+  check('首屏不露 Key 输入', first.keybarHidden);
+  check('侧栏状态显示未配置', /未配置/.test(first.conn), first.conn);
+  check('侧栏宽度正常且无横向溢出', first.sideW > 200 && !first.overflowX, `${first.sideW}px`);
+  check('首屏无 JS 报错', first.errs.length === 0, first.errs.join(' | '));
 
-  // ---------- 2. 错误密码 ----------
-  await evaluate(`(() => {
-    document.querySelector('#gateKey').value = 'any-key';
-    document.querySelector('#gatePwd').value = 'wrong';
-    document.querySelector('#gateForm').requestSubmit();
-  })()`);
-  await sleep(300);
-  const wrongPwdMsg = await evaluate(`document.querySelector('#gateMsg').textContent`);
-  check('错误密码被拦下', /不对/.test(wrongPwdMsg), wrongPwdMsg);
-
-  // ---------- 3. 正确进入（走 /api 代理） ----------
-  await evaluate(`(() => {
-    document.querySelector('#gateBase').value = '/api';
-    document.querySelector('#gatePwd').value = 'xiaonuanai';
-    document.querySelector('#gateKey').value = 'browser-key';
-    document.querySelector('#gateForm').requestSubmit();
-  })()`);
-  await sleep(1800);
-  const entered = await evaluate(`(() => ({
-    shell: !document.querySelector('#shell').hidden,
-    nav: [...document.querySelectorAll('#nav button')].map(b => b.textContent.trim()),
-    badge: document.querySelector('#modeBadge').textContent,
-    keys: Object.keys(localStorage).filter(k => k.indexOf('xn.') === 0),
-    cfg: (localStorage.getItem('xn.cfg.v1') || '').slice(0, 40),
-    errs: window.__errs.slice()
-  }))()`);
-  check('进入主界面', entered.shell);
-  check('管理员看到 5 个导航', entered.nav.length === 5, entered.nav.join(' / '));
-  check('模式标记为架构模式', entered.badge === '架构模式', entered.badge);
-  check('配置已落盘', entered.keys.includes('xn.cfg.v1'), entered.cfg || '(空)');
-  check('进入后无 JS 报错', entered.errs.length === 0, entered.errs.join(' | '));
-
-  // ---------- 4. 种子数据 + 刷新 ----------
-  const keys = await evaluate(SEED);
-  check('种子数据写入', keys.length >= 5, keys.join(','));
-  await send('Page.reload');
-  await sleep(1500);
-  const reloaded = await evaluate(`(() => ({
-    shell: !document.querySelector('#shell').hidden,
-    gate: !document.querySelector('#gate').hidden,
-    nav: [...document.querySelectorAll('#nav button')].map(b=>b.textContent.trim()),
-    view: document.querySelector('.view:not([hidden])').dataset.view,
-    errs: window.__errs.slice()
-  }))()`);
-  check('刷新后免登录', reloaded.shell && !reloaded.gate);
-  check('刷新后仍是架构模式', reloaded.nav.includes('架构'), reloaded.nav.join(' / '));
-
-  // ---------- 5. 对话（真走 /api → 假上游，流式） ----------
+  /* ---------- 2. 没 Key 时发送 ---------- */
   await evaluate(`(() => {
     const i = document.querySelector('#input');
     i.value = '测试一下链路';
     i.dispatchEvent(new Event('input', { bubbles: true }));
-    document.querySelector('#btnSend').click();
+    document.querySelector('#composerForm').requestSubmit();
+  })()`);
+  await sleep(400);
+  const noKey = await evaluate(`({
+    keybar: !document.querySelector('#keyBar').hidden,
+    msgs: document.querySelectorAll('#messages .msg').length,
+    focus: document.activeElement && document.activeElement.id
+  })`);
+  check('没 Key 时弹出输入条', noKey.keybar);
+  check('没 Key 时不发消息', noKey.msgs === 0, String(noKey.msgs));
+  check('焦点落在 Key 输入框', noKey.focus === 'keyInput', noKey.focus || '(无)');
+
+  /* ---------- 3. 填 Key 后自动补发 ---------- */
+  await evaluate(`(() => {
+    document.querySelector('#keyBase').value = '/api';
+    document.querySelector('#keyModel').value = 'deepseek-chat';
+    document.querySelector('#keyInput').value = 'browser-key';
+    document.querySelector('#keySave').click();
   })()`);
   await sleep(2600);
-  const chat = await evaluate(`(() => {
-    const bots = [...document.querySelectorAll('.msg.bot')];
+  const sent = await evaluate(`(() => {
+    const bots = [...document.querySelectorAll('#messages .msg.bot')];
     const last = bots[bots.length - 1];
-    const composer = document.querySelector('#composer').getBoundingClientRect();
     return {
-      count: document.querySelectorAll('.msg').length,
-      text: last ? last.querySelector('.content').textContent.slice(0, 50) : '',
-      hasErr: !!(last && last.querySelector('.err')),
-      composerBottom: Math.round(innerHeight - composer.bottom),
-      overflowX: document.documentElement.scrollWidth > innerWidth + 1,
-      scrollOverflow: document.querySelector('#messages').scrollWidth > document.querySelector('#messages').clientWidth + 2,
-      saved: JSON.parse(localStorage.getItem('xn.chat.v1') || '[]').length,
+      keybar: !document.querySelector('#keyBar').hidden,
+      msgs: document.querySelectorAll('#messages .msg').length,
+      text: last ? last.querySelector('.content').textContent.slice(0, 40) : '',
+      err: !!(last && last.querySelector('.err')),
+      sessions: document.querySelectorAll('.session').length,
+      title: document.querySelector('#mainTitle').textContent,
+      stored: !!localStorage.getItem('xn.key.v1'),
+      conn: document.querySelector('#connText').textContent,
       errs: window.__errs.slice()
     };
   })()`);
-  check('消息已渲染', chat.count === 2, `共 ${chat.count} 条`);
-  check('流式内容收到', /假上游|收到/.test(chat.text), chat.text.replace(/\s+/g, ' '));
-  check('无错误提示', !chat.hasErr);
-  check('对话已落盘', chat.saved === 2, `${chat.saved} 条`);
-  check('输入框贴底', chat.composerBottom >= 0 && chat.composerBottom < 40, `距底 ${chat.composerBottom}px`);
-  check('对话区无横向溢出', !chat.overflowX && !chat.scrollOverflow);
-  check('对话过程无报错', chat.errs.length === 0, chat.errs.join(' | '));
+  check('Key 收进本地', sent.stored);
+  check('输入条自动收起', !sent.keybar);
+  check('挂起的消息自动发出', sent.msgs === 2, `${sent.msgs} 条`);
+  check('流式回复收到', /收到|假上游/.test(sent.text), sent.text.replace(/\s+/g, ' '));
+  check('无错误提示', !sent.err);
+  check('会话进入侧栏', sent.sessions === 1, `标题「${sent.title}」`);
+  check('连接状态更新', !/未配置/.test(sent.conn), sent.conn);
+  check('发送过程无报错', sent.errs.length === 0, sent.errs.join(' | '));
 
-  // ---------- 6. 学习台 ----------
-  await evaluate(`document.querySelector('#nav button[data-view="study"]').click()`);
+  /* ---------- 4. 新对话 / 切换 ---------- */
+  await evaluate(`document.querySelector('#btnNew').click()`);
+  await sleep(400);
+  const fresh = await evaluate(`({
+    empty: !!document.querySelector('#messages .empty'),
+    sessions: document.querySelectorAll('.session').length
+  })`);
+  check('新对话回到空状态', fresh.empty);
+  check('空对话不占侧栏', fresh.sessions === 1, String(fresh.sessions));
+
+  await evaluate(`document.querySelector('.ses-main').click()`);
   await sleep(500);
-  const study = await evaluate(`(() => {
-    const rect = (s) => { const e = document.querySelector(s); return e ? e.getBoundingClientRect() : null; };
+  const back = await evaluate(`({
+    msgs: document.querySelectorAll('#messages .msg').length,
+    on: document.querySelector('.session').classList.contains('on')
+  })`);
+  check('切回旧会话恢复消息', back.msgs === 2, String(back.msgs));
+  check('当前会话高亮', back.on);
+
+  /* ---------- 5. 种子 + 刷新 ---------- */
+  await evaluate(SEED);
+  await send('Page.reload');
+  await sleep(1500);
+  const reloaded = await evaluate(`({
+    msgs: document.querySelectorAll('#messages .msg').length,
+    sessions: document.querySelectorAll('.session').length,
+    key: !!localStorage.getItem('xn.key.v1'),
+    errs: window.__errs.slice()
+  })`);
+  check('刷新后对话还在', reloaded.msgs === 2, String(reloaded.msgs));
+  check('刷新后 Key 还在', reloaded.key);
+  check('刷新无报错', reloaded.errs.length === 0, reloaded.errs.join(' | '));
+
+  /* ---------- 6. 学习台 ---------- */
+  await evaluate(`document.querySelector('.side-link[data-view="study"]').click()`);
+  await sleep(500);
+  const studyInfo = await evaluate(`(() => {
     const cards = [...document.querySelectorAll('#view-study .card')].map(c => Math.round(c.getBoundingClientRect().width));
     return {
       goals: document.querySelectorAll('.goal').length,
@@ -195,217 +197,183 @@ async function main() {
       timer: document.querySelector('#timerNum').textContent,
       cards,
       overflowX: document.documentElement.scrollWidth > innerWidth + 1,
-      viewHidden: document.querySelector('#view-study').hidden,
-      errs: window.__errs.slice()
+      title: document.querySelector('#mainTitle').textContent
     };
   })()`);
-  check('学习台可见', !study.viewHidden);
-  check('目标列表渲染', study.goals === 3, `${study.goals} 条，计数 ${study.meta}`);
-  check('笔记卡片渲染', study.notes === 3);
-  check('计时器读数正常', /^\d{2}:\d{2}$/.test(study.timer), study.timer);
-  check('两栏卡片等宽', study.cards.length >= 2 && Math.abs(study.cards[0] - study.cards[1]) <= 1, study.cards.join(' / '));
-  check('学习台无横向溢出', !study.overflowX);
-  check('学习台无报错', study.errs.length === 0, study.errs.join(' | '));
+  check('学习台可见', studyInfo.title === '学习台', studyInfo.title);
+  check('目标列表渲染', studyInfo.goals === 3, `${studyInfo.goals} 条 · ${studyInfo.meta}`);
+  check('笔记卡片渲染', studyInfo.notes === 3);
+  check('计时器读数正常', /^\d{2}:\d{2}$/.test(studyInfo.timer), studyInfo.timer);
+  check('两栏等宽', Math.abs(studyInfo.cards[0] - studyInfo.cards[1]) <= 1, studyInfo.cards.join(' / '));
+  check('学习台无横向溢出', !studyInfo.overflowX);
 
   await evaluate(`(() => {
-    document.querySelector('#goalInput').value = '自动化验收：加一条目标';
+    document.querySelector('#goalInput').value = '验收：加一条目标';
     document.querySelector('#goalForm').requestSubmit();
   })()`);
-  await sleep(250);
-  const goalAdded = await evaluate(`({
-    dom: document.querySelectorAll('.goal').length,
-    stored: JSON.parse(localStorage.getItem('xn.goals.v1')).items.length
-  })`);
-  check('新增目标生效并存盘', goalAdded.dom === 4 && goalAdded.stored === 4, `DOM ${goalAdded.dom} / 存储 ${goalAdded.stored}`);
+  await sleep(300);
+  check('新增目标生效', (await evaluate(`document.querySelectorAll('.goal').length`)) === 4);
 
-  // 计时器启动
-  await evaluate(`document.querySelector('#timerStart').click()`);
-  await sleep(900);
-  const timer = await evaluate(`({
-    text: document.querySelector('#timerNum').textContent,
-    phase: document.querySelector('#timerPhase').textContent,
-    running: JSON.parse(localStorage.getItem('xn.timer.v1')).running
-  })`);
-  check('计时器能跑', timer.running && timer.phase === '专注中', `${timer.text} ${timer.phase}`);
-  await evaluate(`document.querySelector('#timerStart').click()`);
-
-  // ---------- 7. 反馈箱 ----------
-  await evaluate(`document.querySelector('#nav button[data-view="feedback"]').click()`);
+  /* ---------- 7. 反馈箱 ---------- */
+  await evaluate(`document.querySelector('.side-link[data-view="feedback"]').click()`);
   await sleep(300);
   const fb0 = await evaluate(`document.querySelectorAll('.fb-item').length`);
   await evaluate(`(() => {
     const ta = document.querySelector('#fbBody');
-    ta.value = '自动化验收写的一条反馈';
+    ta.value = '验收写的一条反馈';
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector('#fbForm').requestSubmit();
   })()`);
-  await sleep(900);
+  await sleep(700);
   const fb = await evaluate(`({
     count: document.querySelectorAll('.fb-item').length,
-    meta: document.querySelector('#fbMeta').textContent,
     stored: JSON.parse(localStorage.getItem('xn.fb.v1') || '[]').length,
     errs: window.__errs.slice()
   })`);
-  check('反馈列表原有 2 条', fb0 === 2, String(fb0));
-  check('新反馈进入列表并存盘', fb.count === 3 && fb.stored === 3, fb.meta);
+  check('原有反馈 2 条', fb0 === 2, String(fb0));
+  check('新反馈入列并落盘', fb.count === 3 && fb.stored === 3);
   check('反馈页无报错', fb.errs.length === 0, fb.errs.join(' | '));
 
-  // ---------- 8. 架构 ----------
-  await evaluate(`document.querySelector('#nav button[data-view="arch"]').click()`);
-  await sleep(400);
+  /* ---------- 8. 设置 → 解锁管理 ---------- */
+  await evaluate(`document.querySelector('.side-link[data-view="settings"]').click()`);
+  await sleep(300);
+  const locked = await evaluate(`({
+    archHidden: document.querySelector('#navArch').hidden,
+    state: document.querySelector('#adminState').textContent,
+    rows: document.querySelectorAll('.kv-row').length
+  })`);
+  check('默认看不到架构入口', locked.archHidden);
+  check('管理状态显示未解锁', locked.state === '未解锁', locked.state);
+  check('数据统计渲染', locked.rows === 5, String(locked.rows));
+
+  await evaluate(`(() => {
+    document.querySelector('#adminPwd').value = 'wrong-one';
+    document.querySelector('#adminForm').requestSubmit();
+  })()`);
+  await sleep(500);
+  const wrong = await evaluate(`({
+    archHidden: document.querySelector('#navArch').hidden,
+    msg: document.querySelector('#adminMsg').textContent
+  })`);
+  check('错误密码不解锁', wrong.archHidden, wrong.msg);
+
+  await evaluate(`(() => {
+    document.querySelector('#adminPwd').value = ${JSON.stringify(PASSWORD)};
+    document.querySelector('#adminForm').requestSubmit();
+  })()`);
+  await sleep(800);
+  const unlocked = await evaluate(`({
+    archShown: !document.querySelector('#navArch').hidden,
+    view: document.querySelector('.pane:not([hidden])').dataset.view,
+    errs: window.__errs.slice()
+  })`);
+  check('正确密码解锁架构', unlocked.archShown);
+  check('解锁后跳到架构页', unlocked.view === 'arch', unlocked.view);
+  check('解锁无报错', unlocked.errs.length === 0, unlocked.errs.join(' | '));
+
+  /* ---------- 9. 架构 ---------- */
   const archInfo = await evaluate(`({
     navRows: document.querySelectorAll('.nav-row').length,
     promptLen: document.querySelector('#ctlPrompt').value.length,
-    cfgPreview: document.querySelector('#cfgPreview').textContent.length,
+    preview: document.querySelector('#cfgPreview').textContent.length,
     overflowX: document.documentElement.scrollWidth > innerWidth + 1
   })`);
-  check('导航编辑器渲染 5 行', archInfo.navRows === 5, String(archInfo.navRows));
-  check('人设文本已载入', archInfo.promptLen > 400, `${archInfo.promptLen} 字`);
-  check('配置预览已生成', archInfo.cfgPreview > 100, `${archInfo.cfgPreview} 字节`);
+  check('导航编辑器 4 行', archInfo.navRows === 4, String(archInfo.navRows));
+  check('人设已载入', archInfo.promptLen > 400, `${archInfo.promptLen} 字`);
+  check('配置预览已生成', archInfo.preview > 100);
   check('架构页无横向溢出', !archInfo.overflowX);
 
   await evaluate(`document.querySelector('#ctlAccent button[data-color="#2f6b5f"]').click()`);
   await sleep(300);
   const accent = await evaluate(`(() => {
     const root = getComputedStyle(document.documentElement);
-    let saved = null;
-    try { saved = JSON.parse(localStorage.getItem('xn.cfg.v1') || 'null'); } catch (e) {}
-    return {
-      accent: root.getPropertyValue('--accent').trim(),
-      soft: root.getPropertyValue('--accent-soft').trim(),
-      saved: saved && saved.style ? saved.style.accent : '(缺)'
-    };
+    const saved = JSON.parse(localStorage.getItem('xn.cfg.v1') || 'null');
+    return { accent: root.getPropertyValue('--accent').trim(), saved: saved && saved.style.accent };
   })()`);
-  check('主色切换生效', accent.accent === '#2f6b5f', accent.accent);
-  check('派生色跟随', /^#[0-9a-f]{6}$/.test(accent.soft), accent.soft);
-  check('主色已持久化', accent.saved === '#2f6b5f', String(accent.saved));
+  check('主色切换并落盘', accent.accent === '#2f6b5f' && accent.saved === '#2f6b5f', accent.accent);
 
   await evaluate(`(() => {
     const input = document.querySelector('.nav-row[data-id="study"] input');
     input.value = '自习室';
     input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
-  await sleep(300);
-  const renamed = await evaluate(`[...document.querySelectorAll('#nav button')].map(b=>b.textContent.trim())`);
-  check('导航改名即时生效', renamed.includes('自习室'), renamed.join(' / '));
+  await sleep(400);
+  const renamed = await evaluate(`document.querySelector('.side-link[data-view="study"] span').textContent`);
+  check('改名即时生效', renamed === '自习室', renamed);
 
-  // 排序
-  await evaluate(`document.querySelector('.nav-row[data-id="feedback"] button[data-act="up"]').click()`);
-  await sleep(250);
-  const order = await evaluate(`JSON.parse(localStorage.getItem('xn.cfg.v1')).nav.map(n=>n.id)`);
-  check('导航排序生效', order[1] === 'feedback', order.join(','));
-
-  // AI 改版：模型返回配置补丁 → 预览 → 应用
   await evaluate(`(() => {
-    document.querySelector('#aiPatchInput').value = '换成深色、静蓝、小圆角，学习台改名自习室';
+    document.querySelector('#aiPatchInput').value = '换成深色、静蓝、小圆角';
     document.querySelector('#aiPatchForm').requestSubmit();
   })()`);
   await sleep(2200);
   const patch = await evaluate(`(() => {
     const p = document.querySelector('#patchPreview');
-    return {
-      hidden: p.hidden,
-      head: p.querySelector('h4') ? p.querySelector('h4').textContent : '',
-      items: p.querySelectorAll('li').length,
-      errs: window.__errs.slice()
-    };
+    return { head: p.querySelector('h3') ? p.querySelector('h3').textContent : '', items: p.querySelectorAll('li').length };
   })()`);
-  check('AI 改版生成预览', !patch.hidden && /准备改这些/.test(patch.head), patch.head);
-  check('预览列出多条改动', patch.items >= 3, `${patch.items} 条`);
-  check('AI 改版无未捕获异常', patch.errs.length === 0, patch.errs.join(' | '));
+  check('AI 改版出方案', /准备改这些/.test(patch.head), patch.head);
+  check('方案列出多项', patch.items >= 3, `${patch.items} 条`);
 
   await evaluate(`document.querySelector('#patchPreview [data-arch="apply"]').click()`);
   await sleep(500);
   const applied = await evaluate(`(() => {
     const root = getComputedStyle(document.documentElement);
-    const nav = [...document.querySelectorAll('#nav button')].map(b => b.textContent.trim());
-    const saved = JSON.parse(localStorage.getItem('xn.cfg.v1'));
     return {
       theme: document.documentElement.getAttribute('data-theme'),
       accent: root.getPropertyValue('--accent').trim(),
-      radius: root.getPropertyValue('--radius').trim(),
-      nav,
-      savedAccent: saved.style.accent,
-      previewHidden: document.querySelector('#patchPreview').hidden,
+      label: document.querySelector('.side-link[data-view="study"] span').textContent,
+      previewHidden: document.querySelector('#patchPreview').hidden
+    };
+  })()`);
+  check('应用后变深色', applied.theme === 'dark', applied.theme);
+  check('应用后主色生效', applied.accent === '#3d5a80', applied.accent);
+  check('应用后改名保留', applied.label === '自习室', applied.label);
+  check('应用后收起预览', applied.previewHidden);
+
+  /* ---------- 10. 刷新保持 ---------- */
+  await send('Page.reload');
+  await sleep(1500);
+  const after = await evaluate(`(() => {
+    const root = getComputedStyle(document.documentElement);
+    return {
+      theme: document.documentElement.getAttribute('data-theme'),
+      accent: root.getPropertyValue('--accent').trim(),
+      archShown: !document.querySelector('#navArch').hidden,
+      msgs: document.querySelectorAll('#messages .msg').length,
+      view: document.querySelector('.pane:not([hidden])').dataset.view,
       errs: window.__errs.slice()
     };
   })()`);
-  check('应用后切到深色', applied.theme === 'dark', applied.theme);
-  check('应用后主色与圆角按方案改', applied.accent === '#3d5a80' && applied.radius === '8px', `${applied.accent} / ${applied.radius}`);
-  check('应用后导航按建议重排', applied.nav[2] === '架构' && applied.nav.includes('自习室'), applied.nav.join(' / '));
-  check('应用后落盘并收起预览', applied.savedAccent === '#3d5a80' && applied.previewHidden, `accent=${applied.savedAccent} hidden=${applied.previewHidden} errs=${applied.errs.join('|')}`);
+  check('刷新后仍是深色', after.theme === 'dark', after.theme);
+  check('刷新后主色保持', after.accent === '#3d5a80', after.accent);
+  check('刷新后管理模式保持', after.archShown);
+  check('刷新后回到上次页面', after.view === 'arch', after.view);
+  check('刷新无报错', after.errs.length === 0, after.errs.join(' | '));
 
-  // ---------- 9. 设置 ----------
-  await evaluate(`document.querySelector('#nav button[data-view="settings"]').click()`);
-  await sleep(300);
-  const settings = await evaluate(`({
-    rows: document.querySelectorAll('.kv-row').length,
-    meta: document.querySelector('#storageMeta').textContent,
-    keyMeta: document.querySelector('#setKeyMeta').textContent
-  })`);
-  check('设置页统计已渲染', settings.rows === 5, `${settings.rows} 行，占用 ${settings.meta}`);
-  check('Key 状态显示正确', /已配置/.test(settings.keyMeta), settings.keyMeta);
-
-  // ---------- 10. 刷新保持 ----------
-  await send('Page.reload');
-  await sleep(1500);
-  const after = await evaluate(`({
-    shell: !document.querySelector('#shell').hidden,
-    nav: [...document.querySelectorAll('#nav button')].map(b=>b.textContent.trim()),
-    view: document.querySelector('.view:not([hidden])').dataset.view,
-    accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
-    errs: window.__errs.slice()
-  })`);
-  check('刷新后免登录', after.shell);
-  check('刷新后配置保持', after.accent === '#3d5a80' && after.nav.includes('自习室'), after.nav.join(' / '));
-  check('刷新回到上次页面', after.view === 'settings', after.view);
-  check('刷新后无报错', after.errs.length === 0, after.errs.join(' | '));
-
-  // ---------- 11. 窄屏 ----------
+  /* ---------- 11. 窄屏抽屉 ---------- */
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(700);
   const mobile = await evaluate(`(() => {
-    const nav = document.querySelector('#nav').getBoundingClientRect();
+    const side = document.querySelector('#side').getBoundingClientRect();
     return {
       overflowX: document.documentElement.scrollWidth > innerWidth + 1,
-      docW: document.documentElement.scrollWidth,
-      navH: Math.round(nav.height),
-      railDir: getComputedStyle(document.querySelector('.rail')).flexDirection
+      sideLeft: Math.round(side.left),
+      openBtn: !!document.querySelector('#sideOpen')
     };
   })()`);
-  check('窄屏无横向溢出', !mobile.overflowX, `文档宽 ${mobile.docW}px`);
-  check('窄屏导航横排', mobile.railDir === 'row', mobile.railDir);
-  await send('Emulation.clearDeviceMetricsOverride');
+  check('窄屏无横向溢出', !mobile.overflowX);
+  check('窄屏侧栏默认收起', mobile.sideLeft < 0, `left=${mobile.sideLeft}`);
 
-  // ---------- 12. 只带 Key（不填密码）→ 访客模式 ----------
-  await evaluate(`document.querySelector('#btnLock').click()`);
-  await sleep(500);
-  const locked = await evaluate(`({
-    gate: !document.querySelector('#gate').hidden,
-    shell: document.querySelector('#shell').hidden,
-    msg: document.querySelector('#gateMsg').textContent
-  })`);
-  check('锁定后回到门禁', locked.gate && locked.shell);
-
-  await evaluate(`(() => {
-    document.querySelector('#gateBase').value = '/api';
-    document.querySelector('#gateKey').value = 'browser-key';
-    document.querySelector('#gatePwd').value = '';
-    document.querySelector('#gateForm').requestSubmit();
+  await evaluate(`document.querySelector('#sideOpen').click()`);
+  await sleep(400);
+  const drawer = await evaluate(`(() => {
+    const side = document.querySelector('#side').getBoundingClientRect();
+    return { left: Math.round(side.left), scrim: !document.querySelector('#scrim').hidden };
   })()`);
-  await sleep(1800);
-  const guest = await evaluate(`({
-    shell: !document.querySelector('#shell').hidden,
-    nav: [...document.querySelectorAll('#nav button')].map(b => b.textContent.trim()),
-    badge: document.querySelector('#modeBadge').textContent,
-    adminFlag: sessionStorage.getItem('xn.admin'),
-    errs: window.__errs.slice()
-  })`);
-  check('只填 Key 也能进', guest.shell);
-  check('访客只有 4 个导航', guest.nav.length === 4, guest.nav.join(' / '));
-  check('访客没有架构入口', !guest.nav.includes('架构'));
-  check('标记为访客', guest.badge === '访客', guest.badge);
-  check('访客模式无报错', guest.errs.length === 0, guest.errs.join(' | '));
+  check('点开侧栏滑出', drawer.left >= 0 && drawer.scrim, `left=${drawer.left}`);
+
+  await evaluate(`document.querySelector('#scrim').click()`);
+  await sleep(300);
+  await send('Emulation.clearDeviceMetricsOverride');
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} 通过`);

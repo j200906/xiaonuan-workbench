@@ -1,11 +1,10 @@
-/* 小暖工作台 · 视图：学习台 / 反馈箱 / 架构 / 设置 */
+/* 小暖 · 视图：学习台 / 反馈箱 / 架构 / 设置 */
 (function (N) {
   'use strict';
 
   const { $, $$, state } = N;
   const esc = N.esc, toast = N.toast, uid = N.uid;
-  const readJSON = N.readJSON, writeJSON = N.writeJSON;
-  const KEYS = N.KEYS;
+  const writeJSON = N.writeJSON, KEYS = N.KEYS;
 
   const save = {
     goals() { writeJSON(KEYS.goals, state.goals); },
@@ -35,13 +34,9 @@
 
       $('#noteNew').addEventListener('click', () => this.openNote(null));
       $('#noteCancel').addEventListener('click', () => { $('#noteForm').hidden = true; });
-      $('#noteForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        this.commitNote();
-      });
+      $('#noteForm').addEventListener('submit', (e) => { e.preventDefault(); this.commitNote(); });
       $('#noteSearch').addEventListener('input', () => this.renderNotes());
 
-      // 计时器
       $$('#timerPreset button').forEach((b) => b.addEventListener('click', () => {
         if (state.timer.running) { toast('先暂停再换时长'); return; }
         state.timer.min = Number(b.dataset.min);
@@ -107,8 +102,7 @@
           save.goals();
           this.renderGoals();
         });
-        const del = row.querySelector('.del');
-        del.addEventListener('click', (e) => {
+        row.querySelector('.del').addEventListener('click', (e) => {
           e.preventDefault();
           state.goals.items = state.goals.items.filter((g) => g.id !== id);
           save.goals();
@@ -156,12 +150,12 @@
         return (n.title + ' ' + n.body + ' ' + (n.tag || '')).toLowerCase().includes(q);
       });
       if (!items.length) {
-        list.innerHTML = '<p class="note-empty">' + (q ? '没搜到。' : '还没有笔记。把今天错的题、想通的点，用你自己的话写一条。') + '</p>';
+        list.innerHTML = '<p class="note-empty">' + (q ? '没搜到。' : '还没有笔记。把今天错的题、想通的点，用自己的话写一条。') + '</p>';
         return;
       }
       list.innerHTML = items.map((n) => (
         `<article class="note" data-id="${n.id}">
-           <h4>${esc(n.title)}</h4>
+           <h3>${esc(n.title)}</h3>
            <p>${esc(n.body || '（空）')}</p>
            <div class="meta">
              <span>${N.fmtDate(n.updated || n.ts)}</span>
@@ -198,17 +192,14 @@
       const num = $('#timerNum'), phase = $('#timerPhase'), btn = $('#timerStart');
       if (!num) return;
       const t = state.timer;
-      const mm = Math.floor(t.left / 60), ss = t.left % 60;
-      num.textContent = String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+      num.textContent = String(Math.floor(t.left / 60)).padStart(2, '0') + ':' + String(t.left % 60).padStart(2, '0');
       num.className = 'timer-num' + (t.running ? ' running' : (t.left === 0 ? ' done' : ''));
       if (t.running) phase.textContent = '专注中';
       else if (t.left === 0) phase.textContent = '完成';
       else if (t.left < t.min * 60) phase.textContent = '已暂停';
       else phase.textContent = '未开始';
       btn.textContent = t.running ? '暂停' : (t.left === 0 ? '再来一轮' : '开始');
-      $$('#timerPreset button').forEach((b) => {
-        b.classList.toggle('on', Number(b.dataset.min) === t.min);
-      });
+      $$('#timerPreset button').forEach((b) => b.classList.toggle('on', Number(b.dataset.min) === t.min));
     }
   };
   N.views.study = study;
@@ -232,10 +223,7 @@
         $('#fbCount').textContent = body.value.length + ' / 2000';
       });
 
-      $('#fbForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        this.submit();
-      });
+      $('#fbForm').addEventListener('submit', (e) => { e.preventDefault(); this.submit(); });
       $('#fbExport').addEventListener('click', () => {
         if (!state.feedback.length) { toast('还是空的'); return; }
         N.download(`xiaonuan-feedback-${N.todayStr()}.json`, JSON.stringify(state.feedback, null, 2));
@@ -255,27 +243,16 @@
     async submit() {
       const body = $('#fbBody').value.trim();
       if (!body) { toast('写点东西再投'); $('#fbBody').focus(); return; }
-      const item = {
-        id: uid(),
-        type: this.type,
-        body,
-        contact: $('#fbContact').value.trim(),
-        ts: Date.now(),
-        status: 'local'
-      };
+      const item = { id: uid(), type: this.type, body, contact: $('#fbContact').value.trim(), ts: Date.now(), status: 'local' };
 
       const endpoint = (state.cfg.feedback && state.cfg.feedback.endpoint || '').trim();
       if (endpoint) {
         try {
           const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(item)
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item)
           });
           item.status = res.ok ? 'sent' : 'local';
-        } catch (err) {
-          item.status = 'local';
-        }
+        } catch (err) { item.status = 'local'; }
       }
 
       state.feedback.unshift(item);
@@ -284,7 +261,7 @@
       $('#fbContact').value = '';
       $('#fbCount').textContent = '0 / 2000';
       this.render();
-      toast(item.status === 'sent' ? '投到了服务器，也留了一份在本机' : '收进去了（只在本机）');
+      toast(item.status === 'sent' ? '投到了服务器，本地也留了一份' : '收进去了（只在本机）');
     },
 
     render() {
@@ -295,7 +272,7 @@
       const endpoint = (state.cfg.feedback && state.cfg.feedback.endpoint || '').trim();
       $('#fbSink').textContent = endpoint
         ? '提交时会同时 POST 到 ' + endpoint + '，本地留一份备份。'
-        : '目前存在这台设备的浏览器里。在「架构 → 配置」里填后端地址后，会同时投到服务器。';
+        : '存在这台设备的浏览器里。在「架构 → 配置」里填后端地址后，会同时投到服务器。';
 
       if (!items.length) {
         list.innerHTML = '<p class="fb-empty">还没有反馈。第一条可以写「我打开后第一件事想干什么」。</p>';
@@ -313,13 +290,12 @@
   N.views.feedback = feedback;
 
   /* ============================================================
-     架构（仅管理员）
+     架构（解锁后可见）
      ============================================================ */
-  const ARCH_KEYS = ['chat', 'study', 'feedback', 'arch', 'settings'];
+  const ARCH_KEYS = ['study', 'feedback', 'arch', 'settings'];
 
   const arch = {
     init() {
-      // 导航排序 / 改名 / 显隐
       $('#navEditor').addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-act]');
         if (!btn) return;
@@ -332,22 +308,20 @@
         if (act === 'up' && i > 0) { [nav[i - 1], nav[i]] = [nav[i], nav[i - 1]]; }
         if (act === 'down' && i < nav.length - 1) { [nav[i + 1], nav[i]] = [nav[i], nav[i + 1]]; }
         if (act === 'toggle') nav[i].show = !nav[i].show;
-        if (id === 'chat' && nav[i].show === false) { toast('对话是主页面，建议留着'); }
         state.cfg.nav = nav;
         N.saveConfig(); N.applyConfig(); this.renderNavEditor();
       });
+
       $('#navEditor').addEventListener('input', (e) => {
         const input = e.target.closest('input[type="text"]');
         if (!input) return;
-        const row = input.closest('.nav-row');
-        const id = row.dataset.id;
+        const id = input.closest('.nav-row').dataset.id;
         const label = input.value.trim().slice(0, 8) || N.viewMeta[id].title;
         state.cfg.labels[id] = label;
         N.saveConfig(); N.applyConfig();
         if (state.view === id) N.switchView(id);
       });
 
-      // 外观
       $$('#ctlAccent button').forEach((b) => b.addEventListener('click', () => {
         this.setStyle('accent', b.dataset.color);
         $('#accentPick').value = b.dataset.color;
@@ -375,7 +349,6 @@
         this.renderAppearance();
       });
 
-      // 人设
       const prompt = $('#ctlPrompt');
       let promptTimer;
       prompt.addEventListener('input', () => {
@@ -401,7 +374,6 @@
         toast('已恢复默认人设');
       });
 
-      // 配置导出/导入
       $('#cfgExport').addEventListener('click', () => {
         N.download(`xiaonuan-config-${N.todayStr()}.json`, JSON.stringify(state.cfg, null, 2));
       });
@@ -415,6 +387,7 @@
             const cfg = JSON.parse(reader.result);
             if (!cfg || typeof cfg !== 'object') throw new Error('不是对象');
             state.cfg = N.mergeConfig(N.defaultConfig(), cfg);
+            state.cfg.nav = (state.cfg.nav || []).filter((n) => n.id !== 'chat');
             N.saveConfig(); N.applyConfig(); this.renderAll();
             toast('导入成功');
           } catch (err) {
@@ -427,23 +400,20 @@
       $('#cfgReset').addEventListener('click', () => {
         if (!confirm('恢复默认配置？人设、配色、导航文案都会回到初版。')) return;
         state.cfg = N.defaultConfig();
-        N.saveConfig(); N.applyConfig(); this.renderAll(); N.renderNav();
+        N.saveConfig(); N.applyConfig(); this.renderAll();
         toast('回到默认');
       });
 
-      // AI 改版
       $('#aiPatchForm').addEventListener('submit', (e) => {
         e.preventDefault();
         this.aiPatch();
       });
 
-      N.onConfigChange = () => {
-        if (state.admin) this.renderPreview();
-      };
+      N.onConfigChange = () => { if (state.admin) this.renderPreview(); };
     },
 
     onShow() {
-      if (!state.admin) { N.switchView('chat'); return; }
+      if (!state.admin) { N.switchView('settings'); return; }
       this.renderAll();
     },
 
@@ -467,10 +437,8 @@
     renderNavEditor() {
       const box = $('#navEditor');
       if (!box) return;
-      const nav = state.cfg.nav.slice();
-      box.innerHTML = nav.map((item, i) => {
-        const meta = N.viewMeta[item.id] || { title: item.id };
-        const label = (state.cfg.labels && state.cfg.labels[item.id]) || meta.title;
+      box.innerHTML = state.cfg.nav.map((item, i) => {
+        const label = (state.cfg.labels && state.cfg.labels[item.id]) || N.viewMeta[item.id].title;
         return `<div class="nav-row${item.show ? '' : ' off'}" data-id="${item.id}">
           <span class="idx">${i + 1}</span>
           <input type="text" value="${esc(label)}" maxlength="8" aria-label="改名">
@@ -485,7 +453,7 @@
 
     renderAppearance() {
       const s = state.cfg.style;
-      $$('#ctlAccent button').forEach((b) => b.classList.toggle('on', b.dataset.color.toLowerCase() === String(s.accent).toLowerCase()));
+      $$('#ctlAccent button').forEach((b) => b.classList.toggle('on', String(b.dataset.color).toLowerCase() === String(s.accent).toLowerCase()));
       $('#accentPick').value = s.accent;
       $('#ctlRadius').value = s.radius;
       $('#outRadius').textContent = s.radius;
@@ -497,11 +465,10 @@
 
     renderPreview() {
       const pre = $('#cfgPreview');
-      if (pre) {
-        const view = Object.assign({}, state.cfg);
-        view.tutor = Object.assign({}, view.tutor, { systemPrompt: (view.tutor.systemPrompt || '').slice(0, 40) + '…（略）' });
-        pre.textContent = JSON.stringify(view, null, 2);
-      }
+      if (!pre) return;
+      const view = JSON.parse(JSON.stringify(state.cfg));
+      view.tutor.systemPrompt = (view.tutor.systemPrompt || '').slice(0, 40) + '…（略）';
+      pre.textContent = JSON.stringify(view, null, 2);
     },
 
     async aiPatch() {
@@ -516,8 +483,8 @@
 - style.theme："light" | "dark" | "auto"
 - style.density："cozy" | "compact"
 - brand：页面名字，≤6 个中文字
-- labels.chat / labels.study / labels.feedback / labels.arch / labels.settings：导航名称，≤6 个中文字
-- nav：页面顺序，只能包含 chat/study/feedback/arch/settings，不能重复
+- labels.study / labels.feedback / labels.arch / labels.settings：侧栏名称，≤6 个中文字
+- nav：侧栏顺序，只能包含 study/feedback/arch/settings，不能重复
 
 当前配置：${JSON.stringify({
         style: state.cfg.style,
@@ -531,7 +498,7 @@
 
       const preview = $('#patchPreview');
       preview.hidden = false;
-      preview.innerHTML = '<h4>生成中…</h4>';
+      preview.innerHTML = '<h3>生成中…</h3>';
       try {
         const res = await N.apiChat(
           [{ role: 'system', content: '你是页面配置编译器。严格按给定字段输出 JSON。' },
@@ -543,7 +510,7 @@
         const check = this.validatePatch(parsed.patch);
         if (!check.changes.length) throw new Error('没有可应用的改动（可能都被白名单挡了）');
 
-        preview.innerHTML = `<h4>准备改这些</h4><ul>${check.changes.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
+        preview.innerHTML = `<h3>准备改这些</h3><ul>${check.changes.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
           ${parsed.note ? `<p class="note">${esc(parsed.note)}</p>` : ''}
           <div class="arch-btns"><button class="btn ghost sm" data-arch="cancel">放弃</button>
           <button class="btn primary sm" data-arch="apply">应用</button></div>`;
@@ -551,13 +518,13 @@
         preview.querySelector('[data-arch="cancel"]').addEventListener('click', () => { preview.hidden = true; });
         preview.querySelector('[data-arch="apply"]').addEventListener('click', () => {
           state.cfg = N.mergeConfig(state.cfg, check.clean);
-          N.saveConfig(); N.applyConfig(); N.renderNav(); this.renderAll();
+          N.saveConfig(); N.applyConfig(); this.renderAll();
           preview.hidden = true;
           input.value = '';
           toast('改好了');
         });
       } catch (e) {
-        preview.innerHTML = `<h4>没改成</h4><p class="note">${esc(e.message || '出错')}</p>
+        preview.innerHTML = `<h3>没改成</h3><p class="note">${esc(e.message || '出错')}</p>
           <div class="arch-btns"><button class="btn ghost sm" data-arch="cancel">知道了</button></div>`;
         preview.querySelector('[data-arch="cancel"]').addEventListener('click', () => { preview.hidden = true; });
       }
@@ -565,14 +532,12 @@
 
     parseJSON(raw) {
       if (!raw) return null;
-      let text = raw.trim();
-      text = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      let text = raw.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
       try { return JSON.parse(text); } catch (e) {}
       const start = text.indexOf('{');
       if (start < 0) return null;
       for (let end = text.length; end > start; end--) {
-        const slice = text.slice(start, end);
-        try { return JSON.parse(slice); } catch (e) {}
+        try { return JSON.parse(text.slice(start, end)); } catch (e) {}
       }
       return null;
     },
@@ -585,11 +550,10 @@
       if (patch.style && typeof patch.style === 'object') {
         const s = {};
         const st = patch.style;
-        if (typeof st.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(st.accent)) {
-          if (st.accent.toLowerCase() !== String(cur.style.accent).toLowerCase()) {
-            changes.push(`主色 ${cur.style.accent} → ${st.accent}`);
-            s.accent = st.accent;
-          }
+        if (typeof st.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(st.accent) &&
+            st.accent.toLowerCase() !== String(cur.style.accent).toLowerCase()) {
+          changes.push(`主色 ${cur.style.accent} → ${st.accent}`);
+          s.accent = st.accent;
         }
         if (st.radius != null && !isNaN(st.radius)) {
           const r = Math.min(26, Math.max(0, Math.round(Number(st.radius))));
@@ -621,20 +585,18 @@
           const v = patch.labels[k];
           if (typeof v !== 'string') return;
           const t = v.trim().slice(0, 6);
-          if (!t) return;
-          if (t !== cur.labels[k]) { changes.push(`${N.viewMeta[k].title}改名「${t}」`); l[k] = t; }
+          if (t && t !== cur.labels[k]) { changes.push(`${N.viewMeta[k].title}改名「${t}」`); l[k] = t; }
         });
         if (Object.keys(l).length) clean.labels = l;
       }
 
       if (Array.isArray(patch.nav)) {
-        const ids = patch.nav.filter((id) => ARCH_KEYS.includes(id));
         const uniq = [];
-        ids.forEach((id) => { if (!uniq.includes(id)) uniq.push(id); });
+        patch.nav.filter((id) => ARCH_KEYS.includes(id)).forEach((id) => { if (!uniq.includes(id)) uniq.push(id); });
         ARCH_KEYS.forEach((id) => { if (!uniq.includes(id)) uniq.push(id); });
         const curIds = cur.nav.map((n) => n.id);
         if (uniq.join(',') !== curIds.join(',')) {
-          changes.push('导航顺序 ' + curIds.join(' / ') + ' → ' + uniq.join(' / '));
+          changes.push('侧栏顺序 ' + curIds.join(' / ') + ' → ' + uniq.join(' / '));
           clean.nav = uniq.map((id) => {
             const old = cur.nav.find((n) => n.id === id);
             return { id, show: old ? old.show !== false : true };
@@ -652,16 +614,34 @@
      ============================================================ */
   const settings = {
     init() {
-      $('#setForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        this.commit(true);
-      });
+      $('#setForm').addEventListener('submit', (e) => { e.preventDefault(); this.commit(true); });
       $('#setTest').addEventListener('click', () => this.test());
+
+      $('#adminForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const msg = $('#adminMsg');
+        msg.textContent = '正在确认…';
+        const r = await N.unlockAdmin($('#adminPwd').value);
+        if (r.ok) {
+          $('#adminPwd').value = '';
+          msg.textContent = '已解锁。侧栏出现了「架构」。';
+          this.render();
+          N.switchView('arch');
+        } else {
+          msg.textContent = r.error || '没成功。';
+        }
+      });
+      $('#adminLock').addEventListener('click', () => {
+        N.lockAdmin();
+        this.render();
+        $('#adminMsg').textContent = '已锁定。';
+      });
+
       $('#dataExport').addEventListener('click', () => {
         const dump = {
           exportedAt: new Date().toISOString(),
           config: state.cfg,
-          messages: state.messages,
+          sessions: state.sessions,
           notes: state.notes,
           goals: state.goals,
           feedback: state.feedback
@@ -670,12 +650,13 @@
       });
       $('#dataClear').addEventListener('click', () => {
         if (!confirm('清空对话、笔记、目标、反馈和计时？配置和 Key 会保留。')) return;
-        state.messages = []; state.notes = []; state.feedback = [];
+        state.sessions = [];
+        state.notes = []; state.feedback = [];
         state.goals = { date: N.todayStr(), items: [] };
         state.timer = { min: 25, left: 25 * 60, running: false, endsAt: 0, done: 0, date: N.todayStr() };
         save.goals(); save.notes(); save.feedback(); save.timer();
-        writeJSON(KEYS.chat, []);
-        N.renderThread();
+        writeJSON(KEYS.sessions, []);
+        N.newSession();
         this.render();
         if (N.views.study.onShow) N.views.study.onShow();
         if (N.views.feedback.onShow) N.views.feedback.onShow();
@@ -691,8 +672,13 @@
       keyEl.placeholder = state.key ? '已保存（留空表示不改）' : 'sk-…';
       $('#setBase').value = state.cfg.tutor.baseUrl;
       $('#setModel').value = state.cfg.tutor.model;
-      $('#setKeyMeta').textContent = state.key ? 'Key 已配置' : '未配置';
-      $('#verMeta').textContent = 'v1.0 · ' + N.todayStr();
+      $('#setKeyMeta').textContent = state.key ? '已配置' : (state.cfg.tutor.baseUrl.charAt(0) === '/' ? '走后端代理' : '未配置');
+      $('#verMeta').textContent = 'v1.1 · ' + N.todayStr();
+
+      const adminState = $('#adminState');
+      adminState.textContent = state.admin ? '已解锁' : '未解锁';
+      $('#adminLock').hidden = !state.admin;
+      $('#adminUnlock').textContent = state.admin ? '重新解锁' : '解锁架构';
 
       let used = 0;
       Object.keys(localStorage).forEach((k) => {
@@ -701,7 +687,7 @@
       $('#storageMeta').textContent = N.bytes(used);
 
       const rows = [
-        ['对话消息', state.messages.filter((m) => !m.pending).length + ' 条'],
+        ['对话', state.sessions.filter((s) => s.messages.length).length + ' 个'],
         ['笔记', state.notes.length + ' 条'],
         ['今日目标', state.goals.items.filter((g) => g.done).length + ' / ' + state.goals.items.length],
         ['反馈', state.feedback.length + ' 条'],
@@ -718,11 +704,7 @@
       if (model) state.cfg.tutor.model = model;
       if (key) {
         state.key = key;
-        const remembered = !!localStorage.getItem(KEYS.key);
-        try {
-          if (remembered) localStorage.setItem(KEYS.key, key);
-          else sessionStorage.setItem(KEYS.key, key);
-        } catch (e) {}
+        N.saveStoredKey(key, !!localStorage.getItem(KEYS.key));
       }
       N.saveConfig();
       this.render();
@@ -735,11 +717,9 @@
       msg.className = 'hint';
       msg.textContent = '正在试…';
       const key = $('#setKey').value.trim() || state.key;
-      if (!key) { msg.textContent = '先填 Key。'; return; }
+      if (!key && state.cfg.tutor.baseUrl.charAt(0) !== '/') { msg.textContent = '先填 Key。'; return; }
       try {
-        await N.apiChat([{ role: 'user', content: '只回一个字：好' }],
-          { key, stream: false, maxTokens: 8, temperature: 0 });
-        msg.className = 'hint';
+        await N.apiChat([{ role: 'user', content: '只回一个字：好' }], { key, stream: false, maxTokens: 8, temperature: 0 });
         msg.textContent = '通了。模型 ' + state.cfg.tutor.model + ' 可用。';
         N.updateConn('ok');
         toast('连接正常');
