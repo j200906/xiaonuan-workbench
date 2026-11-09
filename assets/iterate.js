@@ -234,22 +234,82 @@
     log('读文件：' + files.join('、'));
     const payload = files.map((p) => `<<<FILE ${p}\n${IT.sources[p].slice(0, MAX_FILE_CHARS)}\nFILE>>>`).join('\n\n');
 
-    const sys = '你是代码修改计划器。输出可直接执行的补丁，不要重写整个文件。只输出 JSON。';
+    const sys = '你是代码修改计划器。小改给 find/replace，大改给整份文件。只输出 JSON。';
     const user = `工单：${JSON.stringify(ticket)}\n\n` +
-      `版本 ${window.XN_VERSION}。只允许改这些文件：${EDITABLE.join(', ')}。\n` +
-      `硬规则：find 必须与原文逐字一致且在文件里只出现一次；单处 replace 不超过 40 行；不改 server/tests/.github；不引入外部脚本、eval、远程资源；保持 localStorage 键名不变；改完页面必须还能正常启动。\n\n` +
-      `输出格式：{"version":"1.2.1","title":"不超过 18 字","fixes":["..."],"features":["..."],"run":"你打算怎么验证","notTried":"你没法验证什么","patches":[{"file":"","find":"","replace":""}]}\n` +
-      `patches 最多 ${MAX_PATCHES} 条。宁可只改一处对的，也不要改五处猜的。\n\n${payload}`;
+      `版本 ${window.XN_VERSION}。允许改这些文件：${EDITABLE.join(', ')}。允许大改，但一次最多重写 2 个文件。\n\n` +
+      `输出格式：\n` +
+      `{"version":"1.3.0","title":"不超过 18 字","fixes":["..."],"features":["..."],"run":"你打算怎么验证","notTried":"你没法验证什么",\n` +
+      ` "mode":"patch 或 rewrite",\n` +
+      ` "patches":[{"file":"","find":"","replace":""}],\n` +
+      ` "rewrites":[{"file":"","content":"这一份文件的完整内容"}],\n` +
+      ` "creates":[{"file":"assets/新文件.js","content":"..."}]}\n\n` +
+      `规则：\n` +
+      `1. mode=patch 时只用 patches：find 逐字唯一、单处不超过 40 行、最多 ${MAX_PATCHES} 处。\n` +
+      `2. mode=rewrite 时用 rewrites：content 必须是完整文件，不能出现「…省略…」之类的省略；长度不能比原文明显短（至少 55%）。\n` +
+      `3. 大改最多新建 1 个 assets/*.js 或 *.css；新建 .js 必须同时改 index.html 里加上 <script src="...">，否则不会被加载。\n` +
+      `4. 两种模式都不许改 server/ tests/ .github/，不许 eval、外链脚本、远程字体。\n` +
+      `5. 必须保住这些锚点：#app #messages #input #btnSend #btnNew .side-link[data-view=study|feedback|settings]；localStorage 键名（xn.*.v1）不变。\n` +
+      `6. 改完必须能正常启动，学习台/反馈箱/设置都要能打开。\n\n${payload}`;
 
-    const plan = await ask(sys, user, 2200);
-    if (!plan || !Array.isArray(plan.patches) || !plan.patches.length) throw new Error('模型没给出可用补丁');
+    const plan = await ask(sys, user, 2600);
+    if (!plan) throw new Error('模型没给出方案');
+    const hasPatch = Array.isArray(plan.patches) && plan.patches.length;
+    const hasRewrite = Array.isArray(plan.rewrites) && plan.rewrites.length;
+    if (!hasPatch && !hasRewrite) throw new Error('模型没给出可用改动');
+    if (!plan.mode) plan.mode = hasRewrite ? 'rewrite' : 'patch';
     return Object.assign({ ticketId: ticket.id, ticketTitle: ticket.title, files }, plan);
   }
 
-  /* ---------- 应用补丁 ---------- */
-  function applyPatches(sources, patches) {
+  /* ---------- 应用改动（补丁或整份重写） ---------- */
+  function applyPlan(sources, plan) {
     const out = Object.assign({}, sources);
     const touched = [];
+    const mode = plan.mode === 'rewrite' ? 'rewrite' : 'patch';
+
+    if (mode === 'rewrite') {
+      const rewrites = Array.isArray(plan.rewrites) ? plan.rewrites : [];
+      if (!rewrites.length) throw new Error('rewrite 模式却没有 rewrites');
+      if (rewrites.length > 2) throw new Error('一次最多重写 2 个文件');
+      rewrites.forEach((r, i) => {
+        const file = r.file;
+        if (!EDITABLE.includes(file)) throw new Error('不允许重写 ' + file);
+        const content = String(r.content || '').replace(/\r\n/g, '\n');
+        if (content.length < 2000) throw new Error('第 ' + (i + 1) + ' 份太短，像是被截断');
+        if (content.length > 60000) throw new Error('第 ' + (i + 1) + ' 份超过 60KB');
+        if (/(…省略|\.\.\.\s*省略|truncated|其余不变)/i.test(content)) throw new Error('第 ' + (i + 1) + ' 份含省略标记');
+        const ratio = content.length / Math.max(1, (sources[file] || '').length);
+        if (ratio < 0.55) throw new Error('第 ' + (i + 1) + ' 份比原文短太多（' + Math.round(ratio * 100) + '%），可能漏功能');
+        if (/(eval\s*\(|document\.write)/.test(content)) throw new Error('第 ' + (i + 1) + ' 份含被禁止的写法');
+        out[file] = content;
+        if (!touched.includes(file)) touched.push(file);
+      });
+
+      const creates = Array.isArray(plan.creates) ? plan.creates : [];
+      if (creates.length > 1) throw new Error('一次最多新建 1 个文件');
+      creates.forEach((c) => {
+        const file = String(c.file || '');
+        if (!/^assets\/[a-z0-9._-]+\.(js|css)$/i.test(file)) throw new Error('新文件名不合法：' + file);
+        if (out[file]) throw new Error(file + ' 已经存在');
+        const content = String(c.content || '').replace(/\r\n/g, '\n');
+        if (!content.trim()) throw new Error('新文件内容是空的');
+        if (content.length > 40000) throw new Error('新文件超过 40KB');
+        if (file.endsWith('.js') && (out['index.html'] || '').indexOf(file) < 0) {
+          throw new Error('新脚本 ' + file + ' 没在 index.html 里引用，加了也不会加载');
+        }
+        out[file] = content;
+        touched.push(file);
+      });
+    }
+
+    if (Array.isArray(plan.patches) && plan.patches.length) {
+      applyPatches(out, plan.patches, touched);
+    }
+
+    if (!touched.length) throw new Error('这一版没有任何改动');
+    return { files: out, touched, mode };
+  }
+
+  function applyPatches(out, patches, touched) {
     if (patches.length > MAX_PATCHES) throw new Error('补丁条数超过上限');
     patches.forEach((p, i) => {
       const file = p.file;
@@ -268,7 +328,7 @@
       out[file] = out[file].slice(0, first) + replace + out[file].slice(first + find.length);
       if (!touched.includes(file)) touched.push(file);
     });
-    return { files: out, touched };
+    return out;
   }
 
   /* ---------- 验证 ---------- */
@@ -302,16 +362,34 @@
   addEventListener('error',function(e){window.__errs.push(String(e.message||e))});
   addEventListener('unhandledrejection',function(e){window.__errs.push('reject:'+String(e.reason))});
   setTimeout(function(){
-    var box=document.querySelector('#messages');
-    var chip=document.querySelector('#verChip');
+    var c = {};
+    function q(s){ return document.querySelector(s); }
+    try {
+      c.挂载 = !!q('#app') && !!q('#messages') && q('#messages').children.length > 0;
+      c.输入框 = !!q('#input');
+      c.发送键 = !!q('#btnSend');
+      c.新对话 = !!q('#btnNew');
+      c.侧栏 = document.querySelectorAll('.side-link').length >= 3;
+      try {
+        window.XN.switchView('study');
+        c.学习台 = !!q('#view-study .card');
+        window.XN.switchView('feedback');
+        c.反馈箱 = !!q('#view-feedback .card');
+        window.XN.switchView('settings');
+        c.设置 = !!q('#view-settings .card');
+        window.XN.switchView('chat');
+        c.切回对话 = !q('#view-chat').hidden;
+      } catch (e) { c.视图切换 = false; }
+    } catch (e) { c.挂载 = false; }
+    var bad = Object.keys(c).filter(function(k){ return !c[k]; });
     parent.postMessage({xnPreview:{
       nonce:'${nonce}',
-      mounted: !!document.querySelector('#app') && !!box && box.children.length>0,
-      version: chip?chip.textContent:'',
-      links: document.querySelectorAll('.side-link').length,
+      checks: c,
+      failed: bad,
+      version: (q('#verChip')||{}).textContent || '',
       errs: window.__errs
     }},'*');
-  }, 1500);
+  }, 1600);
 })();`;
 
       html = html.replace('</head>', () => '<script>' + shim + '<\/script></head>');
@@ -331,10 +409,16 @@
       const onMsg = (ev) => {
         const d = ev.data && ev.data.xnPreview;
         if (!d || d.nonce !== nonce) return;
+        const failed = d.failed || [];
+        const errs = d.errs || [];
+        const ok = failed.length === 0 && errs.length === 0;
         finish({
-          ok: !!d.mounted && (d.errs || []).length === 0,
-          detail: `${label || '预演'}：挂载${d.mounted ? '成功' : '失败'}，侧栏 ${d.links} 项，版本 ${d.version || '?'}`,
-          errs: d.errs || []
+          ok,
+          checks: d.checks || {},
+          detail: ok
+            ? `${label || '预演'}：${Object.keys(d.checks || {}).length} 项检查全过（挂载、输入框、侧栏、学习台、反馈箱、设置），版本 ${d.version || '?'}`
+            : `${label || '预演'}：没过的检查 ${failed.join('、') || '—'}${errs.length ? '；报错 ' + errs[0] : ''}`,
+          errs
         });
       };
       window.addEventListener('message', onMsg);
@@ -403,6 +487,7 @@
       owner: (p.owner || '').trim(),
       repo: (p.repo || '').trim(),
       autoMerge: !!p.autoMerge,
+      direct: !!p.direct,
       token: (() => { try { return sessionStorage.getItem(GH_TOKEN_KEY) || ''; } catch (e) { return ''; } })()
     };
   }
@@ -467,6 +552,19 @@
       method: 'POST',
       body: { message, tree: tree.sha, parents: [headSha] }
     });
+
+    if (cfg.direct) {
+      await gh(`${repoPath}/git/refs/heads/${base}`, {
+        method: 'PATCH', body: { sha: commit.sha, force: false }
+      });
+      return {
+        mode: 'direct',
+        url: `https://github.com/${cfg.owner}/${cfg.repo}/commit/${commit.sha}`,
+        commit: commit.sha.slice(0, 7),
+        branch: base
+      };
+    }
+
     try {
       await gh(`${repoPath}/git/refs`, { method: 'POST', body: { ref: 'refs/heads/' + branch, sha: commit.sha } });
     } catch (e) {
@@ -510,7 +608,10 @@
   async function runOne(ticket, feedbackCount) {
     setStep('plan', 'run');
     const plan = await planPatch(ticket);
-    log('方案：' + plan.title + '（' + plan.patches.length + ' 处改动）', 'ok');
+    const big = plan.mode === 'rewrite';
+    log('方案：' + plan.title + '（' + (big
+      ? '整份重写 ' + ((plan.rewrites || []).length + (plan.creates || []).length) + ' 个文件'
+      : (plan.patches || []).length + ' 处小改') + '）', 'ok');
     plan.ticketTitle = ticket.title;
     plan.ticketId = ticket.id;
     plan.source = ticket.source;
@@ -519,7 +620,8 @@
     setStep('plan', 'ok');
     setStep('verify', 'run');
 
-    const released = applyPatches(IT.sources, plan.patches);
+    const released = applyPlan(IT.sources, plan);
+    log('应用方式：' + (released.mode === 'rewrite' ? '整份重写' : '逐处替换') + '，动到 ' + released.touched.length + ' 个文件');
     const v = nextVersion(plan.version);
     log('版本：' + (window.XN_VERSION || '?') + ' → ' + v);
 
@@ -557,7 +659,11 @@
     let pub = { mode: 'draft' };
     try {
       pub = await publish(files, released.touched.concat(['assets/version.js', 'assets/changelog.js']), entry, check.detail);
-      log(pub.mode === 'pr' ? ('已提 PR #' + pub.number + (pub.merged ? '（已合并）' : '，等你点合并')) : '草稿已生成', 'ok');
+      log(pub.mode === 'pr'
+        ? ('已提 PR #' + pub.number + (pub.merged ? '（已合并）' : '，等你点合并'))
+        : pub.mode === 'direct'
+          ? ('已直接提交到 ' + pub.branch + '：' + pub.commit)
+          : '草稿已生成', 'ok');
       setStep('publish', 'ok');
     } catch (e) {
       log('发布失败：' + e.message, 'fail');
@@ -576,6 +682,7 @@
 
     IT.result = {
       version: v,
+      mode: released.mode,
       title: entry.title,
       fixes: entry.fixes,
       features: entry.features,
@@ -701,6 +808,8 @@
     }
   }
 
+  N.IT.applyPlan = applyPlan;
+
   /* ---------- 渲染 ---------- */
   function renderQueue() {
     const box = $('#itQueue');
@@ -738,9 +847,12 @@
     const list = (arr) => (arr && arr.length ? arr.map((x) => `<li>${esc(x)}</li>`).join('') : '<li class="dim">无</li>');
     const pubText = r.publish.mode === 'pr'
       ? `<a href="${esc(r.publish.url)}" target="_blank" rel="noopener">PR #${r.publish.number}</a>${r.publish.merged ? '（已合并）' : '（等你合并）'}`
-      : '草稿（没配发布通道，代码没提交，刷新即回到原版本）';
+      : r.publish.mode === 'direct'
+        ? `<a href="${esc(r.publish.url)}" target="_blank" rel="noopener">提交 ${esc(r.publish.commit)}</a>（已进 ${esc(r.publish.branch)}，Pages 一分钟内重新发布）`
+        : '草稿（没配发布通道，代码没提交，刷新即回到原版本）';
     box.innerHTML = `
-      <div class="it-res-head"><strong>v${esc(r.version)}</strong><span>${esc(r.title)}</span></div>
+      <div class="it-res-head"><strong>v${esc(r.version)}</strong><span>${esc(r.title)}</span>
+        <span class="it-mode">${r.mode === 'rewrite' ? '整份重写' : '逐处替换'}</span></div>
       <div class="it-res-cols">
         <div><h4>修复</h4><ul>${list(r.fixes)}</ul></div>
         <div><h4>新增</h4><ul>${list(r.features)}</ul></div>
@@ -786,13 +898,15 @@
       $('#pubOwner').value = p.owner || '';
       $('#pubRepo').value = p.repo || '';
       $('#pubAutoMerge').checked = !!p.autoMerge;
+      $('#pubDirect').checked = p.direct !== false;
       try { $('#pubToken').value = sessionStorage.getItem(GH_TOKEN_KEY) || ''; } catch (e) {}
 
       $('#pubSave').addEventListener('click', () => {
         state.cfg.publish = {
           owner: $('#pubOwner').value.trim(),
           repo: $('#pubRepo').value.trim(),
-          autoMerge: $('#pubAutoMerge').checked
+          autoMerge: $('#pubAutoMerge').checked,
+          direct: $('#pubDirect').checked
         };
         try {
           const t = $('#pubToken').value.trim();
@@ -833,7 +947,7 @@
     const el = $('#pubState');
     if (!el) return;
     el.textContent = cfg.token && cfg.owner && cfg.repo
-      ? (cfg.autoMerge ? '已配置 · 自动合并' : '已配置 · 提 PR')
+      ? (cfg.direct ? '已配置 · 直推 main' : (cfg.autoMerge ? '已配置 · 自动合并' : '已配置 · 提 PR'))
       : '未配置';
   }
 })(window.XN);

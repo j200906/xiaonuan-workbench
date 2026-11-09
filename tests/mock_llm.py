@@ -35,8 +35,8 @@ class H(BaseHTTPRequestHandler):
         joined = " ".join(str(m.get("content", "")) for m in (body.get("messages") or []))
         if "工单拆解器" in joined:
             payload = {"tickets": [
-                {"title": "笔记页没有空状态引导", "kind": "bug", "severity": 3,
-                 "why": "用户不知道能写什么，空白一片", "scope": "学习台 / 笔记"},
+                {"title": "页脚免责声明太笼统", "kind": "bug", "severity": 3,
+                 "why": "「重要的事」说了等于没说", "scope": "对话页脚"},
                 {"title": "反馈提交后没有回执", "kind": "feature", "severity": 1,
                  "why": "投完不知道成没成", "scope": "反馈箱"},
             ]}

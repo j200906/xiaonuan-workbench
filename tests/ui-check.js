@@ -400,6 +400,35 @@ async function main() {
   check('没配通道时不显示 PR 链接', itRun.prHidden);
   check('迭代无未捕获异常', itRun.errs.length === 0, itRun.errs.join(' | '));
 
+
+  /* ---------- 9.7 大改的守门 ---------- */
+  const guards = await evaluate(`(() => {
+    const base = { 'assets/app.css': 'x'.repeat(4000), 'index.html': '<html></html>' };
+    const out = {};
+    try {
+      const r = window.XN.IT.applyPlan(base, { mode: 'rewrite', rewrites: [{ file: 'assets/app.css', content: 'y'.repeat(4200) }] });
+      out.accept = r.mode === 'rewrite' && r.touched.length === 1 && r.files['assets/app.css'].length === 4200;
+    } catch (e) { out.accept = false; out.acceptErr = e.message; }
+    try {
+      window.XN.IT.applyPlan(base, { mode: 'rewrite', rewrites: [{ file: 'assets/app.css', content: 'y'.repeat(600) }] });
+      out.shortBlocked = false;
+    } catch (e) { out.shortBlocked = /短/.test(e.message); }
+    try {
+      window.XN.IT.applyPlan(base, { mode: 'rewrite', rewrites: [{ file: 'assets/app.css', content: 'y'.repeat(4200) }],
+        creates: [{ file: 'assets/extra.js', content: 'window.X=1;' }] });
+      out.createBlocked = false;
+    } catch (e) { out.createBlocked = /没在 index.html 里引用/.test(e.message); }
+    try {
+      window.XN.IT.applyPlan(base, { mode: 'rewrite', rewrites: [{ file: 'assets/app.css', content: 'y'.repeat(4200) + '\\n…省略…' }] });
+      out.ellipsisBlocked = false;
+    } catch (e) { out.ellipsisBlocked = /省略/.test(e.message); }
+    return out;
+  })()`);
+  check('整份重写能通过', guards.accept, guards.acceptErr || '');
+  check('砍太短会被挡', guards.shortBlocked);
+  check('新脚本没登记会被挡', guards.createBlocked);
+  check('带省略号会被挡', guards.ellipsisBlocked);
+
   /* ---------- 10. 刷新保持 ---------- */
   await send('Page.reload');
   await sleep(1500);

@@ -22,3 +22,8 @@ Thumbs.db
 
 # 测试产物
 tests/report.json
+
+# 打包产物
+dist/
+build/
+*.spec

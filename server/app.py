@@ -27,7 +27,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(os.environ.get("XN_ROOT") or Path(__file__).resolve().parent.parent)
 DATA_DIR = Path(os.environ.get("XN_DATA_DIR") or (BASE_DIR / "data"))
 UPSTREAM = (os.environ.get("XN_BASE") or "https://api.deepseek.com/v1").rstrip("/")
 DEFAULT_MODEL = os.environ.get("XN_MODEL") or "deepseek-chat"

@@ -366,6 +366,10 @@
           <p class="about dim">
             对话、笔记、目标都在浏览器本地。换设备不同步，清缓存会丢——重要内容记得导出。
           </p>
+          <p class="about">
+            Windows 桌面版：<a href="https://github.com/j200906/xiaonuan-workbench/releases/latest" target="_blank" rel="noopener">下载 XiaoNuan.exe</a>
+            <span class="dim">（约 8 MB，双击即用，数据存在 %APPDATA%\xiaonuan）</span>
+          </p>
         </article>
       </div>
     </section>
@@ -431,7 +435,8 @@
             <span class="label">GitHub Token（只存在本标签页，关掉就没）</span>
             <input id="pubToken" type="password" placeholder="github_pat_… 需要 repo 权限" autocomplete="off">
           </label>
-          <label class="check"><input type="checkbox" id="pubAutoMerge"><span>验证全过后自动合并 PR（不建议）</span></label>
+          <label class="check"><input type="checkbox" id="pubDirect" checked><span>直接提交到 main（不建分支、不等你合并）</span></label>
+          <label class="check"><input type="checkbox" id="pubAutoMerge"><span>走 PR 时，验证通过就自动合并（只在没勾「直推」时生效）</span></label>
           <div class="arch-btns">
             <button class="btn sm" id="pubSave" type="button">保存</button>
             <button class="btn ghost sm" id="pubClear" type="button">清除 Token</button>
