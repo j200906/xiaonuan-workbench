@@ -39,10 +39,9 @@ function safeBase(raw, fallback) {
   }
 }
 
+// 云端只留一个：GLM-4.7-Flash。要别的模型就填自己的 Key。
 const AI_CHOICES = [
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama-3.3-70B', note: '默认 · 直接出正文' },
-  { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '会先思考' },
-  { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3-30B', note: '会先思考' }
+  { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '云端唯一' }
 ];
 
 function pickAiModel(raw, env) {
@@ -52,8 +51,8 @@ function pickAiModel(raw, env) {
   return env.XN_AI_MODEL || AI_MODEL;
 }
 
-const AI_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
-const AI_FALLBACK = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+const AI_MODEL = '@cf/zai-org/glm-4.7-flash';
+const AI_FALLBACK = '@cf/zai-org/glm-4.7-flash';
 
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: JSON_HEADERS });
@@ -315,7 +314,7 @@ async function aiChat(request, env) {
   const run = async (name) => env.AI.run(name, {
     messages,
     stream: !!payload.stream,
-    max_tokens: payload.max_tokens || 1600
+    max_tokens: payload.max_tokens || 2400
   });
 
   const textOf = (o) => {
@@ -339,10 +338,10 @@ async function aiChat(request, env) {
     }
   }
 
-  // 推理类模型会把额度全用在思考上，正文是空的：非流式时换一个能直出的模型重试一次
-  if (!payload.stream && !textOf(out).trim() && model !== AI_FALLBACK) {
+  // GLM 的思考会吃掉一千多 token：正文为空就放大额度再来一次
+  if (!payload.stream && !textOf(out).trim()) {
     try {
-      const retry = await run(AI_FALLBACK);
+      const retry = await env.AI.run(model, { messages, stream: false, max_tokens: 4000 });
       if (textOf(retry).trim()) out = retry;
     } catch (e) { /* 还是不行就把原来那份返回 */ }
   }

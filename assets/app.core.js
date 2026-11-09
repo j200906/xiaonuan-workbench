@@ -384,10 +384,9 @@
     custom: []
   };
 
+  // 云端只留一个；想要别的模型就去填自己的 Key
   var CLOUD_MODELS = [
-    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama-3.3-70B', note: '默认 · 直出' },
-    { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '会先思考' },
-    { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3-30B', note: '会先思考' }
+    { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '云端唯一' }
   ];
 
   function currentProvider() {
@@ -419,7 +418,7 @@
         items: own.map(function (m) { return { id: m, name: m, note: '' }; })
       });
     }
-    groups.push({ label: '云端自带（不用 Key）', items: CLOUD_MODELS });
+    groups.push({ label: '云端自带（唯一，不用 Key）', items: CLOUD_MODELS });
     return groups;
   }
 
