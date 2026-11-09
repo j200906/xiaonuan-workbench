@@ -943,3 +943,12 @@ textarea.prompt {
   text-transform: uppercase;
 }
 .group-title:first-child { margin-top: 0; }
+
+/* 反馈箱：云端条目 */
+.fb-sep {
+  margin: 14px 0 6px;
+  font-size: .74em;
+  letter-spacing: .06em;
+  color: var(--ink-4);
+}
+.fb-item.cloud { border-left: 2px solid var(--accent); }

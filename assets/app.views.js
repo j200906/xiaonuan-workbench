@@ -224,6 +224,7 @@
       });
 
       $('#fbForm').addEventListener('submit', (e) => { e.preventDefault(); this.submit(); });
+      $('#fbPull').addEventListener('click', () => this.pullCloud());
       $('#fbExport').addEventListener('click', () => {
         if (!state.feedback.length) { toast('还是空的'); return; }
         N.download(`xiaonuan-feedback-${N.todayStr()}.json`, JSON.stringify(state.feedback, null, 2));
@@ -245,7 +246,9 @@
       if (!body) { toast('写点东西再投'); $('#fbBody').focus(); return; }
       const item = { id: uid(), type: this.type, body, contact: $('#fbContact').value.trim(), ts: Date.now(), status: 'local' };
 
-      const endpoint = (state.cfg.feedback && state.cfg.feedback.endpoint || '').trim();
+      // 部署在云端时默认就投服务器，不用手填地址
+      const endpoint = ((state.cfg.feedback && state.cfg.feedback.endpoint) || '').trim()
+        || (N.isProxy() ? 'api/feedback' : '');
       if (endpoint) {
         try {
           const res = await fetch(endpoint, {
@@ -264,17 +267,41 @@
       toast(item.status === 'sent' ? '投到了服务器，本地也留了一份' : '收进去了（只在本机）');
     },
 
+    async pullCloud() {
+      if (!state.admin) { toast('先在设置里输密码解锁'); return; }
+      if (!N.isProxy || !N.isProxy()) { toast('这个要部署在云端才能用'); return; }
+      const btn = $('#fbPull');
+      btn.disabled = true;
+      try {
+        const res = await fetch('api/feedback?limit=200', {
+          headers: { 'X-Admin-Password': state.adminPwd || '' }
+        });
+        const j = await res.json();
+        if (!j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+        this.cloud = j.items || [];
+        this.render();
+        toast('云端 ' + this.cloud.length + ' 条');
+      } catch (e) {
+        toast(e.message || '拉不到');
+      }
+      btn.disabled = false;
+    },
+
     render() {
       const list = $('#fbList');
       if (!list) return;
       const items = state.feedback;
       $('#fbMeta').textContent = items.length + ' 条';
       const endpoint = (state.cfg.feedback && state.cfg.feedback.endpoint || '').trim();
-      $('#fbSink').textContent = endpoint
-        ? '提交时会同时 POST 到 ' + endpoint + '，本地留一份备份。'
-        : '存在这台设备的浏览器里。在「架构 → 配置」里填后端地址后，会同时投到服务器。';
+      const sink = endpoint || ((state.cfg.feedback && state.cfg.feedback.endpoint) || '').trim();
+      const pullable = state.admin && N.isProxy && N.isProxy();
+      if ($('#fbPull')) $('#fbPull').hidden = !pullable;
+      $('#fbSink').textContent = sink
+        ? '提交会同时发到 ' + sink + '，本地留一份备份。'
+        : '只存在这台设备的浏览器里。部署到云端后会自动投到服务器。';
 
-      if (!items.length) {
+      const cloud = this.cloud || [];
+      if (!items.length && !cloud.length) {
         list.innerHTML = '<p class="fb-empty">还没有反馈。第一条可以写「我打开后第一件事想干什么」。</p>';
         return;
       }
@@ -284,7 +311,15 @@
            <p>${esc(f.body)}</p>
            ${f.contact ? `<div class="contact">联系：${esc(f.contact)}</div>` : ''}
          </div>`
-      )).join('');
+      )).join('') + (cloud.length ? (
+        '<div class="fb-sep">云端收到的 ' + cloud.length + ' 条</div>' + cloud.map((f) => (
+          `<div class="fb-item cloud">
+             <div class="top"><span class="type">${esc(f.type || '其他')}</span><span>${esc(String(f.ts || '').slice(0, 16).replace('T', ' '))}</span><span>云端</span></div>
+             <p>${esc(f.body)}</p>
+             ${f.contact ? `<div class="contact">联系：${esc(f.contact)}</div>` : ''}
+           </div>`
+        )).join('')
+      ) : '');
     }
   };
   N.views.feedback = feedback;
