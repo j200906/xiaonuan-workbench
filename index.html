@@ -7,8 +7,8 @@
 <meta name="description" content="一个可以对话、记笔记、收反馈的学习台。">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23b4553a'/%3E%3Ctext x='32' y='44' font-size='34' text-anchor='middle' fill='%23fff' font-family='serif'%3E%E6%9A%96%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="assets/theme.css?v=1.4.6">
-<link rel="stylesheet" href="assets/app.css?v=1.4.6">
+<link rel="stylesheet" href="assets/theme.css?v=1.4.7">
+<link rel="stylesheet" href="assets/app.css?v=1.4.7">
 </head>
 <body>
 
@@ -358,6 +358,7 @@
               <select id="setProvider">
                 <optgroup label="用自己的 API（推荐）">
                   <option value="custom">自定义（自己填地址和模型名）</option>
+                  <option value="gateway">自迭代模型（本机网关）</option>
                   <option value="deepseek">DeepSeek</option>
                   <option value="moonshot">Moonshot / Kimi</option>
                   <option value="openai">OpenAI</option>
@@ -464,22 +465,15 @@
         </article>
 
         <article class="card">
-          <header class="card-head"><h2>发布通道</h2><span class="card-meta" id="pubState">未配置</span></header>
-          <div class="grid-2">
-            <label class="field"><span class="label">仓库 owner</span><input id="pubOwner" type="text" placeholder="你的用户名"></label>
-            <label class="field"><span class="label">仓库名</span><input id="pubRepo" type="text" placeholder="xiaonuan-workbench"></label>
-          </div>
+          <header class="card-head"><h2>用哪个模型</h2><span class="card-meta" id="itModelMeta">自迭代模型</span></header>
           <label class="field">
-            <span class="label">GitHub Token（只存在本标签页，关掉就没）</span>
-            <input id="pubToken" type="password" placeholder="github_pat_… 需要 repo 权限" autocomplete="off">
+            <span class="label">模型</span>
+            <select id="itModel">
+              <option value="gateway">自迭代模型（本机网关）</option>
+              <option value="follow">跟随模型条所选</option>
+            </select>
           </label>
-          <label class="check"><input type="checkbox" id="pubDirect" checked><span>直接提交到 main（不建分支、不等你合并）</span></label>
-          <label class="check"><input type="checkbox" id="pubAutoMerge"><span>走 PR 时，验证通过就自动合并（只在没勾「直推」时生效）</span></label>
-          <div class="arch-btns">
-            <button class="btn sm" id="pubSave" type="button">保存</button>
-            <button class="btn ghost sm" id="pubClear" type="button">清除 Token</button>
-          </div>
-          <p class="card-note">Token 有仓库写权限，等于把仓库交给这个页面。放在本标签页、用完关掉，比存 localStorage 安全一点，但不是绝对安全。</p>
+          <p class="card-note">发布仓库锁在服务器（j200906/xiaonuan-workbench），这里不用再填。要真的提交，还得有 GitHub Token —— 在「设置 → 云端自迭代」里填。</p>
         </article>
 
         <article class="card wide">
@@ -502,14 +496,14 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="assets/version.js?v=1.4.6"></script>
-<script src="assets/changelog.js?v=1.4.6"></script>
-<script src="assets/persona.js?v=1.4.6"></script>
-<script src="assets/emotion.js?v=1.4.6"></script>
-<script src="assets/memory.js?v=1.4.6"></script>
-<script src="assets/tools.js?v=1.4.6"></script>
-<script src="assets/app.core.js?v=1.4.6"></script>
-<script src="assets/app.views.js?v=1.4.6"></script>
-<script src="assets/iterate.js?v=1.4.6"></script>
+<script src="assets/version.js?v=1.4.7"></script>
+<script src="assets/changelog.js?v=1.4.7"></script>
+<script src="assets/persona.js?v=1.4.7"></script>
+<script src="assets/emotion.js?v=1.4.7"></script>
+<script src="assets/memory.js?v=1.4.7"></script>
+<script src="assets/tools.js?v=1.4.7"></script>
+<script src="assets/app.core.js?v=1.4.7"></script>
+<script src="assets/app.views.js?v=1.4.7"></script>
+<script src="assets/iterate.js?v=1.4.7"></script>
 </body>
 </html>

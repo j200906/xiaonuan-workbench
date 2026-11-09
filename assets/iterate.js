@@ -718,6 +718,10 @@
     let token = '';
     try { token = sessionStorage.getItem(GH_TOKEN_KEY) || ''; } catch (e) {}
 
+    const pick = ($('#itModel') && $('#itModel').value) || 'gateway';
+    const meta = $('#itModelMeta');
+    if (meta) meta.textContent = pick === 'gateway' ? '自迭代模型' : '跟随模型条';
+
     IT.running = true;
     IT.stopped = false;
     IT.queue = [];
@@ -732,7 +736,7 @@
     if (!token) log('没填 GitHub Token：只能试运行，不会提交', 'warn');
 
     try {
-      const args = (N.iterateArgs ? N.iterateArgs() : {});
+      const args = (N.iterateArgs ? N.iterateArgs(pick) : {});
       const res = await fetch('api/iterate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -987,37 +991,7 @@
       $('#itTriage').addEventListener('click', triageOnly);
       $('#itDownload').addEventListener('click', downloadPatch);
 
-      const p = state.cfg.publish || {};
-      $('#pubOwner').value = p.owner || '';
-      $('#pubRepo').value = p.repo || '';
-      $('#pubAutoMerge').checked = !!p.autoMerge;
-      $('#pubDirect').checked = p.direct !== false;
-      try { $('#pubToken').value = sessionStorage.getItem(GH_TOKEN_KEY) || ''; } catch (e) {}
-
-      $('#pubSave').addEventListener('click', () => {
-        state.cfg.publish = {
-          owner: $('#pubOwner').value.trim(),
-          repo: $('#pubRepo').value.trim(),
-          autoMerge: $('#pubAutoMerge').checked,
-          direct: $('#pubDirect').checked
-        };
-        try {
-          const t = $('#pubToken').value.trim();
-          if (t) sessionStorage.setItem(GH_TOKEN_KEY, t);
-          else sessionStorage.removeItem(GH_TOKEN_KEY);
-        } catch (e) {}
-        N.saveConfig();
-        renderPubState();
-        toast('存下了');
-      });
-      $('#pubClear').addEventListener('click', () => {
-        try { sessionStorage.removeItem(GH_TOKEN_KEY); } catch (e) {}
-        $('#pubToken').value = '';
-        renderPubState();
-        toast('Token 已清掉');
-      });
-
-      renderPubState();
+      // 发布通道已锁在服务器，这里不再有可配置项
       renderQueue();
       renderResult();
       renderLog();
@@ -1026,7 +1000,7 @@
 
     onShow() {
       if (!state.admin) { N.switchView('settings'); return; }
-      renderPubState();
+      // 发布通道已锁在服务器，这里不再有可配置项
       renderQueue();
       renderResult();
       renderLog();
@@ -1038,6 +1012,7 @@
   function renderPubState() {
     const cfg = ghConfig();
     const el = $('#pubState');
+    if (!el) return;
     if (!el) return;
     el.textContent = cfg.token && cfg.owner && cfg.repo
       ? (cfg.direct ? '已配置 · 直推 main' : (cfg.autoMerge ? '已配置 · 自动合并' : '已配置 · 提 PR'))

@@ -651,6 +651,12 @@
   /* ============================================================
      设置
      ============================================================ */
+  // 本机网关（经 cloudflared 隧道）。隧道重启后地址会变，改这里或改用「自定义」。
+  const GATEWAY = {
+    base: 'https://eyed-permalink-unexpected-loops.trycloudflare.com/v1',
+    model: 'marvis/deepseek-v4-1-flash-261017'
+  };
+
   const PROVIDERS = {
     custom: {},
     deepseek: { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
@@ -658,6 +664,7 @@
     openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
     zhipu: { base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
     siliconflow: { base: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+    gateway: { base: GATEWAY.base, model: GATEWAY.model },
     cloud: { base: '/api', model: '云端自带' }
   };
 
@@ -670,7 +677,17 @@
     return /^https?:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])/i.test(String(u || ''));
   }
 
-  function iterateModelArgs() {
+  function iterateModelArgs(mode) {
+    if (mode === 'gateway') {
+      return {
+        apiKey: state.cfg.iterateKey || state.key || '',
+        providerBase: GATEWAY.base,
+        model: GATEWAY.model,
+        local: false,
+        gateway: true
+      };
+    }
+
     const model = state.cfg.tutor.model || '';
     const prov = state.cfg.tutor.provider || {};
     const base = prov.base || state.cfg.tutor.baseUrl || '';
@@ -811,6 +828,9 @@
       const provider = $('#setProvider').value;
       const base = $('#setBase').value.trim();
       const model = $('#setModel').value.trim();
+      if (provider === 'gateway' && key) {
+        state.cfg.iterateKey = key;   // 隧道钥匙，专供自迭代
+      }
       if (provider === 'cloud') {
         state.cfg.tutor.baseUrl = '/api';
         state.cfg.tutor.provider = { id: 'cloud', base: '' };
