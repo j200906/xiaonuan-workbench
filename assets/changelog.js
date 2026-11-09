@@ -1,6 +1,22 @@
 /* 版本记录。自动迭代新增的条目会写回这个文件。 */
 window.XN_CHANGELOG = [
 {
+  "version": "1.3.3",
+  "date": "2026-11-09",
+  "title": "模型条与真实用自己的 Key",
+  "fixes": [
+    "云端 Worker 无视你填的 API Key，永远用服务器自己的：现在优先用你带的 Key，并支持切到对应服务商",
+    "AI 生成的补丁可能写坏语法：加了重复定义与括号配平校验",
+    "新增推送后自动检查 JS 语法、坏了自动回滚的 guard 工作流"
+  ],
+  "features": [
+    "输入框右下角加了模型选择条，随时换模型",
+    "云端自迭代现在会同时升版本号、写更新日志、更新 README、建 release",
+    "release 创建后由 GitHub Actions 在 Windows 上自动打 exe 并挂上去"
+  ],
+  "source": "manual"
+},
+{
   "version": "1.3.2",
   "date": "2026-11-09",
   "title": "反馈真正汇总到云端",

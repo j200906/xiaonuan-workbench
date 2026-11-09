@@ -952,3 +952,23 @@ textarea.prompt {
   color: var(--ink-4);
 }
 .fb-item.cloud { border-left: 2px solid var(--accent); }
+
+/* 输入区右下角的模型条 */
+.model-pick { display: inline-flex; align-items: center; }
+.model-pick select {
+  max-width: 190px;
+  padding: 4px 22px 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: var(--panel);
+  color: var(--ink-3);
+  font-size: .74em;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-4) 50%), linear-gradient(135deg, var(--ink-4) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 52%, calc(100% - 8px) 52%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+.model-pick select:hover { color: var(--ink); border-color: var(--accent-line); }

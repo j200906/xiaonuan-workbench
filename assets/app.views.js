@@ -772,9 +772,11 @@
       const model = $('#setModel').value.trim();
       if (provider === 'cloud') {
         state.cfg.tutor.baseUrl = '/api';
+        state.cfg.tutor.provider = { id: 'cloud', base: '' };
       } else {
         if (base) state.cfg.tutor.baseUrl = base;
         if (model) state.cfg.tutor.model = model;
+        state.cfg.tutor.provider = { id: provider, base: state.cfg.tutor.baseUrl };
       }
       if (key) {
         state.key = key;
@@ -782,6 +784,7 @@
       }
       N.saveConfig();
       this.render();
+      if (N.renderModelPick) N.renderModelPick();
       if (shouldTest) this.test();
       else toast('存下了');
     },

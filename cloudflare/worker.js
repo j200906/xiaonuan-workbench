@@ -15,6 +15,30 @@ import { runIteration } from './iterate.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 
+const ALLOWED_HOSTS = [
+  'api.deepseek.com',
+  'api.moonshot.cn',
+  'api.openai.com',
+  'open.bigmodel.cn',
+  'api.siliconflow.cn'
+];
+
+function clientKey(request) {
+  const h = request.headers.get('Authorization') || '';
+  return h.replace(/^Bearer\s+/i, '').trim();
+}
+
+function safeBase(raw, fallback) {
+  try {
+    const u = new URL(String(raw));
+    if (u.protocol !== 'https:') return fallback;
+    if (ALLOWED_HOSTS.indexOf(u.hostname) < 0) return fallback;
+    return (u.origin + u.pathname).replace(/\/+$/, '');
+  } catch (e) {
+    return fallback;
+  }
+}
+
 const AI_MODEL = '@cf/zai-org/glm-4.7-flash';
 const AI_FALLBACK = '@cf/qwen/qwen3-30b-a3b-fp8';
 
@@ -67,7 +91,7 @@ export default {
 
     if (path === '/api/chat') {
       if (request.method !== 'POST') return json({ ok: false, error: '只接受 POST' }, 405);
-      if (hasUpstream(env)) return cors(await proxyChat(request, env));
+      if (clientKey(request) || hasUpstream(env)) return cors(await proxyChat(request, env));
       if (hasAI(env)) return cors(await aiChat(request, env));
       return json({ ok: false, error: '服务器没配模型：加一个 XN_API_KEY，或启用 AI 绑定' }, 503);
     }
@@ -116,7 +140,9 @@ async function proxyChat(request, env) {
     return json({ ok: false, error: 'messages 不对' }, 400);
   }
 
-  const base = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
+  const fallback = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
+  const base = safeBase(payload.providerBase, fallback);
+  const key = clientKey(request) || env.XN_API_KEY;
   const body = {
     model: payload.model || env.XN_MODEL || 'deepseek-chat',
     messages: payload.messages,
@@ -131,7 +157,7 @@ async function proxyChat(request, env) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + env.XN_API_KEY
+        'Authorization': 'Bearer ' + key
       },
       body: JSON.stringify(body)
     });

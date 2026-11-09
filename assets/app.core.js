@@ -374,6 +374,39 @@
     return '请求失败（' + status + '）。' + (detail ? String(detail).slice(0, 200) : '');
   }
 
+  var MODEL_BY_PROVIDER = {
+    deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+    moonshot: ['moonshot-v1-8k', 'moonshot-v1-32k', 'kimi-latest'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+    zhipu: ['glm-4-flash', 'glm-4-plus'],
+    siliconflow: ['deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct'],
+    custom: [],
+    cloud: ['云端自带']
+  };
+
+  function currentProvider() {
+    var p = state.cfg.tutor.provider;
+    if (p && p.id) return p.id;
+    return isProxy() ? 'cloud' : 'custom';
+  }
+
+  function renderModelPick() {
+    var sel = $('#modelPick');
+    if (!sel) return;
+    var prov = currentProvider();
+    var list = (MODEL_BY_PROVIDER[prov] || []).slice();
+    var cur = state.cfg.tutor.model || '';
+    if (cur && list.indexOf(cur) < 0) list.unshift(cur);
+    if (!list.length) list = [cur || '默认'];
+
+    sel.innerHTML = list.map(function (m) {
+      return '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>';
+    }).join('');
+    sel.disabled = prov === 'cloud';
+    sel.title = prov === 'cloud' ? '现在用的是云端自带模型，去设置里填自己的 Key 就能换' : '换模型';
+  }
+  N.renderModelPick = renderModelPick;
+
   function apiBase() { return String(state.cfg.tutor.baseUrl || '').trim().replace(/\/+$/, ''); }
   function isProxy() { return apiBase().charAt(0) === '/'; }
   function chatUrl() { return isProxy() ? apiBase() + '/chat' : apiBase() + '/chat/completions'; }
@@ -408,6 +441,9 @@
       stream: !!opts.stream
     };
     if (opts.maxTokens) body.max_tokens = opts.maxTokens;
+    if (proxy && key && state.cfg.tutor.provider && state.cfg.tutor.provider.base) {
+      body.providerBase = state.cfg.tutor.provider.base;
+    }
 
     var headers = { 'Content-Type': 'application/json' };
     if (key) headers['Authorization'] = 'Bearer ' + key;
@@ -971,6 +1007,13 @@
 
     $('#modelPill').addEventListener('click', function () { switchView('settings'); });
 
+    $('#modelPick').addEventListener('change', function () {
+      state.cfg.tutor.model = this.value;
+      saveConfig();
+      updateHeader();
+      toast('换成 ' + this.value);
+    });
+
     var input = $('#input');
     input.addEventListener('input', autoGrow);
     input.addEventListener('keydown', function (e) {
@@ -1016,6 +1059,9 @@
       var cfg = await res.json();
       if (cfg && cfg.proxy) {
         state.cfg.tutor.baseUrl = '/api';
+        if (!state.cfg.tutor.provider || !state.cfg.tutor.provider.id) {
+          state.cfg.tutor.provider = { id: 'cloud', base: '' };
+        }
         if (cfg.model) state.cfg.tutor.model = cfg.model;
         writeJSON(KEYS.cfg, state.cfg);
         state.autoProxy = true;
@@ -1062,6 +1108,7 @@
     await detectProxy();
     applyConfig();
     bind();
+    renderModelPick();
 
     if (N.views) {
       Object.keys(N.views).forEach(function (k) {
