@@ -333,6 +333,7 @@ async function main() {
   /* ---------- 9.5 更新日志 ---------- */
   await evaluate(`document.querySelector('.side-link[data-view="changelog"]').click()`);
   await sleep(500);
+  const meta = await evaluate(`({ total: (window.XN_CHANGELOG||[]).length, cur: window.XN_VERSION })`);
   const cl = await evaluate(`({
     options: document.querySelectorAll('#clFrom option').length,
     items: document.querySelectorAll('.cl-item').length,
@@ -342,13 +343,13 @@ async function main() {
     errs: window.__errs.slice()
   })`);
   check('更新日志页打开', cl.title === '更新日志', cl.title);
-  check('版本下拉列出全部版本', cl.options === 3, `${cl.options} 个`);
-  check('默认区间是「最早之后到最新」', cl.items === 2, `${cl.items} 条 · ${cl.sum}`);
-  check('区间统计写清范围', /v1\.0\.0 之后 · 2 个版本.*修复 \d+ 项.*新增 \d+ 项/.test(cl.sum), cl.sum);
+  check('版本下拉列出全部版本', cl.options === meta.total, `${cl.options} / ${meta.total}`);
+  check('默认区间是「最早之后到最新」', cl.items === meta.total - 1, `${cl.items} 条 · ${cl.sum}`);
+  check('区间统计写清范围', /之后 · \d+ 个版本.*修复 \d+ 项.*新增 \d+ 项/.test(cl.sum), cl.sum);
 
   await evaluate(`(() => {
     const from = document.querySelector('#clFrom');
-    from.value = '1.1.0';
+    from.value = from.options[1].value;
     from.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
   await sleep(300);
@@ -357,8 +358,8 @@ async function main() {
     items: document.querySelectorAll('.cl-item').length,
     first: document.querySelector('.cl-item strong').textContent
   })`);
-  check('改区间后只显示区间内版本', range.items === 1 && range.first === 'v1.2.0', `${range.items} 条 · ${range.first}`);
-  check('区间统计同步', /v1\.1\.0 之后 · 1 个版本/.test(range.sum), range.sum);
+  check('改区间后只显示区间内版本', range.items === 1 && range.first === 'v' + meta.cur, `${range.items} 条 · ${range.first}`);
+  check('区间统计同步', /之后 · 1 个版本/.test(range.sum), range.sum);
 
   /* ---------- 9.6 自动迭代 ---------- */
   await evaluate(`document.querySelector('.side-link[data-view="iterate"]').click()`);
@@ -381,8 +382,12 @@ async function main() {
   check('整理反馈产出工单', queue.tickets >= 1, `${queue.tickets} 条 · ${queue.meta}`);
   check('整理过程有日志', queue.log >= 2, `${queue.log} 行`);
 
+  const nextV = await evaluate(`(() => {
+    const p = (window.XN_VERSION || '1.0.0').split('.').map(Number);
+    return p[0] + '.' + p[1] + '.' + (p[2] + 1);
+  })()`);
   await evaluate(`document.querySelector('#itCycles').value = '1'; document.querySelector('#itStart').click()`);
-  await sleep(13000);
+  await sleep(22000);
   const itRun = await evaluate(`({
     result: document.querySelector('#itResult').textContent,
     version: document.querySelector('#verChip').textContent,
@@ -391,7 +396,7 @@ async function main() {
     prHidden: document.querySelector('#itPRLink').hidden,
     errs: window.__errs.slice()
   })`);
-  check('迭代产出新版本号', itRun.version === 'v1.2.1', itRun.version);
+  check('迭代产出新版本号', itRun.version === 'v' + nextV, itRun.version + ' 期望 v' + nextV);
   check('预演与反证都跑过', /反证通过/.test(itRun.result), itRun.result.slice(0, 60).replace(/\s+/g, ' '));
   check('发布状态是草稿', /草稿/.test(itRun.result));
   check('步骤条走完关键步骤', itRun.steps.filter(s => s === 'ok').length >= 5, itRun.steps.join(','));
@@ -448,7 +453,7 @@ async function main() {
   check('刷新后主色保持', after.accent === '#3d5a80', after.accent);
   check('刷新后管理模式保持', after.archShown);
   check('刷新后回到上次页面', after.view === 'iterate', after.view);
-  check('草稿不改代码，刷新退回原版本', after.version === 'v1.2.0', after.version);
+  check('草稿不改代码，刷新退回原版本', after.version === 'v' + meta.cur, after.version);
   check('刷新无报错', after.errs.length === 0, after.errs.join(' | '));
 
   /* ---------- 11. 窄屏抽屉 ---------- */

@@ -91,6 +91,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
 
+        if path == "/api/config":
+            # 给前端一个信号：这台服务器自带 Key，可以直接走 /api 代理
+            self._json(200, {"proxy": bool(API_KEY), "model": DEFAULT_MODEL})
+            return
+
         if path == "/api/health":
             self._json(200, {"ok": True, "model": DEFAULT_MODEL, "hasKey": bool(API_KEY)})
             return

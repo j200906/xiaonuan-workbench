@@ -995,7 +995,25 @@
   }
 
   /* ---------- 启动 ---------- */
-  function boot() {
+  async function detectProxy() {
+    try {
+      if (storedKey()) return;
+      if (state.cfg.tutor.baseUrl !== defaultConfig().tutor.baseUrl) return;
+      var host = location.hostname;
+      if (host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '') return;
+      var res = await fetch('api/config', { cache: 'no-store' });
+      if (!res.ok) return;
+      var cfg = await res.json();
+      if (cfg && cfg.proxy) {
+        state.cfg.tutor.baseUrl = '/api';
+        if (cfg.model) state.cfg.tutor.model = cfg.model;
+        writeJSON(KEYS.cfg, state.cfg);
+        state.autoProxy = true;
+      }
+    } catch (e) { /* 没有后端就当没这回事 */ }
+  }
+
+  async function boot() {
     var saved = readJSON(KEYS.cfg, null);
     state.cfg = saved ? mergeConfig(defaultConfig(), saved) : defaultConfig();
     state.cfg.nav = (state.cfg.nav || []).filter(function (n) { return n.id !== 'chat'; });
@@ -1031,6 +1049,7 @@
 
     try { state.admin = sessionStorage.getItem(KEYS.admin) === '1'; } catch (e) {}
 
+    await detectProxy();
     applyConfig();
     bind();
 

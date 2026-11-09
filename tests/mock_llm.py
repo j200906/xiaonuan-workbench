@@ -70,8 +70,8 @@ class H(BaseHTTPRequestHandler):
                 "notTried": "真机多浏览器",
                 "patches": [{
                     "file": "index.html",
-                    "find": "<p class=\"disclaimer\">小暖会犯错。重要的事，自己再核一遍。</p>",
-                    "replace": "<p class=\"disclaimer\">小暖会犯错。重要的结论，自己再核一遍。</p>",
+                    "find": "</body>\n</html>",
+                    "replace": "<!-- xn-selftest -->\n</body>\n</html>",
                 }],
             })
 

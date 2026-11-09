@@ -620,7 +620,15 @@
     setStep('plan', 'ok');
     setStep('verify', 'run');
 
-    const released = applyPlan(IT.sources, plan);
+    let released;
+    try {
+      released = applyPlan(IT.sources, plan);
+    } catch (e) {
+      setStep('plan', 'fail');
+      ticket.status = 'failed';
+      renderQueue();
+      return { ok: false, reason: e.message };
+    }
     log('应用方式：' + (released.mode === 'rewrite' ? '整份重写' : '逐处替换') + '，动到 ' + released.touched.length + ' 个文件');
     const v = nextVersion(plan.version);
     log('版本：' + (window.XN_VERSION || '?') + ' → ' + v);
@@ -765,7 +773,15 @@
         next.status = 'doing';
         renderQueue();
         log(`第 ${i + 1} 轮：${next.title}`);
-        const r = await runOne(next, feedback.length);
+        let r;
+        try {
+          r = await runOne(next, feedback.length);
+        } catch (e) {
+          next.status = 'failed';
+          renderQueue();
+          setStep('plan', 'fail');
+          r = { ok: false, reason: e.message || String(e) };
+        }
         if (!r.ok) { log('这一轮没过：' + r.reason, 'fail'); }
         else done++;
         await new Promise((res) => setTimeout(res, 300));
@@ -809,6 +825,8 @@
   }
 
   N.IT.applyPlan = applyPlan;
+  N.IT.previewCheck = previewCheck;
+  N.IT.loadSources = loadSources;
 
   /* ---------- 渲染 ---------- */
   function renderQueue() {
