@@ -45,27 +45,6 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-def _load_env_file():
-    """本地启动时读 .env；命令行已有的变量优先。"""
-    path = Path(os.environ.get("XN_ENV_FILE") or (Path(__file__).resolve().parent.parent / ".env"))
-    try:
-        if not path.is_file():
-            return
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip().strip("'\"")
-            if key and key not in os.environ:
-                os.environ[key] = value
-    except OSError:
-        pass
-
-
-_load_env_file()
-
 BASE_DIR = Path(os.environ.get("XN_ROOT") or Path(__file__).resolve().parent.parent).resolve()
 DATA_DIR = Path(os.environ.get("XN_DATA_DIR") or (BASE_DIR / "data")).resolve()
 UPSTREAM = (os.environ.get("XN_BASE") or "https://api.deepseek.com/v1").rstrip("/")
@@ -79,7 +58,6 @@ EXTRA_HOSTS = [x.strip().lower() for x in (os.environ.get("XN_EXTRA_HOSTS") or "
 REPO_OWNER = (os.environ.get("XN_REPO_OWNER") or "").strip()
 REPO_NAME = (os.environ.get("XN_REPO_NAME") or "").strip()
 AUTO_COMMIT = os.environ.get("XN_AUTO_COMMIT") == "1"
-LOCAL_UPSTREAM = bool(re.match(r"^http://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?", UPSTREAM))
 
 ALLOWED_HOSTS = {
     "api.deepseek.com", "api.moonshot.cn", "api.openai.com",
@@ -377,20 +355,16 @@ def fetch_page(target):
 
 def call_model(messages, max_tokens=3000, api_key=None, base=None, model=None):
     key = (api_key or API_KEY or "").strip()
-    endpoint = safe_base(base, UPSTREAM, allow_local=True)
-    is_local = bool(re.match(r"^http://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?", endpoint))
-    if not key and not is_local:
+    if not key:
         raise HttpError(503, "没有模型 Key：设置 XN_API_KEY，或在页面里填自己的 Key")
+    endpoint = safe_base(base, UPSTREAM, allow_local=True)
     use_model = model or DEFAULT_MODEL
-    payload = {
+    body = json.dumps({
         "model": use_model,
         "messages": messages,
         "temperature": 0.2,
         "max_tokens": max_tokens,
-    }
-    if re.match(r"^(marvis/|.*deepseek-v4)", use_model, re.I):
-        payload["reasoning_effort"] = "low"
-    body = json.dumps(payload).encode("utf-8")
+    }).encode("utf-8")
     req = urllib.request.Request(
         endpoint + "/chat/completions", data=body,
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
@@ -470,15 +444,14 @@ def forbidden(text):
 
 def balance(src):
     s = str(src or "")
-    stack, tpl, mode, quote, last = [], 0, "code", "", ""
-    in_class = False
+    stack, tpl, mode, quote = [], 0, "code", ""
     i = 0
     while i < len(s):
         ch = s[i]
         nxt = s[i + 1] if i + 1 < len(s) else ""
         if mode == "line":
             if ch == "\n":
-                mode, last = "code", ""
+                mode = "code"
             i += 1
             continue
         if mode == "block":
@@ -492,26 +465,7 @@ def balance(src):
                 i += 2
                 continue
             if ch == quote:
-                mode, last = "code", "x"
-            i += 1
-            continue
-        if mode == "regex":
-            if ch == "\\":
-                i += 2
-                continue
-            if ch == "[":
-                in_class = True
-                i += 1
-                continue
-            if ch == "]":
-                in_class = False
-                i += 1
-                continue
-            if ch == "/" and not in_class:
-                mode, last, i = "code", "x", i + 1
-                while i < len(s) and s[i].isalpha():
-                    i += 1
-                continue
+                mode = "code"
             i += 1
             continue
         if mode == "tpl":
@@ -519,7 +473,7 @@ def balance(src):
                 i += 2
                 continue
             if ch == "`":
-                mode, last, i = "code", "x", i + 1
+                mode, i = "code", i + 1
                 continue
             if ch == "$" and nxt == "{":
                 tpl += 1
@@ -534,9 +488,6 @@ def balance(src):
         if ch == "/" and nxt == "*":
             mode, i = "block", i + 2
             continue
-        if ch == "/" and (last == "" or last in "([{=,:;!&|?+-*%<>~^"):
-            mode, in_class, i = "regex", False, i + 1
-            continue
         if ch in ("'", '"'):
             mode, quote, i = "str", ch, i + 1
             continue
@@ -545,7 +496,6 @@ def balance(src):
             continue
         if ch in "([{":
             stack.append(ch)
-            last = ch
             i += 1
             continue
         if ch in ")]}":
@@ -564,16 +514,11 @@ def balance(src):
                     mode, i = "tpl", i + 1
                     continue
                 return False, "括号不匹配：%s 对上了 %s" % (top, ch)
-            last = ch
             i += 1
             continue
-        if not ch.isspace():
-            last = ch
         i += 1
     if mode == "str":
         return False, "字符串没有闭合"
-    if mode == "regex":
-        return False, "正则没有闭合"
     if mode == "block":
         return False, "块注释没有闭合"
     if mode == "tpl" or tpl:
@@ -581,6 +526,7 @@ def balance(src):
     if stack:
         return False, "还有 %d 个括号没闭合" % len(stack)
     return True, ""
+
 
 def defs_in(code):
     out = []
@@ -1143,9 +1089,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/config":
                 self._json(200, {
-                    "proxy": bool(API_KEY) or LOCAL_UPSTREAM,
-                    "local": LOCAL_UPSTREAM,
-                    "backend": "upstream" if API_KEY else ("local" if LOCAL_UPSTREAM else "none"),
+                    "proxy": bool(API_KEY),
+                    "backend": "upstream" if API_KEY else "none",
                     "model": DEFAULT_MODEL,
                     "models": [],
                     "gateway": {"base": GATEWAY_BASE, "model": GATEWAY_MODEL},
@@ -1158,8 +1103,7 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if path == "/api/health":
-                self._json(200, {"ok": True, "model": DEFAULT_MODEL, "hasKey": bool(API_KEY),
-                                  "local": LOCAL_UPSTREAM, "version": "1.5.1"})
+                self._json(200, {"ok": True, "model": DEFAULT_MODEL, "hasKey": bool(API_KEY), "version": "1.5.0"})
                 return
             if path == "/api/admin/check":
                 ok = self._admin()
@@ -1229,11 +1173,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        hashed = "?v=" in (self.path or "")
-        if clean.endswith(".html") or not hashed:
-            self.send_header("Cache-Control", "no-cache")
-        else:
-            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.send_header("Cache-Control", "no-cache" if clean.endswith(".html") else "public, max-age=300, must-revalidate")
         for k, v in SECURITY_HEADERS.items():
             self.send_header(k, v)
         self.end_headers()
@@ -1290,11 +1230,11 @@ class Handler(BaseHTTPRequestHandler):
         auth = self.headers.get("Authorization") or ""
         client_key = auth.replace("Bearer ", "", 1).strip() if auth else ""
         key = client_key or API_KEY
-        if not key and not LOCAL_UPSTREAM:
+        if not key:
             raise HttpError(503, "服务端没配 XN_API_KEY，请自带 Key 或先用本地模式")
 
         model = str(payload.get("model") or DEFAULT_MODEL)
-        if not client_key and not LOCAL_UPSTREAM:
+        if not client_key:
             allowed = [x.strip() for x in (os.environ.get("XN_ALLOWED_MODELS") or DEFAULT_MODEL).split(",") if x.strip()]
             if model not in allowed:
                 raise HttpError(403, "服务器只允许使用 " + "、".join(allowed))
@@ -1319,13 +1259,10 @@ class Handler(BaseHTTPRequestHandler):
             body["tools"] = payload["tools"]
             body["tool_choice"] = "auto"
 
-        headers = {"Content-Type": "application/json"}
-        if key:
-            headers["Authorization"] = "Bearer " + key
         req = urllib.request.Request(
             base + "/chat/completions",
             data=json.dumps(body).encode("utf-8"),
-            headers=headers,
+            headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
             method="POST",
         )
 

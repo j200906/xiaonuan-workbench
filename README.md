@@ -8,11 +8,10 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.5.1**
+当前版本 **v1.5.0**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
-- **v1.5.1** 本地版能用了：人格可见、网关直连、迭代写本地
 - **v1.5.0** 100 条体检全部处理
 <!-- /XN:RECENT -->
 
@@ -36,27 +35,13 @@
 
 ### 2. 本机跑（带后端、可自迭代）
 
-Windows 双击 **`start-local.bat`**；macOS / Linux 跑 **`./start-local.sh`**。
-
-它会：
-
-- 问你一次本机管理密码（只存在本次进程）
-- 把模型接到本机 magpie 网关 `http://127.0.0.1:3425/v1`
-- 启动后端并自动打开 `http://127.0.0.1:8080`
-
-也可以用 `.env` / 环境变量自己起：
-
 ```bash
-XN_ADMIN_PASSWORD=你的密码 \
-XN_BASE=http://127.0.0.1:3425/v1 \
-XN_MODEL=marvis/deepseek-v4-1-flash-261017 \
-XN_GATEWAY_BASE=http://127.0.0.1:3425/v1 \
-XN_GATEWAY_MODEL=marvis/deepseek-v4-1-flash-261017 \
 python server/app.py --port 8080
+# 打开 http://127.0.0.1:8080
 ```
 
-本机 3425 网关不需要 Key；浏览器不能直连它（没有 CORS），所以必须经过这个本地后端。
-本地模式的迭代会直接改工作区，改前自动备份到 `data/backups/`，不需要 GitHub Token。
+不配 `XN_API_KEY` 也能打开页面，聊天会要求你填自己的 Key。
+本机后端和云端功能对齐：聊天代理、联网搜索、抓网页、反馈、管理员令牌、本地自迭代。
 
 ### 3. Windows 桌面版
 

@@ -131,15 +131,11 @@ async function askModel(env, opts, system, user, maxTokens) {
       const res = await fetch(base + '/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + opts.apiKey },
-        body: JSON.stringify(Object.assign(
-          { model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 },
-          /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: 'low' } : {}
-        )),
+        body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 }),
         signal: ctrl.signal,
-        redirect: 'manual'
+        redirect: 'error'
       });
       const text = await res.text();
-      if (res.status >= 300 && res.status < 400) throw new Error('模型网关返回了重定向，已拒绝跟随');
       if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + text.slice(0, 180));
       let data;
       try { data = JSON.parse(text); } catch (e) { throw new Error('模型返回的不是 JSON'); }

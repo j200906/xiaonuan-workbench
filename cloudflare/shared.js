@@ -133,7 +133,7 @@ async function resolvePublic(host) {
     const res = await fetch('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(host) + '&type=A', {
       headers: { accept: 'application/dns-json' },
       signal: ctrl.signal,
-      redirect: 'manual'
+      redirect: 'error'
     });
     clearTimeout(timer);
     if (res.ok) {

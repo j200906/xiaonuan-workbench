@@ -5,10 +5,6 @@
 ## 0. 本机先跑通
 
 ```bash
-# 最省事：Windows 双击 start-local.bat；mac/Linux 跑 ./start-local.sh
-# 它会问管理密码、接本机 3425 magpie、启动后端并开浏览器。
-
-# 或者手动：
 cp .env.example .env        # 至少填 XN_ADMIN_PASSWORD
 python server/app.py --port 8080
 npm run check && npm test && npm run smoke

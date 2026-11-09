@@ -154,16 +154,3 @@ npm run check            通过     37 个脚本语法、22 个资源引用、�
 | GitHub Release | ✅ v1.5.0 | `XiaoNuan.exe` 12.2 MB + `.sha256`，Actions 打包 |
 | GitHub Actions 校验 | ✅ | 「校验与护栏」成功（lint、语法、单测、冒烟、Worker） |
 | Cloudflare Pages | ✅ v1.5.0 | 已用 Direct Upload 推送；`/api/health` 返回 workers-ai，管理解锁与 SSRF 拦截线上验证通过 |
-
----
-
-## v1.5.1 追加修复（本地版可用）
-
-- 设置页不再显示空白人设：直接填当前真正发给模型的那份（含记忆、目标、时间、情绪），并标注「动态拼装 / 自定义」。
-- 本地后端支持 `.env`、无 Key 的本机 `3425` 网关；本地模式跳过仓库锁和 GitHub Token。
-- 本地迭代改前备份到 `data/backups/`，改后写回工作区；结果里显示备份路径。
-- `magpie/deepseek-v4` 请求自动加 `reasoning_effort=low`，正文不再被思考吃光。
-- 补丁括号扫描识别正则字面量：`/[a-z0-9_']+/g` 里的单引号不会再被误判成字符串。
-- Workers 的 `redirect: 'error'` 改为 `manual`；Cloudflare 不再因这个值拒绝网关请求。
-- 新增 `start-local.bat` / `start-local.sh`：问一次管理密码、接 3425、自动开浏览器。
-- 云端已配置 `XN_GATEWAY_BASE` / `XN_GATEWAY_MODEL` / `XN_GH_TOKEN`，线上自迭代走本机网关试运行通过。

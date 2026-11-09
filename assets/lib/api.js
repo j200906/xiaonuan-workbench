@@ -96,16 +96,13 @@
   }
 
   function buildBody(messages, opts) {
-    var model = opts.model || cfg().model || 'deepseek-chat';
     var body = {
-      model: model,
+      model: opts.model || cfg().model || 'deepseek-chat',
       messages: messages,
       temperature: opts.temperature != null ? opts.temperature : (cfg().temperature != null ? cfg().temperature : 0.8),
       stream: !!opts.stream
     };
     if (opts.maxTokens) body.max_tokens = opts.maxTokens;
-    /* magpie/deepseek-v4 默认会把额度全花在 reasoning 上，正文为空；降到 low。 */
-    if (/^(marvis\/|.*deepseek-v4)/i.test(model)) body.reasoning_effort = 'low';
     if (opts.tools && opts.tools.length) {
       body.tools = opts.tools;
       body.tool_choice = opts.tool_choice || 'auto';

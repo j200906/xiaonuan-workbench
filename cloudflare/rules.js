@@ -26,39 +26,23 @@ export function balance(src) {
   let tpl = 0;
   let mode = 'code';
   let quote = '';
-  let last = '';
-  let inClass = false;
   let i = 0;
 
   while (i < s.length) {
     const ch = s.charAt(i);
     const next = s.charAt(i + 1);
 
-    if (mode === 'line') { if (ch === '\n') { mode = 'code'; last = ''; } i++; continue; }
+    if (mode === 'line') { if (ch === '\n') mode = 'code'; i++; continue; }
     if (mode === 'block') { if (ch === '*' && next === '/') { mode = 'code'; i += 2; continue; } i++; continue; }
     if (mode === 'str') {
       if (ch === '\\') { i += 2; continue; }
-      if (ch === quote) { mode = 'code'; last = 'x'; }
-      i++;
-      continue;
-    }
-    if (mode === 'regex') {
-      if (ch === '\\') { i += 2; continue; }
-      if (ch === '[') { inClass = true; i++; continue; }
-      if (ch === ']') { inClass = false; i++; continue; }
-      if (ch === '/' && !inClass) {
-        mode = 'code';
-        last = 'x';
-        i++;
-        while (/[a-z]/i.test(s.charAt(i))) i++;
-        continue;
-      }
+      if (ch === quote) mode = 'code';
       i++;
       continue;
     }
     if (mode === 'tpl') {
       if (ch === '\\') { i += 2; continue; }
-      if (ch === '`') { mode = 'code'; last = 'x'; i++; continue; }
+      if (ch === '`') { mode = 'code'; i++; continue; }
       if (ch === '$' && next === '{') {
         tpl++;
         stack.push('${');
@@ -72,17 +56,10 @@ export function balance(src) {
 
     if (ch === '/' && next === '/') { mode = 'line'; i += 2; continue; }
     if (ch === '/' && next === '*') { mode = 'block'; i += 2; continue; }
-    /* 正则字面量：出现在 = ( [ { , : ; ! & | ? + - * % < > ~ ^ 之后 */
-    if (ch === '/' && (last === '' || '([{=,:;!&|?+-*%<>~^'.indexOf(last) >= 0)) {
-      mode = 'regex';
-      inClass = false;
-      i++;
-      continue;
-    }
     if (ch === "'" || ch === '"') { mode = 'str'; quote = ch; i++; continue; }
     if (ch === '`') { mode = 'tpl'; i++; continue; }
 
-    if (ch === '(' || ch === '[' || ch === '{') { stack.push(ch); last = ch; i++; continue; }
+    if (ch === '(' || ch === '[' || ch === '{') { stack.push(ch); i++; continue; }
     if (ch === ')' || ch === ']' || ch === '}') {
       const want = ch === ')' ? '(' : (ch === ']' ? '[' : '{');
       if (!stack.length) {
@@ -94,16 +71,13 @@ export function balance(src) {
         if (top === '${' && ch === '}') { tpl--; mode = 'tpl'; i++; continue; }
         return { ok: false, reason: '括号不匹配：' + top + ' 对上了 ' + ch };
       }
-      last = ch;
       i++;
       continue;
     }
-    if (!/\s/.test(ch)) last = ch;
     i++;
   }
 
   if (mode === 'str') return { ok: false, reason: '字符串没有闭合' };
-  if (mode === 'regex') return { ok: false, reason: '正则没有闭合' };
   if (mode === 'block') return { ok: false, reason: '块注释没有闭合' };
   if (mode === 'tpl' || tpl > 0) return { ok: false, reason: '模板字符串没有闭合' };
   if (stack.length) return { ok: false, reason: '还有 ' + stack.length + ' 个括号没闭合' };

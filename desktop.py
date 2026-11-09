@@ -45,7 +45,7 @@ def app_version():
     try:
         text = (APP_ROOT / "assets" / "changelog.js").read_text(encoding="utf-8")
         m = re.search(r'"version"\s*:\s*"([^"]+)"', text)
-        return m.group(1) if m else "1.5.1"
+        return m.group(1) if m else "1.5.0"
     except OSError:
         return "1.5.0"
 

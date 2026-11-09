@@ -169,8 +169,8 @@ export default {
         if (!sameOrigin(request, env)) return json({ ok: false, error: '来源不允许' }, 403, request, env);
         const token = bearer(request);
         if (!(await verifyToken(env, token))) return json({ ok: false, error: '管理员会话无效，请重新解锁' }, 401, request, env);
-        const rl = await rateLimit(env, 'iterate', clientIp(request), 10, 3600, true);
-        if (!rl.ok) return json({ ok: false, error: '迭代太频繁（10 次/小时）' }, 429, request, env);
+        const rl = await rateLimit(env, 'iterate', clientIp(request), 3, 3600, true);
+        if (!rl.ok) return json({ ok: false, error: '迭代太频繁（3 次/小时）' }, 429, request, env);
         let payload;
         try { payload = await readJson(request, 524288); }
         catch (e) { return json({ ok: false, error: e.message }, e.status || 400, request, env); }
@@ -227,9 +227,7 @@ export default {
         headers.set('Cache-Control', 'no-cache');
       } else {
         headers.set('X-Content-Type-Options', 'nosniff');
-        headers.set('Cache-Control', url.searchParams.get('v')
-          ? 'public, max-age=31536000, immutable'
-          : 'no-cache');
+        headers.set('Cache-Control', 'public, max-age=300, must-revalidate');
       }
       return new Response(asset.body, { status: asset.status, headers });
     } catch (e) {
@@ -401,7 +399,6 @@ async function proxyChat(request, env) {
     stream: !!payload.stream
   };
   if (payload.max_tokens) body.max_tokens = Math.max(1, Math.min(8192, Number(payload.max_tokens) || 1024));
-  if (/^(marvis\/|.*deepseek-v4)/i.test(model)) body.reasoning_effort = 'low';
   if (Array.isArray(payload.tools) && payload.tools.length && payload.tools.length <= 20) {
     body.tools = payload.tools;
     body.tool_choice = 'auto';
@@ -416,14 +413,10 @@ async function proxyChat(request, env) {
         'Authorization': 'Bearer ' + key
       },
       body: JSON.stringify(body),
-      redirect: 'manual'
+      redirect: 'error'
     });
   } catch (e) {
     return jsonResponse({ ok: false, error: '连不上上游：' + e.message }, 502);
-  }
-
-  if (upstream.status >= 300 && upstream.status < 400) {
-    return jsonResponse({ ok: false, error: '上游返回了重定向，已拒绝跟随' }, 502);
   }
 
   const headers = new Headers();

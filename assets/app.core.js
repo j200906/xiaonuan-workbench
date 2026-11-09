@@ -78,7 +78,6 @@
     emoCalls: 0,
     cloudRepo: null,
     autoProxy: false,
-    localMode: false,
     gatewayKey: '',
     lastOwnProvider: null
   };
@@ -1109,7 +1108,6 @@
     var cfg = await API.fetchConfig();
     if (!cfg) return;
 
-    state.localMode = !!cfg.local;
     if (cfg.repo) state.cloudRepo = cfg.repo;
     if (cfg.gateway && cfg.gateway.base) {
       M.setRuntime({ gatewayBase: cfg.gateway.base, gatewayModel: cfg.gateway.model || '' });
@@ -1231,7 +1229,6 @@
   XN.viewMeta = VIEW_META;
   XN.resolvedTheme = resolvedTheme;
   XN.maybeConsolidate = maybeConsolidate;
-  XN.systemPromptFor = systemPromptFor;
 
   /* 旧代码兼容 */
   XN.md = MD.render;
