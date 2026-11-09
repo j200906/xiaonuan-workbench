@@ -42,7 +42,7 @@ ALLOW = {
     ("GET", "/v1/models"),
 }
 
-MAX_BODY = 256 * 1024         # 256KB，长上下文也够
+MAX_BODY = 2 * 1024 * 1024    # 2MB：云端自迭代会带代码摘要，中文按 UTF-8 算字节
 WINDOW = 60                   # 限速窗口（秒）
 MAX_PER_WINDOW = 60           # 每个来源 IP 每窗口最多请求数
 GLOBAL_PER_WINDOW = 240       # 全局保险丝，防止换 IP 绕过

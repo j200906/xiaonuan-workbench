@@ -1,5 +1,22 @@
-/* 版本记录（最近 8 条）。自动迭代会写回这里，超过 12 条自动移入 changelog.archive.js。 */
+/* 版本记录（最近 9 条）。自动迭代会写回这里，超过 12 条自动移入 changelog.archive.js。 */
 window.XN_CHANGELOG = [
+  {
+    "version": "1.5.1",
+    "date": "2026-11-09",
+    "title": "本地版能用了：人格可见、网关直连、迭代写本地",
+    "fixes": [
+      "设置页人设不再空白：直接显示当前真正发给模型的那份（含记忆、目标、时间、情绪）",
+      "本机后端支持 .env 与无 Key 的本机 3425 网关；本地模式跳过仓库锁和 GitHub Token",
+      "本地迭代改完先备份到 data/backups/，再写回工作区",
+      "magpie/deepseek-v4 请求加 reasoning_effort=low，正文不再被思考吃光",
+      "修复本机网关判断正则被转义写坏、导致本地模式失效的问题"
+    ],
+    "features": [
+      "start-local.bat / start-local.sh 一键启动本地版：设管理密码、连 3425、自动开浏览器"
+    ],
+    "source": "manual",
+    "notes": "Cloudflare 仍是云端模式；要用本机网关和本地迭代，请用 start-local 启动。"
+  },
   {
     "version": "1.5.0",
     "date": "2026-11-09",

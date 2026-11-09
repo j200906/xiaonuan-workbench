@@ -4,13 +4,14 @@
  */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { mkdtemp, rm, access } from 'node:fs/promises';
+import { mkdtemp, rm, access, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PASSWORD = 'ui-admin';
+const PKG = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 
 const BROWSERS = [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
@@ -65,8 +66,9 @@ const mock = spawn('python', ['tests/mock_llm.py'], {
   env: Object.assign({}, process.env, { MOCK_PORT: String(mockPort), MOCK_KEY: 'ui-key' })
 });
 
+let appLog = '';
 const app = spawn('python', ['server/app.py', '--port', String(appPort)], {
-  cwd: root, stdio: 'ignore', windowsHide: true,
+  cwd: root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
   env: Object.assign({}, process.env, {
     XN_BASE: `http://127.0.0.1:${mockPort}/v1`,
     XN_API_KEY: 'ui-key',
@@ -75,6 +77,9 @@ const app = spawn('python', ['server/app.py', '--port', String(appPort)], {
     XN_DATA_DIR: dataDir
   })
 });
+
+app.stdout.on('data', (d) => { appLog += String(d); });
+app.stderr.on('data', (d) => { appLog += String(d); });
 
 const browser = spawn(await findBrowser(), [
   '--headless=new',
@@ -118,7 +123,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 try {
   const appReady = await waitHttp(`http://127.0.0.1:${appPort}/api/health`);
-  if (!appReady) throw new Error('后端没起来');
+  if (!appReady) throw new Error('后端没起来\n' + appLog.slice(-1200));
 
   let target = null;
   for (let i = 0; i < 60 && !target; i++) {
@@ -165,7 +170,7 @@ try {
     side: document.querySelectorAll('.side-link').length,
     chat: !document.querySelector('#view-chat').hidden
   })`);
-  check('页面启动', boot.ready && boot.version === '1.5.0', 'version=' + boot.version);
+  check('页面启动', boot.ready && boot.version === PKG.version, 'version=' + boot.version);
   check('代理模式自动识别', boot.proxy === true);
   check('五个视图注册 + 侧栏 6 个入口', boot.views === 5 && boot.side === 6, `${boot.views}/${boot.side}`);
   check('对话页默认可见', boot.chat);
@@ -188,6 +193,9 @@ try {
   })`);
   check('设置页控件齐全', settings.rows === 4 && settings.providers >= 7 && settings.locales === 2,
     JSON.stringify(settings));
+  const persona = await evaluate(`({ len: document.querySelector('#ctlPrompt').value.length, has: document.querySelector('#ctlPrompt').value.includes('小暖'), meta: document.querySelector('#promptMeta').textContent })`);
+  check('人格可见', persona.len > 500 && persona.has && persona.meta.includes('动态'),
+    JSON.stringify(persona));
 
   await evaluate(`window.XN.switchView('chat')`);
   await evaluate(`document.querySelector('#modelPickTrigger').click()`);

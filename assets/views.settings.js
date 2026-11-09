@@ -138,15 +138,19 @@
       if (ci) ci.hidden = !state.admin;
       var lock = state.cloudRepo || {};
       if ($('#ciOwner')) {
-        $('#ciOwner').value = lock.locked ? (lock.owner + ' / ' + lock.name) : '未锁定';
+        $('#ciOwner').value = state.localMode
+          ? '本地工作区（直接写文件）'
+          : (lock.locked ? (lock.owner + ' / ' + lock.name) : '未锁定');
         $('#ciOwner').readOnly = true;
       }
       if ($('#ciRepo')) $('#ciRepo').hidden = true;
-      if ($('#ciTokenRow')) $('#ciTokenRow').hidden = !!lock.serverToken;
+      if ($('#ciTokenRow')) $('#ciTokenRow').hidden = state.localMode || !!lock.serverToken;
       if ($('#ciLockNote')) {
-        $('#ciLockNote').textContent = lock.locked
-          ? (lock.serverToken ? '仓库和 Token 都在服务器上，这里不用填。' : '仓库已锁定；Token 服务器没配，需要你本次提供（只存在内存，刷新即失效）。')
-          : '服务器没锁定发布仓库，自迭代不可用。';
+        $('#ciLockNote').textContent = state.localMode
+          ? '本地模式：不需要仓库锁，也不需要 GitHub Token。改动会先备份到 data/backups/，然后直接写进这个工作区。'
+          : (lock.locked
+            ? (lock.serverToken ? '仓库和 Token 都在服务器上，这里不用填。' : '仓库已锁定；Token 服务器没配，需要你本次提供（只存在内存，刷新即失效）。')
+            : '服务器没锁定发布仓库，自迭代不可用；如果这是本地版，请用 start-local 启动。');
       }
 
       $('#adminState').textContent = state.admin ? '已解锁' : '未解锁';
@@ -378,9 +382,8 @@
       $('#promptReset').addEventListener('click', () => {
         if (!confirm('用默认人设覆盖当前这一版？')) return;
         state.cfg.tutor.systemPrompt = '';
-        prompt.value = '';
-        $('#promptMeta').textContent = '字数 0';
         XN.saveConfig();
+        this.renderPersona();
         XN.toast('已恢复默认人设（动态拼装）');
       });
     },
@@ -388,9 +391,21 @@
     renderPersona() {
       var prompt = $('#ctlPrompt');
       if (!prompt) return;
-      prompt.value = state.cfg.tutor.systemPrompt || '';
+      var custom = String(state.cfg.tutor.systemPrompt || '').trim();
+      var text = custom;
+      if (!custom && XN.systemPromptFor) {
+        try { text = XN.systemPromptFor(XN.currentSession()); } catch (e) { text = ''; }
+      }
+      prompt.value = text;
+      prompt.dataset.dynamic = custom ? '' : '1';
       prompt.placeholder = '留空 = 用原版人设动态拼（含时间、记忆、情绪）';
-      $('#promptMeta').textContent = '字数 ' + prompt.value.length;
+      $('#promptMeta').textContent = (custom ? '自定义' : '动态拼装') + ' · ' + prompt.value.length + ' 字';
+      var hint = $('#personaHint');
+      if (hint) {
+        hint.textContent = custom
+          ? '这是你固定下来的人设，会原样发给模型。点「恢复默认人设」可以回到动态拼装。'
+          : '这是当前真正发给模型的人设（含记忆、目标、时间和情绪提示）。直接修改会把它固定下来。';
+      }
       $('#ctlTemp').value = state.cfg.tutor.temperature;
       $('#outTemp').textContent = Number(state.cfg.tutor.temperature).toFixed(1);
     },
