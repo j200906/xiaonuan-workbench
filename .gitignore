@@ -27,3 +27,9 @@ tests/report.json
 dist/
 build/
 *.spec
+
+# Cloudflare 构建产物
+cloudflare/public/
+cloudflare/.dry/
+cloudflare/.wrangler/
+.wrangler/
