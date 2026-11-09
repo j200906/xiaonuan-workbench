@@ -385,9 +385,9 @@
   };
 
   var CLOUD_MODELS = [
-    { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '默认 · 快' },
-    { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3-30B', note: '会先思考' },
-    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama-3.3-70B', note: '' }
+    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama-3.3-70B', note: '默认 · 直出' },
+    { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '会先思考' },
+    { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3-30B', note: '会先思考' }
   ];
 
   function currentProvider() {
@@ -410,7 +410,9 @@
     var groups = [];
     var own = (MODEL_BY_PROVIDER[prov] || []).slice();
     var cur = state.cfg.tutor.model || '';
-    if (cur && !isCloudModel(cur) && own.indexOf(cur) < 0) own.unshift(cur);
+    // 用云端模型时，不要把上一个服务商的模型名混进来
+    if (prov === 'cloud') own = [];
+    else if (cur && !isCloudModel(cur) && own.indexOf(cur) < 0) own.unshift(cur);
     if (own.length) {
       groups.push({
         label: '自己的 API',

@@ -40,9 +40,9 @@ function safeBase(raw, fallback) {
 }
 
 const AI_CHOICES = [
-  { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '默认 · 快' },
-  { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3-30B', note: '会先思考' },
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama-3.3-70B', note: '' }
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama-3.3-70B', note: '默认 · 直接出正文' },
+  { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '会先思考' },
+  { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3-30B', note: '会先思考' }
 ];
 
 function pickAiModel(raw, env) {
@@ -52,8 +52,8 @@ function pickAiModel(raw, env) {
   return env.XN_AI_MODEL || AI_MODEL;
 }
 
-const AI_MODEL = '@cf/zai-org/glm-4.7-flash';
-const AI_FALLBACK = '@cf/qwen/qwen3-30b-a3b-fp8';
+const AI_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+const AI_FALLBACK = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: JSON_HEADERS });
@@ -315,8 +315,18 @@ async function aiChat(request, env) {
   const run = async (name) => env.AI.run(name, {
     messages,
     stream: !!payload.stream,
-    max_tokens: payload.max_tokens || 1024
+    max_tokens: payload.max_tokens || 1600
   });
+
+  const textOf = (o) => {
+    if (!o) return '';
+    if (typeof o === 'string') return o;
+    if (typeof o.response === 'string' && o.response) return o.response;
+    if (o.choices && o.choices[0] && o.choices[0].message) {
+      return o.choices[0].message.content || '';
+    }
+    return '';
+  };
 
   let out;
   try {
@@ -327,6 +337,14 @@ async function aiChat(request, env) {
     } catch (e2) {
       return json({ ok: false, error: '自带模型跑不动：' + (e2.message || e2) }, 502);
     }
+  }
+
+  // 推理类模型会把额度全用在思考上，正文是空的：非流式时换一个能直出的模型重试一次
+  if (!payload.stream && !textOf(out).trim() && model !== AI_FALLBACK) {
+    try {
+      const retry = await run(AI_FALLBACK);
+      if (textOf(retry).trim()) out = retry;
+    } catch (e) { /* 还是不行就把原来那份返回 */ }
   }
 
   if (payload.stream) {
