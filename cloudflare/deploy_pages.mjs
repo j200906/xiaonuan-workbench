@@ -5,7 +5,10 @@
  *
  * 用法：
  *   CLOUDFLARE_API_TOKEN=xxx CLOUDFLARE_ACCOUNT_ID=xxx \
- *   XN_API_KEY=sk-xxx node deploy_pages.mjs [项目名]
+ *   XN_API_KEY=sk-xxx node deploy_pages.mjs [项目名] [--env]
+ *
+ * 不加 --env 只发文件，不碰线上环境变量；加了才写，且必须把 secret 带齐
+ * （secret_text 读不回来，整表 PATCH 会清掉没带的）。
  *
  * 不给 XN_API_KEY 也能部署，只是聊天会提示未配置；之后补上再跑一次即可。
  */
@@ -34,7 +37,8 @@ const account = process.env.CLOUDFLARE_ACCOUNT_ID;
 const modelKey = process.env.XN_API_KEY || '';
 const base = process.env.XN_BASE || 'https://api.deepseek.com/v1';
 const model = process.env.XN_MODEL || 'deepseek-chat';
-const project = process.argv[2] || process.env.XN_PAGES_PROJECT || 'xiaonuan-app';
+const projectArg = process.argv.slice(2).find((a) => !a.startsWith('--'));
+const project = projectArg || process.env.XN_PAGES_PROJECT || 'xiaonuan-app';
 
 if (!token) { console.error('缺 CLOUDFLARE_API_TOKEN'); process.exit(2); }
 if (!account) { console.error('缺 CLOUDFLARE_ACCOUNT_ID'); process.exit(2); }
@@ -84,44 +88,64 @@ else if (r.status !== 409) {
   process.exit(1);
 }
 
-console.log('3/5 写环境变量');
-const adminPwd = process.env.XN_ADMIN_PASSWORD || '';
-const kvId = process.env.XN_KV_ID || '';
+/* 线上环境变量默认不动。
+ * 原因：secret_text 的值 API 读不回来（GET 只给空串），而这步是整表 PATCH——
+ * 少带一个 secret，就会把线上那个清空。所以只有显式加 --env 才写，且要带齐 secret。
+ */
+const envMode = process.argv.includes('--env');
+console.log('3/5 环境变量');
+if (!envMode) {
+  console.log('   跳过：默认不改线上变量（确实要改就加 --env，并把 secret 带齐）');
+}
+const adminPwd = envMode ? (process.env.XN_ADMIN_PASSWORD || '') : '';
+const kvId = envMode ? (process.env.XN_KV_ID || '') : '';
 
-const envVars = {
-  XN_BASE: { type: 'plain_text', value: base },
-  XN_MODEL: { type: 'plain_text', value: model }
-};
-if (adminPwd) envVars.XN_ADMIN_PASSWORD = { type: 'secret_text', value: adminPwd };
-if (process.env.XN_REPO_OWNER) envVars.XN_REPO_OWNER = { type: 'plain_text', value: process.env.XN_REPO_OWNER };
-if (process.env.XN_REPO_NAME) envVars.XN_REPO_NAME = { type: 'plain_text', value: process.env.XN_REPO_NAME };
-if (process.env.XN_GH_TOKEN) envVars.XN_GH_TOKEN = { type: 'secret_text', value: process.env.XN_GH_TOKEN };
-if (process.env.XN_EXTRA_HOSTS) envVars.XN_EXTRA_HOSTS = { type: 'plain_text', value: process.env.XN_EXTRA_HOSTS };
-if (process.env.XN_ALLOWED_ORIGINS) envVars.XN_ALLOWED_ORIGINS = { type: 'plain_text', value: process.env.XN_ALLOWED_ORIGINS };
-if (process.env.XN_ALLOWED_MODELS) envVars.XN_ALLOWED_MODELS = { type: 'plain_text', value: process.env.XN_ALLOWED_MODELS };
-if (process.env.XN_GATEWAY_BASE) envVars.XN_GATEWAY_BASE = { type: 'plain_text', value: process.env.XN_GATEWAY_BASE };
-if (process.env.XN_GATEWAY_MODEL) envVars.XN_GATEWAY_MODEL = { type: 'plain_text', value: process.env.XN_GATEWAY_MODEL };
-if (process.env.XN_ITER_MODEL) envVars.XN_ITER_MODEL = { type: 'plain_text', value: process.env.XN_ITER_MODEL };
-if (process.env.XN_ADMIN_SECRET) envVars.XN_ADMIN_SECRET = { type: 'secret_text', value: process.env.XN_ADMIN_SECRET };
-if (modelKey) envVars.XN_API_KEY = { type: 'secret_text', value: modelKey };
+if (envMode) {
+  const envVars = {
+    XN_BASE: { type: 'plain_text', value: base },
+    XN_MODEL: { type: 'plain_text', value: model }
+  };
+  if (adminPwd) envVars.XN_ADMIN_PASSWORD = { type: 'secret_text', value: adminPwd };
+  if (process.env.XN_REPO_OWNER) envVars.XN_REPO_OWNER = { type: 'plain_text', value: process.env.XN_REPO_OWNER };
+  if (process.env.XN_REPO_NAME) envVars.XN_REPO_NAME = { type: 'plain_text', value: process.env.XN_REPO_NAME };
+  if (process.env.XN_GH_TOKEN) envVars.XN_GH_TOKEN = { type: 'secret_text', value: process.env.XN_GH_TOKEN };
+  if (process.env.XN_EXTRA_HOSTS) envVars.XN_EXTRA_HOSTS = { type: 'plain_text', value: process.env.XN_EXTRA_HOSTS };
+  if (process.env.XN_ALLOWED_ORIGINS) envVars.XN_ALLOWED_ORIGINS = { type: 'plain_text', value: process.env.XN_ALLOWED_ORIGINS };
+  if (process.env.XN_ALLOWED_MODELS) envVars.XN_ALLOWED_MODELS = { type: 'plain_text', value: process.env.XN_ALLOWED_MODELS };
+  if (process.env.XN_GATEWAY_BASE) envVars.XN_GATEWAY_BASE = { type: 'plain_text', value: process.env.XN_GATEWAY_BASE };
+  if (process.env.XN_GATEWAY_MODEL) envVars.XN_GATEWAY_MODEL = { type: 'plain_text', value: process.env.XN_GATEWAY_MODEL };
+  if (process.env.XN_ITER_MODEL) envVars.XN_ITER_MODEL = { type: 'plain_text', value: process.env.XN_ITER_MODEL };
+  if (process.env.XN_ADMIN_SECRET) envVars.XN_ADMIN_SECRET = { type: 'secret_text', value: process.env.XN_ADMIN_SECRET };
+  if (modelKey) envVars.XN_API_KEY = { type: 'secret_text', value: modelKey };
 
-r = await api(`/accounts/${account}/pages/projects/${project}`, {
-  method: 'PATCH',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    deployment_configs: {
-      production: {
-        env_vars: envVars,
-        ai_bindings: { AI: {} },
-        ...(kvId ? { kv_namespaces: { XN_KV: { namespace_id: kvId } } } : {})
+  /* 整表 PATCH 会清掉这次没带的键，先把要丢的 secret 说出来。 */
+  const current = await api(`/accounts/${account}/pages/projects/${project}`);
+  const prod = (current.data && current.data.result &&
+    current.data.result.deployment_configs &&
+    current.data.result.deployment_configs.production) || {};
+  const existingVars = prod.env_vars || {};
+  const dropped = Object.keys(existingVars)
+    .filter((k) => existingVars[k].type === 'secret_text' && !(k in envVars));
+  if (dropped.length) console.log('   ⚠ 这次没带、将被清空：' + dropped.join(', '));
+
+  r = await api(`/accounts/${account}/pages/projects/${project}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      deployment_configs: {
+        production: {
+          env_vars: envVars,
+          ai_bindings: { AI: {} },
+          kv_namespaces: kvId ? { XN_KV: { namespace_id: kvId } } : (prod.kv_namespaces || {})
+        }
       }
-    }
-  })
-});
-if (r.status === 200 && r.data.success) {
-  console.log('   ' + Object.keys(envVars).join(' / ') + (modelKey ? '（含 Key）' : '（没给 Key）'));
-} else {
-  console.log('   写变量失败', r.status, JSON.stringify(r.data).slice(0, 240));
+    })
+  });
+  if (r.status === 200 && r.data.success) {
+    console.log('   ' + Object.keys(envVars).join(' / ') + (modelKey ? '（含 Key）' : '（没给 Key）'));
+  } else {
+    console.log('   写变量失败', r.status, JSON.stringify(r.data).slice(0, 240));
+  }
 }
 
 console.log('3.5/5 给静态资源打内容哈希');
