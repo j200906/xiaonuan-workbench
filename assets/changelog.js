@@ -1,6 +1,20 @@
 /* 版本记录。自动迭代新增的条目会写回这个文件。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.2.1",
+    "date": "2026-11-09",
+    "title": "把免责声明说得更具体",
+    "fixes": [
+      "页脚免责声明太笼统，改成「结论」要自己核"
+    ],
+    "features": [],
+    "notes": "真机多浏览器",
+    "ticketTitle": "页脚免责声明太笼统",
+    "source": "feedback",
+    "feedbackCount": 3,
+    "fixCount": 1
+  },
+  {
     "version": "1.2.0",
     "date": "2026-11-09",
     "title": "自动迭代与更新日志",
