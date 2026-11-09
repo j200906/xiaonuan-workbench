@@ -19,7 +19,19 @@
 - 没签名，Windows 会提示「未知发布者」→ 更多信息 → 仍要运行。
 - 重新打包：`python build_exe.py`（需要 `pip install pyinstaller`）。
 
-## B. Render（免费档，能托管 Key）
+## B. Cloudflare Workers（免费、不休眠、能藏 Key）
+
+`cloudflare/` 目录里是一个 Worker：托管页面 + 代理模型请求 + 收回馈。
+
+```bash
+cd cloudflare && node build.mjs
+CLOUDFLARE_API_TOKEN=xxx XN_API_KEY=sk-xxx node deploy.mjs
+```
+
+需要到 dash.cloudflare.com 建一个 "Edit Cloudflare Workers" 模板的 token。
+免费额度 10 万请求/天，不休眠；`workers.dev` 域名国内一般能打开。
+
+## C. Render（免费档，能托管 Key）
 
 1. Render → New → **Blueprint** → 选这个仓库（`render.yaml` 已写好）
 2. 填三个环境变量：`XN_API_KEY`、`XN_BASE`、`XN_ADMIN_PASSWORD`
@@ -27,7 +39,7 @@
 
 免费档会睡：15 分钟没请求就停机，下一次打开等约 1 分钟；磁盘是临时的，反馈可能丢。
 
-## C. Hugging Face Spaces（免费、公开、Docker）
+## D. Hugging Face Spaces（免费、公开、Docker）
 
 需要一个 HF 账号 + 一个 write token：
 
@@ -50,7 +62,7 @@ app_port: 8080
 
 容器里跑 `server/app.py`，环境变量同上（`XN_API_KEY` 等）。免费 Space 闲置一段时间会休眠，唤醒要几十秒。
 
-## D. 自己的 VPS（最稳，不睡）
+## E. 自己的 VPS（最稳，不睡）
 
 一台 1 核 1G 的机器就够。
 

@@ -1,0 +1,17 @@
+name = "xiaonuan"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# 静态文件：build.mjs 会把根目录的 index.html 和 assets/ 拷进 public/
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[vars]
+XN_MODEL = "deepseek-chat"
+XN_BASE = "https://api.deepseek.com/v1"
+
+# 反馈存这里（可选）。建好 KV 后取消注释，把 id 填上。
+# [[kv_namespaces]]
+# binding = "XN_KV"
+# id = "把 KV 命名空间 id 填这儿"
