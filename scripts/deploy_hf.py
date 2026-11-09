@@ -64,7 +64,7 @@ ENV PORT=8080 \\
 RUN mkdir -p /data
 EXPOSE 8080
 
-CMD ["python", "server/app.py", "--port", "8080"]
+CMD ["python", "server/app.py"]
 """
 
 

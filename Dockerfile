@@ -13,4 +13,5 @@ ENV PORT=8080 \
 RUN mkdir -p /data
 EXPOSE 8080
 
-CMD ["python", "server/app.py", "--port", "8080"]
+# 端口从 $PORT 读（Render 会注入）；没设就退回 8080
+CMD ["python", "server/app.py"]
