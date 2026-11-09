@@ -311,11 +311,18 @@ async function aiChat(request, env) {
     content: String(m.content || '')
   }));
 
-  const run = async (name) => env.AI.run(name, {
-    messages,
-    stream: !!payload.stream,
-    max_tokens: payload.max_tokens || 2400
-  });
+  const run = async (name) => {
+    const params = {
+      messages,
+      stream: !!payload.stream,
+      max_tokens: payload.max_tokens || 1200
+    };
+    // GLM 默认会先想一大段（25 秒），关掉之后 3 秒直出正文
+    if (String(name).indexOf('glm') >= 0) {
+      params.chat_template_kwargs = { enable_thinking: false };
+    }
+    return env.AI.run(name, params);
+  };
 
   const textOf = (o) => {
     if (!o) return '';
@@ -341,7 +348,7 @@ async function aiChat(request, env) {
   // GLM 的思考会吃掉一千多 token：正文为空就放大额度再来一次
   if (!payload.stream && !textOf(out).trim()) {
     try {
-      const retry = await env.AI.run(model, { messages, stream: false, max_tokens: 4000 });
+      const retry = await env.AI.run(model, { messages, stream: false, max_tokens: 4000, chat_template_kwargs: { enable_thinking: false } });
       if (textOf(retry).trim()) out = retry;
     } catch (e) { /* 还是不行就把原来那份返回 */ }
   }

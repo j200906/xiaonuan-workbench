@@ -919,6 +919,18 @@
     state.abort = ctrl;
     setSending(true);
 
+    // 模型要想十几秒：先给个可见的占位，别让界面像死了
+    if (!contentEl.textContent) {
+      contentEl.textContent = '正在想…';
+      contentEl.classList.add('thinking');
+    }
+    var thinkingCleared = false;
+    function clearThinking() {
+      if (thinkingCleared) return;
+      thinkingCleared = true;
+      contentEl.classList.remove('thinking');
+    }
+
     var reasoningEl = null;
     function ensureReasoning() {
       if (reasoningEl) return reasoningEl;
@@ -949,6 +961,7 @@
         stream: !!state.cfg.tutor.stream,
         signal: ctrl.signal,
         onDelta: function (d) {
+          clearThinking();
           bot.content += d;
           if (reasoningEl) reasoningEl.hidden = true;
           node.classList.add('streaming');
@@ -956,6 +969,7 @@
           scrollBottom();
         },
         onReasoning: function (r) {
+          clearThinking();
           bot.reasoning += r;
           var el = ensureReasoning();
           el.textContent = bot.reasoning;
@@ -973,6 +987,7 @@
         bot.content = '';
         bot.error = '模型返回了空内容。可能被安全策略拦了，或者模型名不对。';
       }
+      clearThinking();
       node.classList.remove('streaming');
       contentEl.innerHTML = bot.content ? md(bot.content) : '';
       if (bot.error) {

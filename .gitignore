@@ -36,3 +36,7 @@ cloudflare/.wrangler/
 cloudflare/.pages/
 cloudflare/.pages.zip
 .deploy-url.txt
+
+# 本地凭据，绝不入库
+.cf_token
+*.token

@@ -1004,3 +1004,6 @@ textarea.prompt {
   border-color: var(--accent-line);
   background: var(--accent-soft);
 }
+
+/* 模型思考时的占位 */
+.msg .content.thinking { color: var(--ink-4); font-style: italic; }

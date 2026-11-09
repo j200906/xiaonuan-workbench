@@ -1,2 +1,2 @@
 /* 当前版本。自动迭代发布时会改写这个文件。 */
-window.XN_VERSION = "1.4.3";
+window.XN_VERSION = "1.4.4";
