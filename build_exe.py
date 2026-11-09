@@ -11,6 +11,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+import sys
+
+
+def say(msg):
+    """CI 控制台可能是 cp1252，中文 print 会直接抛 UnicodeEncodeError。"""
+    try:
+        print(msg)
+    except Exception:
+        try:
+            print(msg.encode("ascii", "backslashreplace").decode("ascii"))
+        except Exception:
+            pass
+
+
 ROOT = Path(__file__).resolve().parent
 
 
@@ -18,7 +32,7 @@ def main():
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
-        print("先装打包工具：python -m pip install pyinstaller")
+        say("先装打包工具：python -m pip install pyinstaller")
         return 1
 
     for junk in (ROOT / "build", ROOT / "XiaoNuan.spec"):
@@ -37,16 +51,16 @@ def main():
         "--hidden-import", "server.app",
         "desktop.py",
     ]
-    print(" ".join(cmd))
+    say(" ".join(cmd))
     code = subprocess.call(cmd, cwd=str(ROOT))
     if code != 0:
-        print("打包失败，退出码", code)
+        say("打包失败，退出码 %s" % code)
         return code
 
     exe = ROOT / "dist" / "XiaoNuan.exe"
     if exe.is_file():
         size = exe.stat().st_size / 1048576
-        print("好了：%s（%.1f MB）" % (exe, size))
+        say("好了：%s（%.1f MB）" % (exe, size))
     return 0
 
 
