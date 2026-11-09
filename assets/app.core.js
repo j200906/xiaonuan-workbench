@@ -476,6 +476,41 @@
   function isProxy() { return apiBase().charAt(0) === '/'; }
   function chatUrl() { return isProxy() ? apiBase() + '/chat' : apiBase() + '/chat/completions'; }
 
+  async function apiChatRaw(messages, opts) {
+    opts = opts || {};
+    var proxy = isProxy();
+    var key = state.key;
+    if (!key && !proxy) throw ApiError('还没有填 API Key。');
+
+    var body = {
+      model: state.cfg.tutor.model || 'deepseek-chat',
+      messages: messages,
+      temperature: opts.temperature != null ? opts.temperature : state.cfg.tutor.temperature,
+      stream: false
+    };
+    if (opts.tools && opts.tools.length) {
+      body.tools = opts.tools;
+      body.tool_choice = 'auto';
+    }
+    if (proxy && key && state.cfg.tutor.provider && state.cfg.tutor.provider.base) {
+      body.providerBase = state.cfg.tutor.provider.base;
+    }
+
+    var headers = { 'Content-Type': 'application/json' };
+    if (key) headers['Authorization'] = 'Bearer ' + key;
+
+    var res = await fetch(chatUrl(), { method: 'POST', headers: headers, body: JSON.stringify(body) });
+    if (!res.ok) {
+      var raw = '';
+      try { raw = await res.text(); } catch (e) {}
+      throw ApiError('模型返回 ' + res.status + '：' + String(raw).slice(0, 140));
+    }
+    var j = await res.json();
+    var msg = (j.choices && j.choices[0] && j.choices[0].message) || {};
+    return { content: msg.content || '', toolCalls: msg.tool_calls || null };
+  }
+  N.apiChatRaw = apiChatRaw;
+
   function lastUserText(session) {
     var list = (session ? session.messages : []) || [];
     for (var i = list.length - 1; i >= 0; i--) {
@@ -488,14 +523,45 @@
     var custom = String(state.cfg.tutor.systemPrompt || '').trim();
     if (custom) return custom;
     if (!window.XN_PERSONA || !window.XN_PERSONA.build) return '你叫小暖。';
+
     var q = lastUserText(session);
-    return window.XN_PERSONA.build({
+    var mem = window.XN_MEM;
+
+    var memories = state.memory || [];
+    var extra = '';
+    if (mem) {
+      var act = mem.getActiveMemories ? mem.getActiveMemories() : null;
+      var trails = mem.activate ? mem.activate(q, 6) : [];
+      if (act && act.explicit && act.explicit.length) {
+        memories = act.explicit.slice();
+      }
+      if (trails.length) {
+        extra = trails.map(function (t) { return t.content; }).join('；');
+      }
+    }
+
+    var prompt = window.XN_PERSONA.build({
       query: q,
-      emo: window.XN_PERSONA.detectEmotion(q),
-      memories: state.memory || [],
+      emo: state.lastEmo || window.XN_PERSONA.detectEmotion(q),
+      memories: memories,
       notes: state.notes || [],
-      goals: ((state.goals && state.goals.items) || []).filter(function (g) { return !g.done; }).map(function (g) { return g.text; })
+      goals: ((state.goals && state.goals.items) || []).filter(function (g) { return !g.done; }).map(function (g) { return g.text; }),
+      name: mem && mem.name ? mem.name() : ''
     });
+
+    if (extra) prompt += '\n【顺着这句话联想起来的事】' + extra;
+    if (mem && mem.relation) {
+      var rel = mem.relation();
+      prompt += '\n【你们的关系】' + rel.label + '（聊过 ' + rel.interactions + ' 次）';
+    }
+    if (mem && mem.promises) {
+      var live = mem.promises().filter(function (x) { return !x.kept; });
+      if (live.length) prompt += '\n【你答应过、还没做到的事】' + live.slice(0, 5).map(function (x) { return x.text; }).join('；');
+    }
+    if (window.XN_EMO && window.XN_EMO.hint) {
+      prompt = prompt.replace(/情绪应对提示：[^\n]*/, '情绪应对提示：' + window.XN_EMO.hint(state.lastEmo));
+    }
+    return prompt;
   }
 
   function buildMessages(extraSystem) {
@@ -862,30 +928,22 @@
 
     try {
       var msgs = buildMessages();
-      if (state.web && isProxy()) {
-        var lastUser = null;
-        for (var i = s.messages.length - 1; i >= 0; i--) {
-          if (s.messages[i].role === 'user' && s.messages[i].content) { lastUser = s.messages[i].content; break; }
-        }
-        if (lastUser) {
-          toast('先上网查一下…');
-          var hits = await webSearchFor(lastUser);
-          if (hits.length) {
-            msgs.unshift({
-              role: 'system',
-              content: '下面是我刚从网上查到的资料（' + new Date().toLocaleString() + '）。' +
-                '回答时参考它，并在末尾用「来源」列出你真正用到的链接：\n\n' +
-                hits.map(function (h, k) {
-                  return (k + 1) + '. ' + h.title + '\n   ' + h.url + '\n   ' + (h.snippet || '');
-                }).join('\n')
-            });
-          } else {
-            toast('没搜到，先按已知回答');
+      var res;
+      if (state.web && window.XN_TOOLS) {
+        // 走工具循环：模型自己决定搜不搜、搜什么
+        var loopRes = await window.XN_TOOLS.loopWithFallback({
+          messages: msgs,
+          chat: function (m, tools) { return apiChatRaw(m, { tools: tools }); },
+          textChat: function (m) { return apiChatRaw(m, {}); },
+          onTool: function (name, args, result) {
+            toast('用了工具：' + name + (result && result.ok ? '' : '（没跑通）'));
           }
-        }
-      }
-
-      var res = await apiChat(msgs, {
+        });
+        res = { text: (loopRes && loopRes.content) || '' };
+        bot.content = res.text;
+        contentEl.textContent = bot.content;
+      } else {
+        res = await apiChat(msgs, {
         stream: !!state.cfg.tutor.stream,
         signal: ctrl.signal,
         onDelta: function (d) {
@@ -902,7 +960,8 @@
           el.hidden = false;
           scrollBottom();
         }
-      });
+        });
+      }
 
       if (!state.cfg.tutor.stream && res.text && !bot.content) {
         bot.content = res.text;
@@ -1091,10 +1150,23 @@
         state.memory.push(item);
         writeJSON(KEYS.mem, state.memory);
       }
+      if (window.XN_MEM && item) window.XN_MEM.addExplicit(item);
     } else if (mForget) {
       var key = mForget[1].trim();
       state.memory = (state.memory || []).filter(function (x) { return x.indexOf(key) < 0; });
       writeJSON(KEYS.mem, state.memory);
+      if (window.XN_MEM) window.XN_MEM.forget(key);
+    }
+
+    if (window.XN_EMO) {
+      try { state.lastEmo = await window.XN_EMO.analyze(text, null); } catch (e) {}
+    }
+    if (window.XN_MEM) {
+      try {
+        window.XN_MEM.touch();
+        if (window.XN_MEM.pushBuffer) window.XN_MEM.pushBuffer('用户：' + text);
+        if (window.XN_MEM.addImplicit) window.XN_MEM.addImplicit(text.slice(0, 120), 'dialog');
+      } catch (e) {}
     }
 
     var s = currentSession();
