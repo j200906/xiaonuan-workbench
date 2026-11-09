@@ -83,6 +83,7 @@ if (adminPwd) envVars.XN_ADMIN_PASSWORD = { type: 'secret_text', value: adminPwd
 if (process.env.XN_REPO_OWNER) envVars.XN_REPO_OWNER = { type: 'plain_text', value: process.env.XN_REPO_OWNER };
 if (process.env.XN_REPO_NAME) envVars.XN_REPO_NAME = { type: 'plain_text', value: process.env.XN_REPO_NAME };
 if (process.env.XN_GH_TOKEN) envVars.XN_GH_TOKEN = { type: 'secret_text', value: process.env.XN_GH_TOKEN };
+if (process.env.XN_EXTRA_HOSTS) envVars.XN_EXTRA_HOSTS = { type: 'plain_text', value: process.env.XN_EXTRA_HOSTS };
 if (modelKey) envVars.XN_API_KEY = { type: 'secret_text', value: modelKey };
 
 r = await api(`/accounts/${account}/pages/projects/${project}`, {

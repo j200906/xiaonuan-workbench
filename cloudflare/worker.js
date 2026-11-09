@@ -28,11 +28,17 @@ function clientKey(request) {
   return h.replace(/^Bearer\s+/i, '').trim();
 }
 
-function safeBase(raw, fallback) {
+function extraHosts(env) {
+  return String((env && env.XN_EXTRA_HOSTS) || '')
+    .split(',').map((x) => x.trim()).filter(Boolean);
+}
+
+function safeBase(raw, fallback, env) {
   try {
     const u = new URL(String(raw));
     if (u.protocol !== 'https:') return fallback;
-    if (ALLOWED_HOSTS.indexOf(u.hostname) < 0) return fallback;
+    const ok = ALLOWED_HOSTS.concat(extraHosts(env));
+    if (ok.indexOf(u.hostname) < 0) return fallback;
     return (u.origin + u.pathname).replace(/\/+$/, '');
   } catch (e) {
     return fallback;
@@ -266,7 +272,7 @@ async function proxyChat(request, env) {
   }
 
   const fallback = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-  const base = safeBase(payload.providerBase, fallback);
+  const base = safeBase(payload.providerBase, fallback, env);
   const key = clientKey(request) || env.XN_API_KEY;
   const body = {
     model: payload.model || env.XN_MODEL || 'deepseek-chat',

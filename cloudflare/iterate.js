@@ -15,11 +15,12 @@ const ALLOWED_HOSTS = [
   'open.bigmodel.cn', 'api.siliconflow.cn'
 ];
 
-function safeBase(raw, fallback) {
+function safeBase(raw, fallback, env) {
   try {
     const u = new URL(String(raw));
     if (u.protocol !== 'https:') return fallback;
-    if (ALLOWED_HOSTS.indexOf(u.hostname) < 0) return fallback;
+    const extra = String((env && env.XN_EXTRA_HOSTS) || '').split(',').map((x) => x.trim()).filter(Boolean);
+    if (ALLOWED_HOSTS.concat(extra).indexOf(u.hostname) < 0) return fallback;
     return (u.origin + u.pathname).replace(/\/+$/, '');
   } catch (e) { return fallback; }
 }
@@ -94,7 +95,7 @@ async function ask(env, apiKey, base, model, system, user, maxTokens = 2000) {
   const key = apiKey || env.XN_API_KEY;
   if (key) {
     const fallback = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-    const host = safeBase(base, fallback);
+    const host = safeBase(base, fallback, env);
     const useModel = model || env.XN_MODEL || 'deepseek-chat';
     const res = await fetch(host + '/chat/completions', {
       method: 'POST',

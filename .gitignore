@@ -40,3 +40,7 @@ cloudflare/.pages.zip
 # 本地凭据，绝不入库
 .cf_token
 *.token
+
+# 隧道工具与本机密钥
+tools/*.exe
+tools/tunnel-token.txt
