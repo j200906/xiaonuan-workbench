@@ -67,7 +67,9 @@
     if (mode === 'gateway') {
       if (!runtime.gatewayReady) return { error: '服务器没有下发本机网关地址（XN_GATEWAY_BASE）。' };
       var gk = state.gatewayKey || S.sessionGet('xn.v2.gatewayKey', '') || '';
-      if (!gk) return { error: '先用「自迭代模型（本机网关）」填一次钥匙。' };
+      /* 本机 3425 网关在同一台机器上不需要钥匙；只有公网隧道才必须带。 */
+      var localGateway = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?/i.test(runtime.gatewayBase);
+      if (!gk && !localGateway) return { error: '公网网关需要钥匙：先在设置里填一次。' };
       return {
         apiKey: gk,
         providerBase: runtime.gatewayBase,
@@ -129,7 +131,7 @@
     var ctrl = new AbortController();
     IT.abort = ctrl;
     setStep('triage', 'run');
-    log('发布仓库锁定为 ' + state.cloudRepo.owner + '/' + state.cloudRepo.name);
+    log(state.localMode ? '本地工作区：改完直接写文件，不需要 GitHub Token' : ('发布仓库锁定为 ' + state.cloudRepo.owner + '/' + state.cloudRepo.name));
     log('模型：' + (pick === 'gateway' ? '自迭代模型（本机网关）' : ('跟随模型条 · ' + (state.cfg.tutor.model || '默认'))));
 
     try {
@@ -209,9 +211,11 @@
         verify: data.verify || '',
         run: data.run || '',
         notTried: data.notTried || '',
-        publish: data.tag
-          ? { mode: 'tag', tag: data.tag, url: data.releaseUrl || ('https://github.com/' + state.cloudRepo.owner + '/' + state.cloudRepo.name + '/releases/tag/' + data.tag) }
-          : { mode: 'commit', url: data.url || '', commit: data.commit || '', branch: data.branch || 'main' },
+        publish: state.localMode
+          ? { mode: 'local', backup: data.backup || '', commit: data.commit || '' }
+          : (data.tag
+            ? { mode: 'tag', tag: data.tag, url: data.releaseUrl || ('https://github.com/' + state.cloudRepo.owner + '/' + state.cloudRepo.name + '/releases/tag/' + data.tag) }
+            : { mode: 'commit', url: data.url || '', commit: data.commit || '', branch: data.branch || 'main' }),
         changed: data.files || [],
         attempt: data.attempt || null
       };
@@ -285,7 +289,9 @@
       ? '<a href="' + XN.esc(r.publish.url) + '" target="_blank" rel="noopener">tag ' + XN.esc(r.publish.tag) + '</a>（Actions 正在打 exe）'
       : r.publish.mode === 'commit'
         ? '<a href="' + XN.esc(r.publish.url) + '" target="_blank" rel="noopener">提交 ' + XN.esc(r.publish.commit || '') + '</a>（' + XN.esc(r.publish.branch || 'main') + '）'
-        : '未提交（试运行或草稿）';
+        : r.publish.mode === 'local'
+          ? '已写入本地' + (r.publish.backup ? '（备份：' + XN.esc(r.publish.backup) + '）' : '') + (r.publish.commit ? ' · ' + XN.esc(r.publish.commit) : '')
+          : '未提交（试运行或草稿）';
 
     box.innerHTML = '<div class="it-res-head"><strong>' + (r.version ? 'v' + XN.esc(r.version) : '这一版') + '</strong>' +
       '<span>' + XN.esc(r.title || '') + '</span><span class="it-mode">云端</span></div>' +

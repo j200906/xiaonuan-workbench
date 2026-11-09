@@ -91,6 +91,7 @@ test('补丁规则：括号扫描忽略字符串和注释', () => {
   assert.equal(P.balance('const s = `x ${ {a:1}.a } y`;').ok, true);
   assert.equal(P.balance('// }\nconst a = 1;').ok, true);
   assert.equal(P.balance('/* } */ function a(){}').ok, true);
+  assert.equal(P.balance("var re = /[a-z0-9_']+/g; function a(){}").ok, true, '正则里的单引号不能被当成字符串');
   assert.equal(P.balance('function a(){').ok, false);
   assert.equal(P.balance('function a(){ return 1; }}').ok, false);
 });
@@ -141,6 +142,7 @@ test('云端补丁规则与浏览器版一致', async () => {
   const R = await import('../cloudflare/rules.js');
   assert.equal(R.balance('const s = "}"; function a(){}').ok, true);
   assert.equal(R.balance('function a(){').ok, false);
+  assert.equal(R.balance("var re = /[a-z0-9_']+/g; function a(){}").ok, true, '云端也要识别正则字面量');
   const files = { 'a.js': 'function hello(){ return 1; }\nconst x = 1;\n' };
   assert.throws(() => R.applyPatches({ ...files }, [{ file: 'a.js', find: 'const x = 1;', replace: 'function hello(){ return 1; }' }], ['a.js']), /重复定义/);
 });
