@@ -108,6 +108,64 @@ function pickJson(text) {
   try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
 }
 
+/* ---------- README 与发版 ---------- */
+
+const README_FILE = 'README.md';
+
+function patchReadme(text, entry) {
+  // 仓库里的换行可能是 CRLF，先归一，改完再还原，免整份文件进 diff
+  const crlf = /\r\n/.test(String(text));
+  let c = String(text).replace(/\r\n/g, '\n');
+
+  // 版本块
+  c = c.replace(
+    /<!-- XN:VERSION -->[\s\S]*?<!-- \/XN:VERSION -->/,
+    `<!-- XN:VERSION -->\n当前版本 **v${entry.version}**\n<!-- /XN:VERSION -->`
+  );
+
+  // 最近更新：新条目插到最前，最多留 5 条
+  const bullet = `- **v${entry.version}** ${entry.title}`;
+  const m = c.match(/<!-- XN:RECENT -->\n([\s\S]*?)<!-- \/XN:RECENT -->/);
+  if (m) {
+    const lines = m[1].split('\n').map((x) => x.trim()).filter(Boolean);
+    const keep = [bullet, ...lines.filter((x) => x.indexOf('**v' + entry.version + '**') < 0)].slice(0, 5);
+    c = c.replace(
+      /<!-- XN:RECENT -->\n[\s\S]*?<!-- \/XN:RECENT -->/,
+      `<!-- XN:RECENT -->\n${keep.join('\n')}\n<!-- /XN:RECENT -->`
+    );
+  }
+  return crlf ? c.replace(/\n/g, '\r\n') : c;
+}
+
+async function makeRelease(owner, repo, token, entry) {
+  const fixes = (entry.fixes || []).map((x) => '- ' + x).join('\n');
+  const feats = (entry.features || []).map((x) => '- ' + x).join('\n');
+  const body = [
+    `**v${entry.version}** ${entry.title}`,
+    feats ? '\n### 新增\n' + feats : '',
+    fixes ? '\n### 修掉\n' + fixes : '',
+    '\n\n---\n程序由 GitHub Actions 在 Windows 上现打，稍等一两分钟后刷新本页即可下载 `XiaoNuan.exe`。'
+  ].join('\n');
+
+  const r = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/releases`, token, {
+    method: 'POST',
+    body: JSON.stringify({
+      tag_name: 'v' + entry.version,
+      name: `小暖 v${entry.version} · ${entry.title}`,
+      body,
+      target_commitish: 'main',
+      draft: false,
+      prerelease: false
+    })
+  });
+  if (r.status === 201 || r.status === 200) {
+    return { ok: true, url: r.data.html_url, tag: r.data.tag_name };
+  }
+  // 422 = 这个 tag 已经有 release 了，不算失败
+  if (r.status === 422) return { ok: true, reused: true, tag: 'v' + entry.version };
+  return { ok: false, status: r.status, error: JSON.stringify(r.data).slice(0, 200) };
+}
+
 /* ---------- 主流程 ---------- */
 
 export async function runIteration(env, opts) {
@@ -228,12 +286,22 @@ export async function runIteration(env, opts) {
     `云端自迭代 · 反馈 ${feedback.length} 条\n` +
     `改动：${[...new Set(applied)].join(', ')}\n` +
     `验证：补丁逐处唯一命中；未跑真机回归`;
+  // README：版本号 + 最近更新
+  const readme = await readFile(owner, repo, README_FILE, token);
+  files[README_FILE] = patchReadme(readme.content, entry);
+  say('README 已更新（版本块 + 最近更新）');
+
   const commits = {};
-  for (const file of [...new Set([...applied, VERSION_FILE, CHANGELOG_FILE])]) {
+  for (const file of [...new Set([...applied, VERSION_FILE, CHANGELOG_FILE, README_FILE])]) {
     const cur2 = await readFile(owner, repo, file, token);
     commits[file] = await writeFile(owner, repo, file, files[file], cur2.sha, message, token);
     say(`提交 ${file} → ${commits[file]}`);
   }
+
+  // 发版：创建 tag + release，GitHub Actions 会自动打 exe 挂上去
+  const rel = await makeRelease(owner, repo, token, entry);
+  if (rel.ok) say(rel.reused ? `tag v${entry.version} 已有 release，复用` : `已发版：${rel.url}（Actions 正在打 exe）`);
+  else say(`发版失败（HTTP ${rel.status}）：${rel.error}`);
 
   return jsonBody({
     ok: true,
@@ -241,7 +309,10 @@ export async function runIteration(env, opts) {
     title: entry.title,
     patches: applied,
     commits,
+    release: rel,
     url: `https://github.com/${owner}/${repo}/commits/main`,
     log
   });
 }
+
+export { patchReadme };

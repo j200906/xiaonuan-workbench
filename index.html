@@ -236,7 +236,8 @@
             <span class="card-meta">在 Cloudflare 上跑，直接改 GitHub 里的文件</span>
           </header>
           <p class="hint">
-            用的是解锁时的密码 + 上面填的 API Key。先「试运行」看它想改什么，确认了再「开始迭代」。改动会直接提交到 main。
+            用的是解锁时的密码 + 上面填的 API Key。点「开始迭代」它会：读反馈 → 改代码 → 升版本号 → 更新更新日志和 README →
+            提交到 main → 建 release，GitHub Actions 随后在 Windows 上打 exe 并挂到那次 release。先「试运行」只看方案、不动仓库。
           </p>
           <div class="grid-2">
             <label class="field"><span class="label">仓库 owner</span><input id="ciOwner" type="text" spellcheck="false" placeholder="j200906"></label>

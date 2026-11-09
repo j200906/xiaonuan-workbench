@@ -1,0 +1,48 @@
+name: 打包 Windows 程序
+
+# 每次发版（云端自迭代会创建 release）自动打 exe 并挂到该 release 上。
+# 也可以在 Actions 页面手动触发，补传某个 tag。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要补传的 tag（例如 v1.3.3）
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装打包工具
+        run: python -m pip install --upgrade pyinstaller
+
+      - name: 打包
+        run: python build_exe.py
+
+      - name: 校验产物
+        shell: pwsh
+        run: |
+          if (!(Test-Path dist/XiaoNuan.exe)) { throw "没有生成 dist/XiaoNuan.exe" }
+          "体积: {0:N2} MB" -f ((Get-Item dist/XiaoNuan.exe).Length / 1MB)
+
+      - name: 上传到 Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          if (!$env:TAG) { throw "拿不到 tag" }
+          gh release upload "$env:TAG" dist/XiaoNuan.exe --clobber
+          gh release view "$env:TAG" --json assets --jq '.assets[].name'
