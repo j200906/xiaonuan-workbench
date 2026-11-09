@@ -23,7 +23,9 @@
     study: { title: '学习台' },
     feedback: { title: '反馈箱' },
     arch: { title: '架构' },
-    settings: { title: '设置' }
+    settings: { title: '设置' },
+    changelog: { title: '更新日志' },
+    iterate: { title: '迭代' }
   };
 
   /* ---------- 工具 ---------- */
@@ -243,9 +245,10 @@
     if (pill) pill.textContent = state.cfg.tutor.model || 'deepseek-chat';
   }
 
+  var VIEW_IDS = ['chat', 'study', 'feedback', 'arch', 'settings', 'changelog', 'iterate'];
   function switchView(id) {
-    if (id !== 'chat' && id !== 'settings' && id !== 'study' && id !== 'feedback' && id !== 'arch') id = 'chat';
-    if (id === 'arch' && !state.admin) id = 'settings';
+    if (VIEW_IDS.indexOf(id) < 0) id = 'chat';
+    if ((id === 'arch' || id === 'iterate') && !state.admin) id = 'settings';
     state.view = id;
     $$('.pane').forEach(function (v) { v.hidden = v.dataset.view !== id; });
     updateHeader();
@@ -884,21 +887,27 @@
     }
 
     state.admin = true;
+    state.adminPwd = pwd;
     try { sessionStorage.setItem(KEYS.admin, '1'); } catch (e) {}
     renderSideLinks();
     updateConn('ok');
     var navArch = $('#navArch');
     if (navArch) navArch.hidden = false;
+    var navIter = $('#navIterate');
+    if (navIter) navIter.hidden = false;
     return { ok: true };
   }
   N.unlockAdmin = unlockAdmin;
 
   function lockAdmin() {
     state.admin = false;
+    state.adminPwd = '';
     try { sessionStorage.removeItem(KEYS.admin); } catch (e) {}
     renderSideLinks();
     updateConn('ok');
-    if (state.view === 'arch') switchView('settings');
+    var navIter = $('#navIterate');
+    if (navIter) navIter.hidden = true;
+    if (state.view === 'arch' || state.view === 'iterate') switchView('settings');
   }
   N.lockAdmin = lockAdmin;
 
@@ -1042,11 +1051,15 @@
     renderThread();
     var navArch = $('#navArch');
     if (navArch) navArch.hidden = !state.admin;
+    var navIter = $('#navIterate');
+    if (navIter) navIter.hidden = !state.admin;
+    var verChip = $('#verChip');
+    if (verChip) verChip.textContent = 'v' + (window.XN_VERSION || '1.0.0');
     updateConn(state.key || isProxy() ? 'ok' : 'idle');
 
     var want = 'chat';
     try { want = sessionStorage.getItem(KEYS.view) || 'chat'; } catch (e) {}
-    switchView(want === 'arch' && !state.admin ? 'settings' : want);
+    switchView((want === 'arch' || want === 'iterate') && !state.admin ? 'settings' : want);
   }
 
   N.boot = boot;

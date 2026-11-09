@@ -329,6 +329,77 @@ async function main() {
   check('应用后改名保留', applied.label === '自习室', applied.label);
   check('应用后收起预览', applied.previewHidden);
 
+
+  /* ---------- 9.5 更新日志 ---------- */
+  await evaluate(`document.querySelector('.side-link[data-view="changelog"]').click()`);
+  await sleep(500);
+  const cl = await evaluate(`({
+    options: document.querySelectorAll('#clFrom option').length,
+    items: document.querySelectorAll('.cl-item').length,
+    sum: document.querySelector('#clSum').textContent,
+    has144: document.querySelector('#clList').textContent.indexOf('1.1.0') >= 0,
+    title: document.querySelector('#mainTitle').textContent,
+    errs: window.__errs.slice()
+  })`);
+  check('更新日志页打开', cl.title === '更新日志', cl.title);
+  check('版本下拉列出全部版本', cl.options === 3, `${cl.options} 个`);
+  check('默认区间是「最早之后到最新」', cl.items === 2, `${cl.items} 条 · ${cl.sum}`);
+  check('区间统计写清范围', /v1\.0\.0 之后 · 2 个版本.*修复 \d+ 项.*新增 \d+ 项/.test(cl.sum), cl.sum);
+
+  await evaluate(`(() => {
+    const from = document.querySelector('#clFrom');
+    from.value = '1.1.0';
+    from.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await sleep(300);
+  const range = await evaluate(`({
+    sum: document.querySelector('#clSum').textContent,
+    items: document.querySelectorAll('.cl-item').length,
+    first: document.querySelector('.cl-item strong').textContent
+  })`);
+  check('改区间后只显示区间内版本', range.items === 1 && range.first === 'v1.2.0', `${range.items} 条 · ${range.first}`);
+  check('区间统计同步', /v1\.1\.0 之后 · 1 个版本/.test(range.sum), range.sum);
+
+  /* ---------- 9.6 自动迭代 ---------- */
+  await evaluate(`document.querySelector('.side-link[data-view="iterate"]').click()`);
+  await sleep(400);
+  const itReady = await evaluate(`({
+    title: document.querySelector('#mainTitle').textContent,
+    steps: document.querySelectorAll('.it-step').length,
+    start: !!document.querySelector('#itStart')
+  })`);
+  check('迭代页打开', itReady.title === '迭代', itReady.title);
+  check('步骤条渲染 7 步', itReady.steps === 7, String(itReady.steps));
+
+  await evaluate(`document.querySelector('#itTriage').click()`);
+  await sleep(2500);
+  const queue = await evaluate(`({
+    tickets: document.querySelectorAll('.it-ticket').length,
+    meta: document.querySelector('#itQueueMeta').textContent,
+    log: document.querySelectorAll('.it-line').length
+  })`);
+  check('整理反馈产出工单', queue.tickets >= 1, `${queue.tickets} 条 · ${queue.meta}`);
+  check('整理过程有日志', queue.log >= 2, `${queue.log} 行`);
+
+  await evaluate(`document.querySelector('#itCycles').value = '1'; document.querySelector('#itStart').click()`);
+  await sleep(13000);
+  const itRun = await evaluate(`({
+    result: document.querySelector('#itResult').textContent,
+    version: document.querySelector('#verChip').textContent,
+    steps: [...document.querySelectorAll('.it-step')].map(s => s.className.replace('it-step ','')),
+    logLines: document.querySelectorAll('.it-line').length,
+    prHidden: document.querySelector('#itPRLink').hidden,
+    errs: window.__errs.slice()
+  })`);
+  check('迭代产出新版本号', itRun.version === 'v1.2.1', itRun.version);
+  check('预演与反证都跑过', /反证通过/.test(itRun.result), itRun.result.slice(0, 60).replace(/\s+/g, ' '));
+  check('发布状态是草稿', /草稿/.test(itRun.result));
+  check('步骤条走完关键步骤', itRun.steps.filter(s => s === 'ok').length >= 5, itRun.steps.join(','));
+  check('跳过的步骤有标记', itRun.steps.filter(s => s === 'skip').length === 2, itRun.steps.join(','));
+  check('日志记录了全过程', itRun.logLines >= 8, `${itRun.logLines} 行`);
+  check('没配通道时不显示 PR 链接', itRun.prHidden);
+  check('迭代无未捕获异常', itRun.errs.length === 0, itRun.errs.join(' | '));
+
   /* ---------- 10. 刷新保持 ---------- */
   await send('Page.reload');
   await sleep(1500);
@@ -340,13 +411,15 @@ async function main() {
       archShown: !document.querySelector('#navArch').hidden,
       msgs: document.querySelectorAll('#messages .msg').length,
       view: document.querySelector('.pane:not([hidden])').dataset.view,
+      version: document.querySelector('#verChip').textContent,
       errs: window.__errs.slice()
     };
   })()`);
   check('刷新后仍是深色', after.theme === 'dark', after.theme);
   check('刷新后主色保持', after.accent === '#3d5a80', after.accent);
   check('刷新后管理模式保持', after.archShown);
-  check('刷新后回到上次页面', after.view === 'arch', after.view);
+  check('刷新后回到上次页面', after.view === 'iterate', after.view);
+  check('草稿不改代码，刷新退回原版本', after.version === 'v1.2.0', after.version);
   check('刷新无报错', after.errs.length === 0, after.errs.join(' | '));
 
   /* ---------- 11. 窄屏抽屉 ---------- */

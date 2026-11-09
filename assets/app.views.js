@@ -734,4 +734,82 @@
   N.views.chat = {
     onShow() { N.renderThread(); N.scrollBottom && N.scrollBottom(true); }
   };
+
+  /* ============================================================
+     更新日志
+     ============================================================ */
+  const changelog = {
+    init() {
+      $('#clFrom').addEventListener('change', () => this.render());
+      $('#clTo').addEventListener('change', () => this.render());
+    },
+
+    onShow() {
+      this.fill();
+      this.render();
+    },
+
+    list() {
+      const raw = (window.XN_CHANGELOG || []).slice();
+      const num = (v) => String(v).split('.').map(Number);
+      return raw.sort((a, b) => {
+        const A = num(a.version), B = num(b.version);
+        for (let i = 0; i < 3; i++) if ((A[i] || 0) !== (B[i] || 0)) return (B[i] || 0) - (A[i] || 0);
+        return 0;
+      });
+    },
+
+    fill() {
+      const list = this.list();
+      const from = $('#clFrom'), to = $('#clTo');
+      if (!list.length) return;
+      const opts = list.map((c) => `<option value="${esc(c.version)}">v${esc(c.version)}</option>`).join('');
+      if (from.dataset.filled !== '1') {
+        from.innerHTML = opts;
+        to.innerHTML = opts;
+        from.value = list[list.length - 1].version;
+        to.value = list[0].version;
+        from.dataset.filled = '1';
+        to.dataset.filled = '1';
+      }
+      const meta = $('#clMeta');
+      if (meta) meta.textContent = '当前 v' + (window.XN_VERSION || '?') + ' · 共 ' + list.length + ' 个版本';
+    },
+
+    render() {
+      const list = this.list();
+      const fromV = $('#clFrom').value || (list[list.length - 1] || {}).version;
+      const toV = $('#clTo').value || (list[0] || {}).version;
+      let iFrom = list.findIndex((c) => c.version === fromV);
+      let iTo = list.findIndex((c) => c.version === toV);
+      if (iFrom < 0) iFrom = list.length - 1;
+      if (iTo < 0) iTo = 0;
+      if (iFrom < iTo) { const t = iFrom; iFrom = iTo; iTo = t; }
+
+      const range = iFrom === iTo ? [list[iTo]] : list.slice(iTo, iFrom);
+      const fixes = range.reduce((n, c) => n + (c.fixes || []).length, 0);
+      const feats = range.reduce((n, c) => n + (c.features || []).length, 0);
+      const scope = iFrom === iTo ? `v${toV} 这一个版本` : `v${fromV} 之后 · ${range.length} 个版本`;
+      $('#clSum').textContent = `${scope} · 修复 ${fixes} 项 · 新增 ${feats} 项`;
+
+      const box = $('#clList');
+      if (!range.length) {
+        box.innerHTML = '<p class="it-empty">这段区间没有记录。</p>';
+        return;
+      }
+      box.innerHTML = range.map((c) => `
+        <article class="cl-item">
+          <div class="cl-head">
+            <strong>v${esc(c.version)}</strong>
+            <span class="cl-title">${esc(c.title || '')}</span>
+            <span class="cl-date">${esc(c.date || '')}</span>
+          </div>
+          ${(c.fixes && c.fixes.length) ? `<div class="cl-sec"><h4>修掉的</h4><ul>${c.fixes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+          ${(c.features && c.features.length) ? `<div class="cl-sec"><h4>新增的</h4><ul>${c.features.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+          ${c.notes ? `<p class="cl-note">${esc(c.notes)}</p>` : ''}
+        </article>`).join('');
+    }
+  };
+  N.views.changelog = changelog;
+
 })(window.XN);

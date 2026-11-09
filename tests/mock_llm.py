@@ -10,6 +10,15 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _json_out(self, payload):
+        body = json.dumps({"choices": [{"message": {"content": json.dumps(payload, ensure_ascii=False)}}]},
+                          ensure_ascii=False).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n) or b"{}")
@@ -24,6 +33,48 @@ class H(BaseHTTPRequestHandler):
 
         stream = bool(body.get("stream"))
         joined = " ".join(str(m.get("content", "")) for m in (body.get("messages") or []))
+        if "工单拆解器" in joined:
+            payload = {"tickets": [
+                {"title": "笔记页没有空状态引导", "kind": "bug", "severity": 3,
+                 "why": "用户不知道能写什么，空白一片", "scope": "学习台 / 笔记"},
+                {"title": "反馈提交后没有回执", "kind": "feature", "severity": 1,
+                 "why": "投完不知道成没成", "scope": "反馈箱"},
+            ]}
+            return self._json_out(payload)
+
+        if "自己人" in joined:
+            return self._json_out({"tickets": [
+                {"title": "空状态没告诉用户从哪下手", "kind": "bug", "severity": 2,
+                 "why": "首屏只有一句问候，没有可点的东西", "scope": "对话"},
+            ]})
+
+        if "grill-me" in joined:
+            return self._json_out({
+                "qa": [
+                    {"q": "第一次打开会卡在哪？", "a": "不知道可以说什么，建议给三个具体入口。"},
+                    {"q": "哪里的文案在骗人？", "a": "免责声明说得太满，应该更具体。"},
+                ],
+                "tickets": [
+                    {"title": "空状态给三个具体入口", "kind": "feature", "severity": 2,
+                     "why": "由自答推出：用户需要能点的东西", "scope": "对话"},
+                ],
+            })
+
+        if "代码修改计划器" in joined:
+            return self._json_out({
+                "version": "1.2.1",
+                "title": "把免责声明说得更具体",
+                "fixes": ["页脚免责声明太笼统，改成「结论」要自己核"],
+                "features": [],
+                "run": "沙箱预演 + 摘掉启动钩子做反证",
+                "notTried": "真机多浏览器",
+                "patches": [{
+                    "file": "index.html",
+                    "find": "<p class=\"disclaimer\">小暖会犯错。重要的事，自己再核一遍。</p>",
+                    "replace": "<p class=\"disclaimer\">小暖会犯错。重要的结论，自己再核一遍。</p>",
+                }],
+            })
+
         if "页面配置编译器" in joined:
             patch = {
                 "patch": {
