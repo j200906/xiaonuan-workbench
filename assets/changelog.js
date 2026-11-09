@@ -1,17 +1,6 @@
 /* 版本记录。自动迭代新增的条目会写回这个文件。 */
 window.XN_CHANGELOG = [
 {
-  "version": "1.3.3",
-  "date": "2026-11-09",
-  "title": "云端自动收反馈",
-  "fixes": [
-    "添加云端自动收反馈功能"
-  ],
-  "features": [],
-  "source": "cloud",
-  "feedbackCount": 2
-},
-{
   "version": "1.3.2",
   "date": "2026-11-09",
   "title": "反馈真正汇总到云端",

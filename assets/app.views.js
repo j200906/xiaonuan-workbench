@@ -7,11 +7,9 @@
   const writeJSON = N.writeJSON, KEYS = N.KEYS;
 
   const save = {
-        feedback() { fetch('/api/feedback', { method: 'POST', body: JSON.stringify(state.feedback) }).then(() => writeJSON(KEYS.fb, state.feedback)); },
     goals() { writeJSON(KEYS.goals, state.goals); },
     notes() { writeJSON(KEYS.notes, state.notes); },
     feedback() { writeJSON(KEYS.fb, state.feedback); },
-        timer() { writeJSON(KEYS.timer, state.timer); }
     timer() { writeJSON(KEYS.timer, state.timer); }
   };
 
