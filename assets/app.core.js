@@ -1325,6 +1325,7 @@
       var res = await fetch('api/config', { cache: 'no-store' });
       if (!res.ok) return;
       var cfg = await res.json();
+      if (cfg && cfg.repo) state.cloudRepo = cfg.repo;
       if (cfg && cfg.proxy) {
         state.cfg.tutor.baseUrl = '/api';
         if (!state.cfg.tutor.provider || !state.cfg.tutor.provider.id) {

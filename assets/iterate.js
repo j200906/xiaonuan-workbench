@@ -707,9 +707,83 @@
     return { ok: true, result: IT.result };
   }
 
+  /* ---------- 云端自迭代（推荐路径） ---------- */
+  function cloudReady() {
+    const lock = state.cloudRepo || {};
+    return !!(N.isProxy && N.isProxy()) && !!lock.locked;
+  }
+
+  async function startCloud() {
+    const lock = state.cloudRepo || {};
+    let token = '';
+    try { token = sessionStorage.getItem(GH_TOKEN_KEY) || ''; } catch (e) {}
+
+    IT.running = true;
+    IT.stopped = false;
+    IT.queue = [];
+    IT.log = [];
+    renderLog();
+    renderQueue();
+    $('#itStop').hidden = false;
+    setMeta('云端跑');
+    setStep('triage', 'run');
+
+    log('云端自迭代：仓库锁定为 ' + lock.owner + '/' + lock.name);
+    if (!token) log('没填 GitHub Token：只能试运行，不会提交', 'warn');
+
+    try {
+      const args = (N.iterateArgs ? N.iterateArgs() : {});
+      const res = await fetch('api/iterate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({
+          password: (N.state && N.state.adminPwd) || '',
+          token: token,
+          dryRun: !token
+        }, args))
+      });
+      const j = await res.json();
+      (j.log || []).forEach((l) => log(l));
+      if (!j.ok) {
+        log('没成：' + (j.error || ''), 'fail');
+        setMeta('失败');
+        setStep('plan', 'fail');
+        return;
+      }
+      setStep('verify', 'ok');
+      setStep('publish', 'ok');
+      setStep('record', 'ok');
+      IT.result = {
+        version: j.version,
+        mode: 'cloud',
+        title: j.title,
+        publish: j.release && j.release.url
+          ? { mode: 'direct', url: j.release.url, branch: 'main' }
+          : { mode: 'direct', url: j.url || '', branch: 'main' }
+      };
+      renderResult();
+      log('完成：v' + j.version + (j.release && j.release.url ? '，已发版' : ''), 'ok');
+      setMeta('完成 · v' + j.version);
+    } catch (e) {
+      log('中断：' + (e.message || e), 'fail');
+      setMeta('中断');
+    } finally {
+      IT.running = false;
+      $('#itStop').hidden = true;
+    }
+  }
+
   async function start() {
     if (IT.running) return;
     if (!state.admin) { toast('先解锁管理模式'); return; }
+    if (cloudReady()) {
+      const args = (N.iterateArgs ? N.iterateArgs() : {});
+      if (args.local) {
+        toast('本机地址云端访问不到，请换公网 Key，或用本机版');
+        return;
+      }
+      return startCloud();
+    }
     if (!state.key && state.cfg.tutor.baseUrl.charAt(0) !== '/') { toast('先配 Key'); return; }
 
     IT.running = true;

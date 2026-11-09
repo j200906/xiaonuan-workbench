@@ -666,6 +666,29 @@
     return hit || 'custom';
   }
 
+  function isLocalUrl(u) {
+    return /^https?:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])/i.test(String(u || ''));
+  }
+
+  function iterateModelArgs() {
+    const model = state.cfg.tutor.model || '';
+    const prov = state.cfg.tutor.provider || {};
+    const base = prov.base || state.cfg.tutor.baseUrl || '';
+
+    // 云端模型（@cf/ 开头）走服务器自带推理，不要把 Key 传过去
+    if (!model || model.indexOf('@cf/') === 0) {
+      return { apiKey: '', providerBase: '', model: '', local: false };
+    }
+
+    return {
+      apiKey: state.key || '',
+      providerBase: base,
+      model: model,
+      // 127.0.0.1 / localhost 只有你自己这台机器能访问，Cloudflare 够不着
+      local: isLocalUrl(base)
+    };
+  }
+
   const settings = {
     init() {
       $('#setForm').addEventListener('submit', (e) => { e.preventDefault(); this.commit(true); });
@@ -747,6 +770,20 @@
 
       const ci = $('#cloudIterCard');
       if (ci) ci.hidden = !state.admin;
+      const lock = state.cloudRepo || {};
+      if ($('#ciOwner')) {
+        $('#ciOwner').value = lock.locked ? (lock.owner + ' / ' + lock.name) : '未锁定';
+        $('#ciOwner').readOnly = true;
+      }
+      if ($('#ciRepo')) $('#ciRepo').hidden = true;
+      if ($('#ciTokenRow')) $('#ciTokenRow').hidden = !!lock.serverToken;
+      if ($('#ciLockNote')) {
+        $('#ciLockNote').textContent = lock.locked
+          ? (lock.serverToken
+            ? '仓库与 Token 都在服务器上，这里不用填。'
+            : '仓库已锁定；Token 服务器没配，需要你每次提供。')
+          : '服务器没锁定仓库，自迭代不可用。';
+      }
 
       const adminState = $('#adminState');
       adminState.textContent = state.admin ? '已解锁' : '未解锁';
@@ -813,11 +850,16 @@
       if (!state.admin) { msg.textContent = '先在下面输入密码解锁。'; return; }
       if (!N.isProxy || !N.isProxy()) { msg.textContent = '这一项要部署在云端（Pages）才能用。'; return; }
 
-      const owner = $('#ciOwner').value.trim();
-      const repo = $('#ciRepo').value.trim();
-      const token = $('#ciToken').value.trim();
-      if (!owner || !repo) { msg.textContent = '先填 owner 和仓库名。'; return; }
-      if (!token && !dryRun) { msg.textContent = '要真的提交，得填 GitHub Token。'; return; }
+      const lock = state.cloudRepo || {};
+      if (!lock.locked) { msg.textContent = '服务器没锁定发布仓库，自迭代不可用。'; return; }
+      if (iterateModelArgs().local) {
+        msg.textContent = '你选的是本机地址（127.0.0.1），Cloudflare 访问不到你电脑。换成你自己的公网 API Key，或者用本机版跑。';
+        return;
+      }
+      const owner = lock.owner;
+      const repo = lock.name;
+      const token = $('#ciToken') ? $('#ciToken').value.trim() : '';
+      if (!token && !dryRun && !lock.serverToken) { msg.textContent = '要真的提交，得填 GitHub Token。'; return; }
 
       msg.textContent = dryRun ? '试运行中，可能要十几秒…' : '正在迭代，可能要几十秒…';
       logEl.hidden = false;
@@ -827,12 +869,11 @@
         const res = await fetch('api/iterate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          body: JSON.stringify(Object.assign({
             owner, repo, token,
             dryRun: !!dryRun,
-            password: state.adminPwd || '',
-            apiKey: state.key || ''
-          })
+            password: state.adminPwd || ''
+          }, iterateModelArgs()))
         });
         const j = await res.json();
         if (!j.ok) throw new Error(j.error || ('HTTP ' + res.status));
@@ -864,6 +905,7 @@
       }
     }
   };
+  N.iterateArgs = iterateModelArgs;
   N.views.settings = settings;
 
   N.views.chat = {

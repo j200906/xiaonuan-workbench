@@ -98,7 +98,13 @@ export default {
         proxy: hasUpstream(env) || hasAI(env),
         backend: hasUpstream(env) ? 'upstream' : (hasAI(env) ? 'workers-ai' : 'none'),
         model: hasUpstream(env) ? (env.XN_MODEL || 'deepseek-chat') : (env.XN_AI_MODEL || AI_MODEL),
-        models: hasAI(env) ? AI_CHOICES : []
+        models: hasAI(env) ? AI_CHOICES : [],
+        repo: {
+          owner: env.XN_REPO_OWNER || '',
+          name: env.XN_REPO_NAME || '',
+          locked: !!(env.XN_REPO_OWNER && env.XN_REPO_NAME),
+          serverToken: !!env.XN_GH_TOKEN
+        }
       });
     }
 

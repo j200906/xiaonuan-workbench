@@ -10,6 +10,20 @@
  *   - 只允许改白名单文件，find 必须唯一，禁止 eval / 外链脚本
  */
 
+const ALLOWED_HOSTS = [
+  'api.deepseek.com', 'api.moonshot.cn', 'api.openai.com',
+  'open.bigmodel.cn', 'api.siliconflow.cn'
+];
+
+function safeBase(raw, fallback) {
+  try {
+    const u = new URL(String(raw));
+    if (u.protocol !== 'https:') return fallback;
+    if (ALLOWED_HOSTS.indexOf(u.hostname) < 0) return fallback;
+    return (u.origin + u.pathname).replace(/\/+$/, '');
+  } catch (e) { return fallback; }
+}
+
 const EDITABLE = ['index.html', 'assets/app.css', 'assets/app.core.js', 'assets/app.views.js'];
 const VERSION_FILE = 'assets/version.js';
 const CHANGELOG_FILE = 'assets/changelog.js';
@@ -71,7 +85,7 @@ async function writeFile(owner, repo, path, content, sha, message, token) {
 
 /* ---------- 问模型 ---------- */
 
-async function ask(env, apiKey, system, user, maxTokens = 2000) {
+async function ask(env, apiKey, base, model, system, user, maxTokens = 2000) {
   const messages = [
     { role: 'system', content: system },
     { role: 'user', content: user }
@@ -79,11 +93,13 @@ async function ask(env, apiKey, system, user, maxTokens = 2000) {
 
   const key = apiKey || env.XN_API_KEY;
   if (key) {
-    const base = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-    const res = await fetch(base + '/chat/completions', {
+    const fallback = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
+    const host = safeBase(base, fallback);
+    const useModel = model || env.XN_MODEL || 'deepseek-chat';
+    const res = await fetch(host + '/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-      body: JSON.stringify({ model: env.XN_MODEL || 'deepseek-chat', messages, temperature: 0.4, max_tokens: maxTokens })
+      body: JSON.stringify({ model: useModel, messages, temperature: 0.4, max_tokens: maxTokens })
     });
     const j = await res.json();
     return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
@@ -169,14 +185,28 @@ async function makeRelease(owner, repo, token, entry) {
 /* ---------- 主流程 ---------- */
 
 export async function runIteration(env, opts) {
-  const { owner, repo, token, password, dryRun, apiKey } = opts;
+  const { token: clientToken, password, dryRun, apiKey, providerBase, model } = opts;
+
+  // 仓库锁定在服务端，客户端传什么都不认
+  const owner = String(env.XN_REPO_OWNER || '').trim();
+  const repo = String(env.XN_REPO_NAME || '').trim();
+  const token = clientToken || env.XN_GH_TOKEN || '';
   if (!env.XN_ADMIN_PASSWORD) return jsonBody({ ok: false, error: '服务器没设管理密码（XN_ADMIN_PASSWORD）' }, 501);
   if (String(password || '') !== String(env.XN_ADMIN_PASSWORD)) return jsonBody({ ok: false, error: '密码不对' }, 401);
-  if (!owner || !repo) return jsonBody({ ok: false, error: '缺 owner / repo' }, 400);
-  if (!token && !dryRun) return jsonBody({ ok: false, error: '缺 GitHub token（要能写这个仓库）' }, 400);
+  if (!owner || !repo) {
+    return jsonBody({ ok: false, error: '服务器没有锁定发布仓库（XN_REPO_OWNER / XN_REPO_NAME）' }, 501);
+  }
+  if (!token && !dryRun) {
+    return jsonBody({ ok: false, error: '服务器没有 GitHub Token（XN_GH_TOKEN），也没有临时提供' }, 400);
+  }
 
   const log = [];
   const say = (t) => log.push(t);
+
+  say('发布仓库已锁定：' + owner + '/' + repo);
+  if (opts.owner && String(opts.owner) !== owner) {
+    say('客户端传的 owner 被忽略（仓库锁死在服务器）');
+  }
 
   /* 1. 反馈 */
   let feedback = [];
@@ -214,10 +244,12 @@ export async function runIteration(env, opts) {
     .map((f, i) => `${i + 1}. [${f.type}] ${String(f.body || '').slice(0, 160)}`)
     .join('\n') || '（没有新反馈）';
 
-  if (apiKey) say('用你填的那个 API Key 跑');
+  if (apiKey) say('用你的 Key 跑：' + (model || '默认模型') + ' @ ' + (providerBase || '默认地址'));
   const rawText = await ask(
     env,
     apiKey,
+    providerBase,
+    model,
     '你是代码修改计划器。只输出一个 JSON 对象，不要解释、不要 markdown 代码块。改动必须小、可验证。',
     `仓库：${owner}/${repo}，当前版本 ${cur}。\n\n用户反馈：\n${fbText}\n\n` +
     `文件内容（节选）：\n${digest}\n\n` +
@@ -241,6 +273,7 @@ export async function runIteration(env, opts) {
 
   /* 4. 校验并应用 */
   const applied = [];
+  try {
   for (const p of plan.patches.slice(0, MAX_PATCHES)) {
     const file = String(p.file || '');
     if (!EDITABLE.includes(file)) throw new Error('不允许改 ' + file);
@@ -271,6 +304,9 @@ export async function runIteration(env, opts) {
     }
     files[file] = files[file].replace(find, replace);
     applied.push(file);
+  }
+  } catch (e) {
+    return jsonBody({ ok: false, error: '这一版没通过校验：' + e.message, log, planTitle: plan.title }, 422);
   }
   say(`补丁 ${applied.length} 处：${[...new Set(applied)].join(', ')}`);
 
