@@ -448,7 +448,7 @@
     },
 
     onShow() {
-      if (!state.admin) { N.switchView('settings'); return; }
+      // 架构已并入设置页，这里不再做跳转（跳回设置会和 settings.onShow 互相调用）
       this.renderAll();
     },
 
@@ -771,7 +771,7 @@
     onShow() {
       this.render();
       // 外观/布局控件现在也在这个页面里，得跟着填充
-      if (N.views.arch && N.views.arch.onShow) N.views.arch.onShow();
+      if (N.views.arch && N.views.arch.renderAll) N.views.arch.renderAll();
     },
 
     render() {

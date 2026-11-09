@@ -1,6 +1,17 @@
 /* 版本记录。自动迭代新增的条目会写回这个文件。 */
 window.XN_CHANGELOG = [
 {
+  "version": "1.4.8",
+  "date": "2026-11-09",
+  "title": "修设置页无限递归",
+  "fixes": [
+    "设置页一打开就栈溢出：arch.onShow 与 settings.onShow 互相调用，导致导航、人设、外观控件全是空的",
+    "解锁后云端自迭代卡片不刷新"
+  ],
+  "features": [],
+  "source": "manual"
+},
+{
   "version": "1.4.7",
   "date": "2026-11-09",
   "title": "迭代页可直接选「自迭代模型」",

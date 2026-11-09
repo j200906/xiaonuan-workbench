@@ -1130,6 +1130,10 @@
     updateConn('ok');
     var navIter = $('#navIterate');
     if (navIter) navIter.hidden = false;
+    // 解锁后要立刻把设置页里那块云端自迭代刷出来
+    if (N.views && N.views.settings && N.views.settings.render) {
+      try { N.views.settings.render(); } catch (e) {}
+    }
     return { ok: true };
   }
   N.unlockAdmin = unlockAdmin;
