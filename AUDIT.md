@@ -22,8 +22,8 @@
 | 7 | ✅ | 仓库锁在 `XN_REPO_OWNER/XN_REPO_NAME`，客户端传 owner/repo 被忽略 |
 | 8 | ✅ | 网关地址由 `/api/config` 的 `gateway` 下发，前端不再写死隧道域名 |
 | 9 | ✅ | `tests/ui-check.mjs` 重写；自动起后端 + 假模型 + 无头浏览器 |
-| 10 | ✅ | GitHub Pages 工作流部署当前 main，并给资源打内容哈希 |
-| 11 | 🟡 | `build_exe.py`/`desktop.py` 已更新到 1.5.0；exe 需等 tag 触发 Actions 或本地打包后上传 |
+| 10 | ✅ | GitHub Pages 已部署 v1.5.0；Cloudflare Pages 需用 `deploy_pages.mjs` 再推一次（见下方部署状态） |
+| 11 | ✅ | v1.5.0 已由 Actions 在 Windows 上打包并挂到 Release（12.2 MB，附 SHA256） |
 | 12 | ✅ | README 版本改为 v1.5.0，与 changelog/package.json 一致，并有单测校验 |
 
 ## P1 · 安全（18）
@@ -144,3 +144,13 @@ npm run check            通过     37 个脚本语法、22 个资源引用、�
 - 没有重写 Git 历史（`#25`）。`.cf_token` 不再入库，但旧提交仍在；要彻底清除得 `filter-repo` + 强推，会影响所有克隆。
 - 没有引入打包器/TypeScript 编译（`#75/#84`）。项目刻意保持「克隆即可打开」，类型只做编辑器和文档。
 - 没有做真机多浏览器矩阵。UI 检查覆盖 Chromium 内核；Safari/Firefox 仍需人工点一遍。
+
+## 部署状态（2026-11-10 00:30）
+
+| 目标 | 状态 | 说明 |
+| --- | --- | --- |
+| GitHub `main` | ✅ 535b580 | v1.5.0 已推送 |
+| GitHub Pages | ✅ v1.5.0 | Actions「Deploy static site」成功 |
+| GitHub Release | ✅ v1.5.0 | `XiaoNuan.exe` 12.2 MB + `.sha256`，Actions 打包 |
+| GitHub Actions 校验 | ✅ | 「校验与护栏」成功（lint、语法、单测、冒烟、Worker） |
+| Cloudflare Pages | ⏳ 待重新部署 | `xiaonuan-app.pages.dev` 仍是 1.4.8；本机没有 `CLOUDFLARE_API_TOKEN`，需要补一次 `node cloudflare/deploy_pages.mjs` |
