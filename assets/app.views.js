@@ -292,7 +292,7 @@
   /* ============================================================
      架构（解锁后可见）
      ============================================================ */
-  const ARCH_KEYS = ['study', 'feedback', 'arch', 'settings'];
+  const ARCH_KEYS = ['study', 'feedback', 'settings'];
 
   const arch = {
     init() {
@@ -612,10 +612,35 @@
   /* ============================================================
      设置
      ============================================================ */
+  const PROVIDERS = {
+    custom: {},
+    deepseek: { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+    moonshot: { base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+    openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+    zhipu: { base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+    siliconflow: { base: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+    cloud: { base: '/api', model: '云端自带' }
+  };
+
+  function providerOf(baseUrl) {
+    const hit = Object.keys(PROVIDERS).find((k) => PROVIDERS[k].base === baseUrl);
+    return hit || 'custom';
+  }
+
   const settings = {
     init() {
       $('#setForm').addEventListener('submit', (e) => { e.preventDefault(); this.commit(true); });
       $('#setTest').addEventListener('click', () => this.test());
+      $('#setProvider').addEventListener('change', () => {
+        const p = $('#setProvider').value;
+        const preset = PROVIDERS[p] || {};
+        if (preset.base) $('#setBase').value = preset.base;
+        if (preset.model) $('#setModel').value = preset.model;
+        this.syncProvider();
+      });
+
+      $('#ciDry').addEventListener('click', () => this.cloudIterate(true));
+      $('#ciRun').addEventListener('click', () => this.cloudIterate(false));
 
       $('#adminForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -624,9 +649,9 @@
         const r = await N.unlockAdmin($('#adminPwd').value);
         if (r.ok) {
           $('#adminPwd').value = '';
-          msg.textContent = '已解锁。侧栏出现了「架构」。';
+          msg.textContent = '已解锁。下面出现了「云端自迭代」，侧栏也多了「迭代」。';
           this.render();
-          N.switchView('arch');
+          N.switchView('settings');
         } else {
           msg.textContent = r.error || '没成功。';
         }
@@ -664,7 +689,11 @@
       });
     },
 
-    onShow() { this.render(); },
+    onShow() {
+      this.render();
+      // 外观/布局控件现在也在这个页面里，得跟着填充
+      if (N.views.arch && N.views.arch.onShow) N.views.arch.onShow();
+    },
 
     render() {
       const keyEl = $('#setKey');
@@ -672,13 +701,18 @@
       keyEl.placeholder = state.key ? '已保存（留空表示不改）' : 'sk-…';
       $('#setBase').value = state.cfg.tutor.baseUrl;
       $('#setModel').value = state.cfg.tutor.model;
+      $('#setProvider').value = providerOf(state.cfg.tutor.baseUrl);
+      this.syncProvider();
       $('#setKeyMeta').textContent = state.key ? '已配置' : (state.cfg.tutor.baseUrl.charAt(0) === '/' ? '走后端代理' : '未配置');
       $('#verMeta').textContent = 'v1.1 · ' + N.todayStr();
+
+      const ci = $('#cloudIterCard');
+      if (ci) ci.hidden = !state.admin;
 
       const adminState = $('#adminState');
       adminState.textContent = state.admin ? '已解锁' : '未解锁';
       $('#adminLock').hidden = !state.admin;
-      $('#adminUnlock').textContent = state.admin ? '重新解锁' : '解锁架构';
+      $('#adminUnlock').textContent = state.admin ? '重新解锁' : '解锁改代码';
 
       let used = 0;
       Object.keys(localStorage).forEach((k) => {
@@ -698,10 +732,15 @@
 
     commit(shouldTest) {
       const key = $('#setKey').value.trim();
+      const provider = $('#setProvider').value;
       const base = $('#setBase').value.trim();
       const model = $('#setModel').value.trim();
-      if (base) state.cfg.tutor.baseUrl = base;
-      if (model) state.cfg.tutor.model = model;
+      if (provider === 'cloud') {
+        state.cfg.tutor.baseUrl = '/api';
+      } else {
+        if (base) state.cfg.tutor.baseUrl = base;
+        if (model) state.cfg.tutor.model = model;
+      }
       if (key) {
         state.key = key;
         N.saveStoredKey(key, !!localStorage.getItem(KEYS.key));
@@ -710,6 +749,60 @@
       this.render();
       if (shouldTest) this.test();
       else toast('存下了');
+    },
+
+    syncProvider() {
+      const p = $('#setProvider').value;
+      const cloud = p === 'cloud';
+      $('#rowKey').hidden = cloud;
+      $('#rowBase').hidden = cloud;
+      $('#rowModel').hidden = cloud;
+      const msg = $('#setMsg');
+      if (cloud) {
+        msg.textContent = '用服务器自带的模型，不用填 Key。质量一般，没配 Key 时先用它。';
+      } else if (msg.textContent.indexOf('服务器自带') >= 0) {
+        msg.textContent = '';
+      }
+    },
+
+    async cloudIterate(dryRun) {
+      const msg = $('#ciMsg');
+      const logEl = $('#ciLog');
+      if (!state.admin) { msg.textContent = '先在下面输入密码解锁。'; return; }
+      if (!N.isProxy || !N.isProxy()) { msg.textContent = '这一项要部署在云端（Pages）才能用。'; return; }
+
+      const owner = $('#ciOwner').value.trim();
+      const repo = $('#ciRepo').value.trim();
+      const token = $('#ciToken').value.trim();
+      if (!owner || !repo) { msg.textContent = '先填 owner 和仓库名。'; return; }
+      if (!token && !dryRun) { msg.textContent = '要真的提交，得填 GitHub Token。'; return; }
+
+      msg.textContent = dryRun ? '试运行中，可能要十几秒…' : '正在迭代，可能要几十秒…';
+      logEl.hidden = false;
+      logEl.textContent = '';
+
+      try {
+        const res = await fetch('api/iterate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            owner, repo, token,
+            dryRun: !!dryRun,
+            password: state.adminPwd || '',
+            apiKey: state.key || ''
+          })
+        });
+        const j = await res.json();
+        if (!j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+        logEl.textContent = (j.log || []).join('\n');
+        msg.textContent = dryRun
+          ? `打算改成 v${j.version}：${j.title}（还没提交）`
+          : `已提交 v${j.version}：${j.title}`;
+        toast(dryRun ? '方案已生成' : '已提交到仓库');
+      } catch (e) {
+        msg.textContent = e.message || '没成功';
+        logEl.textContent = '失败：' + (e.message || '');
+      }
     },
 
     async test() {

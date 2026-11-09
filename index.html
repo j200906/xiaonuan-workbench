@@ -7,8 +7,8 @@
 <meta name="description" content="一个可以对话、记笔记、收反馈的学习台。">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23b4553a'/%3E%3Ctext x='32' y='44' font-size='34' text-anchor='middle' fill='%23fff' font-family='serif'%3E%E6%9A%96%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="assets/theme.css?v=1.2.1">
-<link rel="stylesheet" href="assets/app.css?v=1.2.1">
+<link rel="stylesheet" href="assets/theme.css?v=1.3.1">
+<link rel="stylesheet" href="assets/app.css?v=1.3.1">
 </head>
 <body>
 
@@ -47,10 +47,6 @@
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h16v10H9l-5 3Z"/><path d="M8 10h8M8 13h5"/></svg>
         <span>反馈箱</span>
         <em id="fbDot" hidden></em>
-      </button>
-      <button class="side-link" data-view="arch" id="navArch" hidden>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg>
-        <span>架构</span>
       </button>
       <button class="side-link" data-view="changelog">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v5l3 2"/><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3 4v4h4"/></svg>
@@ -229,8 +225,32 @@
     </section>
 
     <!-- ---------- 架构（解锁后可见） ---------- -->
-    <section class="pane" id="view-arch" data-view="arch" hidden>
+
+    <!-- ---------- 设置 ---------- -->
+    <section class="pane" id="view-settings" data-view="settings" hidden>
       <div class="board">
+        <article class="card wide" id="cloudIterCard" hidden>
+          <header class="card-head">
+            <h2>云端自迭代</h2>
+            <span class="card-meta">在 Cloudflare 上跑，直接改 GitHub 里的文件</span>
+          </header>
+          <p class="hint">
+            用的是解锁时的密码 + 上面填的 API Key。先「试运行」看它想改什么，确认了再「开始迭代」。改动会直接提交到 main。
+          </p>
+          <div class="grid-2">
+            <label class="field"><span class="label">仓库 owner</span><input id="ciOwner" type="text" spellcheck="false" placeholder="j200906"></label>
+            <label class="field"><span class="label">仓库名</span><input id="ciRepo" type="text" spellcheck="false" placeholder="xiaonuan-workbench"></label>
+          </div>
+          <label class="field"><span class="label">GitHub Token</span><input id="ciToken" type="password" spellcheck="false" autocomplete="off" placeholder="只勾 repo 写权限，用完可撤销"></label>
+          <div class="arch-btns">
+            <button class="btn ghost sm" id="ciDry" type="button">试运行</button>
+            <button class="btn sm" id="ciRun" type="button">开始迭代</button>
+            <span class="hint" id="ciMsg"></span>
+          </div>
+          <pre class="it-log" id="ciLog" hidden></pre>
+        </article>
+
+        <h3 class="group-title">外观与布局</h3>
         <article class="card wide">
           <header class="card-head">
             <h2>用一句话改版</h2>
@@ -316,18 +336,29 @@
             <button class="btn ghost sm danger" id="cfgReset" type="button">恢复默认</button>
           </div>
         </article>
-      </div>
-    </section>
-
-    <!-- ---------- 设置 ---------- -->
-    <section class="pane" id="view-settings" data-view="settings" hidden>
-      <div class="board">
+      
         <article class="card">
-          <header class="card-head"><h2>模型接口</h2><span class="card-meta" id="setKeyMeta">—</span></header>
+          <header class="card-head"><h2>模型</h2><span class="card-meta" id="setKeyMeta">—</span></header>
           <form id="setForm">
-            <label class="field"><span class="label">API Key</span><input id="setKey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-…"></label>
-            <label class="field"><span class="label">Base URL</span><input id="setBase" type="text" spellcheck="false"></label>
-            <label class="field"><span class="label">模型</span><input id="setModel" type="text" spellcheck="false"></label>
+            <label class="field">
+              <span class="label">从哪里调</span>
+              <select id="setProvider">
+                <optgroup label="用自己的 API（推荐）">
+                  <option value="custom">自定义（自己填地址和模型名）</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="moonshot">Moonshot / Kimi</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="zhipu">智谱 GLM</option>
+                  <option value="siliconflow">硅基流动</option>
+                </optgroup>
+                <optgroup label="云端自带（无需填 Key，质量一般）">
+                  <option value="cloud">Cloudflare 自带模型</option>
+                </optgroup>
+              </select>
+            </label>
+            <label class="field" id="rowKey"><span class="label">API Key</span><input id="setKey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-…"></label>
+            <label class="field" id="rowBase"><span class="label">Base URL</span><input id="setBase" type="text" spellcheck="false"></label>
+            <label class="field" id="rowModel"><span class="label">模型名</span><input id="setModel" type="text" spellcheck="false"></label>
             <div class="arch-btns">
               <button class="btn primary sm" type="submit">保存并测试</button>
               <button class="btn ghost sm" type="button" id="setTest">只测试</button>
@@ -464,11 +495,11 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="assets/version.js?v=1.2.1"></script>
-<script src="assets/changelog.js?v=1.2.1"></script>
-<script src="assets/persona.js?v=1.2.1"></script>
-<script src="assets/app.core.js?v=1.2.1"></script>
-<script src="assets/app.views.js?v=1.2.1"></script>
-<script src="assets/iterate.js?v=1.2.1"></script>
+<script src="assets/version.js?v=1.3.1"></script>
+<script src="assets/changelog.js?v=1.3.1"></script>
+<script src="assets/persona.js?v=1.3.1"></script>
+<script src="assets/app.core.js?v=1.3.1"></script>
+<script src="assets/app.views.js?v=1.3.1"></script>
+<script src="assets/iterate.js?v=1.3.1"></script>
 </body>
 </html>

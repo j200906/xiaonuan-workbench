@@ -33,3 +33,6 @@ cloudflare/public/
 cloudflare/.dry/
 cloudflare/.wrangler/
 .wrangler/
+cloudflare/.pages/
+cloudflare/.pages.zip
+.deploy-url.txt

@@ -111,7 +111,6 @@
       nav: [
         { id: 'study', show: true },
         { id: 'feedback', show: true },
-        { id: 'arch', show: true },
         { id: 'settings', show: true }
       ],
       style: { accent: '#b4553a', radius: 14, fontSize: 15, theme: 'light', density: 'cozy' },
@@ -224,7 +223,7 @@
       var label = (state.cfg.labels && state.cfg.labels[item.id]) || VIEW_META[item.id].title;
       var span = btn.querySelector('span');
       if (span) span.textContent = label;
-      var visible = item.show !== false && (item.id !== 'arch' || state.admin);
+      var visible = item.show !== false;
       btn.hidden = !visible;
     });
   }
@@ -245,10 +244,11 @@
     if (pill) pill.textContent = state.cfg.tutor.model || 'deepseek-chat';
   }
 
-  var VIEW_IDS = ['chat', 'study', 'feedback', 'arch', 'settings', 'changelog', 'iterate'];
+  var VIEW_IDS = ['chat', 'study', 'feedback', 'settings', 'changelog', 'iterate'];
   function switchView(id) {
     if (VIEW_IDS.indexOf(id) < 0) id = 'chat';
-    if ((id === 'arch' || id === 'iterate') && !state.admin) id = 'settings';
+    if (id === 'arch') id = 'settings';               // 架构已并入设置
+    if (id === 'iterate' && !state.admin) id = 'settings';
     state.view = id;
     $$('.pane').forEach(function (v) { v.hidden = v.dataset.view !== id; });
     updateHeader();
@@ -271,6 +271,7 @@
   }
 
   N.state = state;
+  N.isProxy = isProxy;
   N.$ = $; N.$$ = $$; N.esc = esc; N.uid = uid; N.toast = toast;
   N.readJSON = readJSON; N.writeJSON = writeJSON; N.download = download;
   N.fmtTime = fmtTime; N.fmtDate = fmtDate; N.todayStr = todayStr; N.bytes = bytes;
@@ -549,7 +550,10 @@
     var box = $('#sessionList');
     if (!box) return;
     var list = state.sessions
-      .filter(function (s) { return s.messages && s.messages.length; })
+      // 当前这个即使还没说话也要显示，否则点了「新对话」界面上一点反应都没有
+      .filter(function (s) {
+        return (s.messages && s.messages.length) || s.id === state.currentId;
+      })
       .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
     $('#sessionEmpty').hidden = list.length > 0;
     $('#sessionLabel').hidden = list.length === 0;
@@ -891,8 +895,6 @@
     try { sessionStorage.setItem(KEYS.admin, '1'); } catch (e) {}
     renderSideLinks();
     updateConn('ok');
-    var navArch = $('#navArch');
-    if (navArch) navArch.hidden = false;
     var navIter = $('#navIterate');
     if (navIter) navIter.hidden = false;
     return { ok: true };
@@ -907,7 +909,7 @@
     updateConn('ok');
     var navIter = $('#navIterate');
     if (navIter) navIter.hidden = true;
-    if (state.view === 'arch' || state.view === 'iterate') switchView('settings');
+    if (state.view === 'iterate') switchView('settings');
   }
   N.lockAdmin = lockAdmin;
 
@@ -941,8 +943,16 @@
   /* ---------- 绑定 ---------- */
   function bind() {
     $('#btnNew').addEventListener('click', function () {
-      if (currentSession() && !currentSession().messages.length) { $('#input').focus(); return; }
+      var cur = currentSession();
+      if (cur && !cur.messages.length) {
+        // 已经是空对话：不清屏，但必须给出看得见的反馈，否则像是按钮坏了
+        var box = $('#input');
+        if (box) { box.value = ''; autoGrow(); box.focus(); }
+        toast('已经是新对话了，直接说吧');
+        return;
+      }
       newSession();
+      toast('新对话');
     });
 
     $$('.side-link').forEach(function (b) {
@@ -1068,8 +1078,6 @@
 
     renderSessions();
     renderThread();
-    var navArch = $('#navArch');
-    if (navArch) navArch.hidden = !state.admin;
     var navIter = $('#navIterate');
     if (navIter) navIter.hidden = !state.admin;
     var verChip = $('#verChip');
@@ -1078,7 +1086,7 @@
 
     var want = 'chat';
     try { want = sessionStorage.getItem(KEYS.view) || 'chat'; } catch (e) {}
-    switchView((want === 'arch' || want === 'iterate') && !state.admin ? 'settings' : want);
+    switchView(want === 'iterate' && !state.admin ? 'settings' : want);
   }
 
   N.boot = boot;
