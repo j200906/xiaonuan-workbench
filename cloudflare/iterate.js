@@ -250,6 +250,25 @@ export async function runIteration(env, opts) {
     const hits = files[file].split(find).length - 1;
     if (hits !== 1) throw new Error(`${file} 里命中 ${hits} 次（必须正好 1 次）`);
     if (/(eval\s*\(|document\.write|<script[^>]+src="https?:)/.test(replace)) throw new Error('替换内容含被禁止的写法');
+
+    // 这些是踩过的坑：模型容易把原片段又抄一遍，造成重复定义 / 缺逗号
+    if (replace.indexOf(find) >= 0) throw new Error('替换内容里原样带着被替换的片段，等于重复插入');
+    const defs = (replace.match(/(?:^|[\s,{])([A-Za-z_$][\w$]*)\s*\(\)\s*\{/g) || [])
+      .map((x) => (x.match(/([A-Za-z_$][\w$]*)\s*\(\)/) || [])[1])
+      .filter(Boolean);
+    for (const name of defs) {
+      const re = new RegExp('(^|[\\s,{])' + name + '\\s*\\(\\)\\s*\\{');
+      if (re.test(files[file])) throw new Error(`${file} 里已经有 ${name}()，再插一遍会重复定义`);
+    }
+
+    // 括号平衡：插入后整体必须配平，否则语法一定坏
+    const bal = (t, a, b) => (t.split(a).length - t.split(b).length);
+    const before = files[file];
+    const after = before.replace(find, replace);
+    if (bal(after, '{', '}') !== bal(before, '{', '}') ||
+        bal(after, '(', ')') !== bal(before, '(', ')')) {
+      throw new Error(`${file} 括号不配平，这一版会语法错误`);
+    }
     files[file] = files[file].replace(find, replace);
     applied.push(file);
   }

@@ -84,7 +84,11 @@ export default {
       if (request.method !== 'POST') return json({ ok: false, error: '只接受 POST' }, 405);
       let payload = {};
       try { payload = await request.json(); } catch (e) { payload = {}; }
-      return cors(await runIteration(env, payload));
+      try {
+        return cors(await runIteration(env, payload));
+      } catch (e) {
+        return cors(json({ ok: false, error: '迭代失败：' + (e.message || String(e)) }, 500));
+      }
     }
 
     if (path === '/api/feedback') {
