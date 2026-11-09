@@ -1,0 +1,10 @@
+.git
+.github
+data
+tests
+_site
+node_modules
+__pycache__
+*.pyc
+README.md
+DEPLOY.md
