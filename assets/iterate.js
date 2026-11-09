@@ -1,1021 +1,353 @@
-/* 小暖 · 自动迭代：整理反馈 → 自检 → 自问自答 → 出补丁 → 沙箱预演 → 反证 → 提 PR
-   借鉴 magpie 的工程习惯：分支隔离、跑过再说、故意改坏证明检查有效、写明没验过什么。 */
-(function (N) {
+/* 小暖 · 自迭代界面
+ * 真正的改代码发生在云端 /api/iterate（或本地后端），浏览器只负责发起、显示、下载结果。
+ * 这样不会出现"浏览器一套、云端一套"的行为分裂，也不会把 GitHub Token 留在页面里。 */
+(function (root) {
   'use strict';
 
-  const { $, $$, state } = N;
-  const esc = N.esc, toast = N.toast;
+  var XN = root.XN;
+  var $ = XN.$;
+  var state = XN.state, API = XN.api, S = XN.store;
 
-  const EDITABLE = ['index.html', 'assets/app.css', 'assets/app.core.js', 'assets/app.views.js', 'assets/persona.js'];
-  const READABLE = EDITABLE.concat(['assets/theme.css']);
-  const MAX_PATCHES = 6;
-  const MAX_FILE_CHARS = 18000;
-  const GH_TOKEN_KEY = 'xn.gh.token';
+  var GH_TOKEN = '';   /* 只存在内存：刷新即失效，绝不进 sessionStorage/localStorage */
 
-  const IT = {
+  var IT = {
     running: false,
     stopped: false,
+    abort: null,
     queue: [],
     log: [],
     result: null,
-    sources: null,
     steps: [
       ['triage', '整理反馈'],
-      ['critique', '自检'],
-      ['grill', '自问自答'],
       ['plan', '出方案'],
-      ['verify', '预演'],
-      ['publish', '发布'],
+      ['verify', '校验'],
+      ['publish', '提交'],
+      ['release', '发版'],
       ['record', '记账']
     ],
     stepState: {}
   };
-  N.IT = IT;
+  XN.IT = IT;
 
   function log(msg, kind) {
-    const t = new Date();
-    const hh = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+    var d = new Date();
+    var hh = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
     IT.log.push({ t: hh, msg: String(msg), kind: kind || '' });
     renderLog();
   }
 
   function renderLog() {
-    const el = $('#itLog');
+    var el = $('#itLog');
     if (!el) return;
-    el.innerHTML = IT.log.map((l) => `<span class="it-line ${l.kind}"><span class="it-time">${l.t}</span>${esc(l.msg)}</span>`).join('');
+    el.innerHTML = IT.log.map(function (l) {
+      return '<span class="it-line ' + l.kind + '"><span class="it-time">' + l.t + '</span>' + XN.esc(l.msg) + '</span>';
+    }).join('');
     el.scrollTop = el.scrollHeight;
-    const meta = $('#itLogMeta');
+    var meta = $('#itLogMeta');
     if (meta) meta.textContent = IT.log.length ? IT.log.length + ' 行' : '—';
   }
 
   function setStep(key, status) {
     IT.stepState[key] = status;
-    const box = $('#itSteps');
+    var box = $('#itSteps');
     if (!box) return;
-    box.innerHTML = IT.steps.map(([k, label]) => {
-      const st = IT.stepState[k] || 'idle';
-      return `<span class="it-step ${st}" data-step="${k}"><i></i>${esc(label)}</span>`;
+    box.innerHTML = IT.steps.map(function (s) {
+      var st = IT.stepState[s[0]] || 'idle';
+      return '<span class="it-step ' + st + '" data-step="' + s[0] + '"><i></i>' + XN.esc(s[1]) + '</span>';
     }).join('');
   }
 
   function setMeta(text) {
-    const el = $('#itMeta');
+    var el = $('#itMeta');
     if (el) el.textContent = text;
   }
 
-  /* ---------- 来源 ---------- */
-  async function loadSources() {
-    if (IT.sources) return IT.sources;
-    const out = {};
-    for (const path of READABLE) {
-      const res = await fetch(path + '?v=' + Date.now(), { cache: 'no-store' });
-      if (!res.ok) throw new Error('读不到 ' + path);
-      // 统一成 LF：否则 Windows 工作区的 CRLF 会让整份文件在 diff 里全变
-      out[path] = (await res.text()).replace(/\r\n/g, '\n');
-    }
-    IT.sources = out;
-    return out;
-  }
-
-  async function gatherFeedback() {
-    const items = (state.feedback || []).slice(0, 40).map((f) => ({
-      type: f.type, body: f.body, contact: f.contact, at: N.fmtDate(f.ts), status: f.status
-    }));
-    // 配了后端就把服务器上的也拉下来（需要管理员密码）
-    if (state.cfg.tutor.baseUrl.charAt(0) === '/' && state.adminPwd) {
-      try {
-        const res = await fetch('/api/feedback', { headers: { 'X-Admin-Password': state.adminPwd } });
-        if (res.ok) {
-          const data = await res.json();
-          (data.items || []).slice(0, 60).forEach((x) => {
-            items.push({ type: x.type, body: x.body, contact: x.contact, at: x.ts, status: 'server' });
-          });
-        }
-      } catch (e) { /* 服务器没配就当没有 */ }
-    }
-    return items;
-  }
-
-  /* ---------- 模型调用 ---------- */
-  function parseJSON(raw) {
-    if (!raw) return null;
-    let text = String(raw).trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-    try { return JSON.parse(text); } catch (e) {}
-    const start = text.indexOf('{');
-    if (start < 0) return null;
-    let depth = 0, inStr = false, escd = false;
-    for (let i = start; i < text.length; i++) {
-      const ch = text[i];
-      if (inStr) {
-        if (escd) escd = false;
-        else if (ch === '\\') escd = true;
-        else if (ch === '"') inStr = false;
-        continue;
-      }
-      if (ch === '"') inStr = true;
-      else if (ch === '{') depth++;
-      else if (ch === '}') {
-        depth--;
-        if (depth === 0) {
-          try { return JSON.parse(text.slice(start, i + 1)); } catch (e) { return null; }
-        }
-      }
-    }
-    return null;
-  }
-
-  async function ask(system, user, maxTokens) {
-    const res = await N.apiChat(
-      [{ role: 'system', content: system }, { role: 'user', content: user }],
-      { stream: false, temperature: 0.3, maxTokens: maxTokens || 1600 }
-    );
-    return parseJSON(res.text);
-  }
-
-  function manifest() {
-    const files = Object.keys(IT.sources || {}).map((p) => {
-      const text = IT.sources[p];
-      return { path: p, lines: text.split('\n').length, head: text.split('\n').slice(0, 3).join(' / ').slice(0, 120) };
-    });
-    return {
-      version: window.XN_VERSION || '1.0.0',
-      files,
-      views: ['chat', 'study', 'feedback', 'settings', 'arch', 'changelog'],
-      stores: ['xn.cfg.v1', 'xn.sessions.v1', 'xn.notes.v1', 'xn.goals.v1', 'xn.fb.v1', 'xn.timer.v1', 'xn.key.v1'],
-      recent: (window.XN_CHANGELOG || []).slice(0, 3).map((c) => ({ v: c.version, title: c.title, fixes: c.fixes.length, features: c.features.length })),
-      rules: [
-        '纯静态页面，不能加构建步骤',
-        '不能改 server/、tests/、.github/',
-        '不能引入外部脚本、eval、远程字体',
-        'localStorage 键名保持兼容',
-        '不要动管理密码与安全边界'
-      ]
-    };
-  }
-
-  async function triage(feedback) {
-    if (!feedback.length) return [];
-    log('把 ' + feedback.length + ' 条反馈丢给模型拆工单…');
-    const sys = '你是工单拆解器。把用户反馈拆成可执行的工单，合并重复项，别发明用户没说过的问题。只输出 JSON。';
-    const user = `反馈列表（JSON）：\n${JSON.stringify(feedback).slice(0, 9000)}\n\n` +
-      `当前版本 ${window.XN_VERSION}，最近更新：${JSON.stringify((window.XN_CHANGELOG || []).slice(0, 2).map((c) => c.title))}\n\n` +
-      `输出格式：{"tickets":[{"title":"不超过 16 字","kind":"bug|feature|content","severity":1,"why":"用户原话或推断依据","scope":"涉及哪个页面/文件"}]}\n` +
-      `最多 5 条，按严重度降序。没有可做的就返回 {"tickets":[]}。`;
-    const data = await ask(sys, user, 900);
-    return normalizeTickets(data && data.tickets, 'feedback');
-  }
-
-  async function selfCritique() {
-    log('队列空了，开始一轮自检：找自己的毛病…');
-    const sys = '你是这个项目的自己人，任务是挑毛病。只报你能在给定代码里指出来的问题，不要泛泛而谈，不要提已经写在规则里的事。只输出 JSON。';
-    const user = `项目清单：${JSON.stringify(manifest())}\n\n` +
-      `看这份清单，指出 1-3 个真实存在的小毛病（交互、可访问性、边界情况、错误提示）。` +
-      `每条必须能落到具体页面或文件。输出 {"tickets":[{"title":"","kind":"bug","severity":2,"why":"为什么算问题","scope":"文件或页面"}]}`;
-    const data = await ask(sys, user, 700);
-    return normalizeTickets(data && data.tickets, 'critique');
-  }
-
-  async function grill() {
-    log('用 grill-me 的方法审问自己：先列决策分支，再逐条自答…');
-    const sys = '你在用 grill-me 方法审自己。规则：先列 3-6 个决策分支；每个分支先给出你的推荐答案再自问；能靠读代码回答的不要问；最后把结论变成可做的小功能。只输出 JSON。';
-    const user = `项目：一个纯静态的学习工作台（对话/学习台/反馈箱/设置/架构）。当前 ${window.XN_VERSION}。\n` +
-      `清单：${JSON.stringify(manifest())}\n\n` +
-      `审问方向：用户第一次打开会卡在哪？哪个功能点了没反馈？哪里的文案在骗人？\n` +
-      `输出 {"qa":[{"q":"","a":""}],"tickets":[{"title":"","kind":"feature","severity":2,"why":"由哪条自答推出来","scope":"页面"}]}\n` +
-      `qa 3-4 组，tickets 1-2 条。功能必须小到一次改动能做完，不许加后端、不许加新依赖。`;
-    const data = await ask(sys, user, 1200);
-    if (data && Array.isArray(data.qa)) {
-      data.qa.slice(0, 4).forEach((p) => log('自问：' + trim(p.q, 60) + ' → ' + trim(p.a, 70), 'qa'));
-    }
-    return normalizeTickets(data && data.tickets, 'grill');
-  }
-
-  function trim(s, n) {
-    s = String(s || '').replace(/\s+/g, ' ');
-    return s.length > n ? s.slice(0, n - 1) + '…' : s;
-  }
-
-  function normalizeTickets(list, source) {
-    if (!Array.isArray(list)) return [];
-    return list.slice(0, 5).map((t) => ({
-      id: N.uid(),
-      title: trim(t.title || t.name || '未命名工单', 24),
-      kind: ['bug', 'feature', 'content'].includes(t.kind) ? t.kind : 'feature',
-      severity: Math.min(3, Math.max(1, Number(t.severity) || 2)),
-      why: trim(t.why || '', 160),
-      scope: trim(t.scope || '', 60),
-      source,
-      status: 'todo'
-    })).filter((t) => t.title);
-  }
-
-  /* ---------- 选文件 + 出方案 ---------- */
-  const FILE_HINTS = {
-    'assets/app.css': ['样式', '颜色', '布局', '间距', '暗色', '圆角', '字体', '手机', '窄屏', '按钮', '对齐', '滚动'],
-    'assets/app.core.js': ['对话', '消息', '会话', '流式', 'key', '存储', 'markdown', '接口', '错误', '发送', '快捷键'],
-    'assets/app.views.js': ['学习台', '笔记', '目标', '计时', '反馈', '设置', '架构', '导航', '日志'],
-    'assets/persona.js': ['人设', '语气', '说话', 'prompt', '小暖'],
-    'index.html': ['结构', '页面', '入口', '文案', '标题', '按钮位置']
-  };
-
-  function pickFiles(ticket) {
-    const text = (ticket.title + ' ' + ticket.why + ' ' + ticket.scope).toLowerCase();
-    const scored = Object.keys(FILE_HINTS).map((file) => {
-      const hits = FILE_HINTS[file].filter((k) => text.includes(k.toLowerCase())).length;
-      return { file, score: hits };
-    }).sort((a, b) => b.score - a.score);
-    const picked = scored.filter((x) => x.score > 0).slice(0, 2).map((x) => x.file);
-    if (!picked.length) picked.push('assets/app.views.js', 'assets/app.css');
-    return picked.slice(0, 2);
-  }
-
-  async function planPatch(ticket) {
-    const files = pickFiles(ticket);
-    log('读文件：' + files.join('、'));
-    const payload = files.map((p) => `<<<FILE ${p}\n${IT.sources[p].slice(0, MAX_FILE_CHARS)}\nFILE>>>`).join('\n\n');
-
-    const sys = '你是代码修改计划器。小改给 find/replace，大改给整份文件。只输出 JSON。';
-    const user = `工单：${JSON.stringify(ticket)}\n\n` +
-      `版本 ${window.XN_VERSION}。允许改这些文件：${EDITABLE.join(', ')}。允许大改，但一次最多重写 2 个文件。\n\n` +
-      `输出格式：\n` +
-      `{"version":"1.3.0","title":"不超过 18 字","fixes":["..."],"features":["..."],"run":"你打算怎么验证","notTried":"你没法验证什么",\n` +
-      ` "mode":"patch 或 rewrite",\n` +
-      ` "patches":[{"file":"","find":"","replace":""}],\n` +
-      ` "rewrites":[{"file":"","content":"这一份文件的完整内容"}],\n` +
-      ` "creates":[{"file":"assets/新文件.js","content":"..."}]}\n\n` +
-      `规则：\n` +
-      `1. mode=patch 时只用 patches：find 逐字唯一、单处不超过 40 行、最多 ${MAX_PATCHES} 处。\n` +
-      `2. mode=rewrite 时用 rewrites：content 必须是完整文件，不能出现「…省略…」之类的省略；长度不能比原文明显短（至少 55%）。\n` +
-      `3. 大改最多新建 1 个 assets/*.js 或 *.css；新建 .js 必须同时改 index.html 里加上 <script src="...">，否则不会被加载。\n` +
-      `4. 两种模式都不许改 server/ tests/ .github/，不许 eval、外链脚本、远程字体。\n` +
-      `5. 必须保住这些锚点：#app #messages #input #btnSend #btnNew .side-link[data-view=study|feedback|settings]；localStorage 键名（xn.*.v1）不变。\n` +
-      `6. 改完必须能正常启动，学习台/反馈箱/设置都要能打开。\n\n${payload}`;
-
-    const plan = await ask(sys, user, 2600);
-    if (!plan) throw new Error('模型没给出方案');
-    const hasPatch = Array.isArray(plan.patches) && plan.patches.length;
-    const hasRewrite = Array.isArray(plan.rewrites) && plan.rewrites.length;
-    if (!hasPatch && !hasRewrite) throw new Error('模型没给出可用改动');
-    if (!plan.mode) plan.mode = hasRewrite ? 'rewrite' : 'patch';
-    return Object.assign({ ticketId: ticket.id, ticketTitle: ticket.title, files }, plan);
-  }
-
-  /* ---------- 应用改动（补丁或整份重写） ---------- */
-  function applyPlan(sources, plan) {
-    const out = Object.assign({}, sources);
-    const touched = [];
-    const mode = plan.mode === 'rewrite' ? 'rewrite' : 'patch';
-
-    if (mode === 'rewrite') {
-      const rewrites = Array.isArray(plan.rewrites) ? plan.rewrites : [];
-      if (!rewrites.length) throw new Error('rewrite 模式却没有 rewrites');
-      if (rewrites.length > 2) throw new Error('一次最多重写 2 个文件');
-      rewrites.forEach((r, i) => {
-        const file = r.file;
-        if (!EDITABLE.includes(file)) throw new Error('不允许重写 ' + file);
-        const content = String(r.content || '').replace(/\r\n/g, '\n');
-        if (content.length < 2000) throw new Error('第 ' + (i + 1) + ' 份太短，像是被截断');
-        if (content.length > 60000) throw new Error('第 ' + (i + 1) + ' 份超过 60KB');
-        if (/(…省略|\.\.\.\s*省略|truncated|其余不变)/i.test(content)) throw new Error('第 ' + (i + 1) + ' 份含省略标记');
-        const ratio = content.length / Math.max(1, (sources[file] || '').length);
-        if (ratio < 0.55) throw new Error('第 ' + (i + 1) + ' 份比原文短太多（' + Math.round(ratio * 100) + '%），可能漏功能');
-        if (/(eval\s*\(|document\.write)/.test(content)) throw new Error('第 ' + (i + 1) + ' 份含被禁止的写法');
-        out[file] = content;
-        if (!touched.includes(file)) touched.push(file);
-      });
-
-      const creates = Array.isArray(plan.creates) ? plan.creates : [];
-      if (creates.length > 1) throw new Error('一次最多新建 1 个文件');
-      creates.forEach((c) => {
-        const file = String(c.file || '');
-        if (!/^assets\/[a-z0-9._-]+\.(js|css)$/i.test(file)) throw new Error('新文件名不合法：' + file);
-        if (out[file]) throw new Error(file + ' 已经存在');
-        const content = String(c.content || '').replace(/\r\n/g, '\n');
-        if (!content.trim()) throw new Error('新文件内容是空的');
-        if (content.length > 40000) throw new Error('新文件超过 40KB');
-        if (file.endsWith('.js') && (out['index.html'] || '').indexOf(file) < 0) {
-          throw new Error('新脚本 ' + file + ' 没在 index.html 里引用，加了也不会加载');
-        }
-        out[file] = content;
-        touched.push(file);
-      });
-    }
-
-    if (Array.isArray(plan.patches) && plan.patches.length) {
-      applyPatches(out, plan.patches, touched);
-    }
-
-    if (!touched.length) throw new Error('这一版没有任何改动');
-    return { files: out, touched, mode };
-  }
-
-  function applyPatches(out, patches, touched) {
-    if (patches.length > MAX_PATCHES) throw new Error('补丁条数超过上限');
-    patches.forEach((p, i) => {
-      const file = p.file;
-      if (!EDITABLE.includes(file)) throw new Error('不允许改 ' + file);
-      if (!out[file]) out[file] = IT.sources[file];
-      const find = String(p.find || '');
-      const replace = String(p.replace || '');
-      if (find.length < 8) throw new Error('第 ' + (i + 1) + ' 处 find 太短，容易误伤');
-      if (replace.length > 6000) throw new Error('第 ' + (i + 1) + ' 处改动过大');
-      if (/(eval\s*\(|document\.write|<script[^>]*src=|import\s*\()/i.test(replace)) {
-        throw new Error('第 ' + (i + 1) + ' 处含被禁止的写法');
-      }
-      const first = out[file].indexOf(find);
-      if (first < 0) throw new Error('第 ' + (i + 1) + ' 处在 ' + file + ' 里找不到原文');
-      if (out[file].indexOf(find, first + 1) >= 0) throw new Error('第 ' + (i + 1) + ' 处原文不唯一');
-      out[file] = out[file].slice(0, first) + replace + out[file].slice(first + find.length);
-      if (!touched.includes(file)) touched.push(file);
-    });
-    return out;
-  }
-
-  /* ---------- 验证 ---------- */
-  function bundle(files) {
-    const order = ['assets/version.js', 'assets/changelog.js', 'assets/persona.js',
-      'assets/app.core.js', 'assets/app.views.js', 'assets/iterate.js'];
-    return order.map((p) => files[p] || '').join('\n;\n');
-  }
-
-  async function previewCheck(files, label) {
-    return new Promise((resolve) => {
-      const nonce = 'p' + Math.random().toString(36).slice(2);
-      let html = files['index.html'];
-      const css = files['assets/theme.css'] + '\n' + files['assets/app.css'];
-      html = html.replace(/<link rel="stylesheet" href="assets\/theme\.css[^"]*">\s*/g, '')
-                 .replace(/<link rel="stylesheet" href="assets\/app\.css[^"]*">/, () => '<style>' + css + '</style>');
-      html = html.replace(/<script src="assets\/[^"]+"><\/script>\s*/g, '');
-
-      const core = files['assets/app.core.js'] || '';
-      const shim = `
-(function(){
-  var mem={};
-  function mk(){return {getItem:function(k){return mem.hasOwnProperty(k)?mem[k]:null},
-    setItem:function(k,v){mem[k]=String(v)},removeItem:function(k){delete mem[k]},
-    clear:function(){mem={}},key:function(i){return Object.keys(mem)[i]||null},
-    get length(){return Object.keys(mem).length}};}
-  var ls=mk(), ss=mk();
-  try{Object.defineProperty(window,'localStorage',{configurable:true,get:function(){return ls}});}catch(e){}
-  try{Object.defineProperty(window,'sessionStorage',{configurable:true,get:function(){return ss}});}catch(e){}
-  window.__errs=[];
-  addEventListener('error',function(e){window.__errs.push(String(e.message||e))});
-  addEventListener('unhandledrejection',function(e){window.__errs.push('reject:'+String(e.reason))});
-  setTimeout(function(){
-    var c = {};
-    function q(s){ return document.querySelector(s); }
-    try {
-      c.挂载 = !!q('#app') && !!q('#messages') && q('#messages').children.length > 0;
-      c.输入框 = !!q('#input');
-      c.发送键 = !!q('#btnSend');
-      c.新对话 = !!q('#btnNew');
-      c.侧栏 = document.querySelectorAll('.side-link').length >= 3;
-      try {
-        window.XN.switchView('study');
-        c.学习台 = !!q('#view-study .card');
-        window.XN.switchView('feedback');
-        c.反馈箱 = !!q('#view-feedback .card');
-        window.XN.switchView('settings');
-        c.设置 = !!q('#view-settings .card');
-        window.XN.switchView('chat');
-        c.切回对话 = !q('#view-chat').hidden;
-      } catch (e) { c.视图切换 = false; }
-    } catch (e) { c.挂载 = false; }
-    var bad = Object.keys(c).filter(function(k){ return !c[k]; });
-    parent.postMessage({xnPreview:{
-      nonce:'${nonce}',
-      checks: c,
-      failed: bad,
-      version: (q('#verChip')||{}).textContent || '',
-      errs: window.__errs
-    }},'*');
-  }, 1600);
-})();`;
-
-      html = html.replace('</head>', () => '<script>' + shim + '<\/script></head>');
-      html = html.replace('</body>', () => '<script>' + bundle(files) + '<\/script></body>');
-
-      const frame = document.createElement('iframe');
-      frame.setAttribute('sandbox', 'allow-scripts');
-      frame.style.cssText = 'position:fixed;left:-9999px;top:0;width:1200px;height:800px;border:0;';
-      let done = false;
-      const finish = (r) => {
-        if (done) return;
-        done = true;
-        window.removeEventListener('message', onMsg);
-        frame.remove();
-        resolve(r);
-      };
-      const onMsg = (ev) => {
-        const d = ev.data && ev.data.xnPreview;
-        if (!d || d.nonce !== nonce) return;
-        const failed = d.failed || [];
-        const errs = d.errs || [];
-        const ok = failed.length === 0 && errs.length === 0;
-        finish({
-          ok,
-          checks: d.checks || {},
-          detail: ok
-            ? `${label || '预演'}：${Object.keys(d.checks || {}).length} 项检查全过（挂载、输入框、侧栏、学习台、反馈箱、设置），版本 ${d.version || '?'}`
-            : `${label || '预演'}：没过的检查 ${failed.join('、') || '—'}${errs.length ? '；报错 ' + errs[0] : ''}`,
-          errs
-        });
-      };
-      window.addEventListener('message', onMsg);
-      frame.srcdoc = html;
-      document.body.appendChild(frame);
-      setTimeout(() => finish({ ok: false, detail: (label || '预演') + '：超时，页面没起来' }), 7000);
-    });
-  }
-
-  async function verify(files) {
-    for (const p of Object.keys(files)) {
-      if (!p.endsWith('.js')) continue;
-      try { new Function(files[p]); }
-      catch (e) { return { ok: false, stage: '语法', detail: p + ' 语法错误：' + e.message }; }
-    }
-    const first = await previewCheck(files, '预演');
-    if (!first.ok) return { ok: false, stage: '预演', detail: first.detail + (first.errs && first.errs.length ? ' / ' + first.errs[0] : '') };
-
-    // 故意改坏：摘掉启动钩子，预演必须失败，否则说明检查是瞎的
-    const broken = Object.assign({}, files);
-    const core = broken['assets/app.core.js'] || '';
-    const hook = "document.addEventListener('DOMContentLoaded', boot);";
-    if (core.indexOf(hook) < 0) return { ok: false, stage: '反证', detail: '找不到启动钩子，无法做反证' };
-    broken['assets/app.core.js'] = core.replace(hook, '');
-    const bad = await previewCheck(broken, '反证');
-    if (bad.ok) return { ok: false, stage: '反证', detail: '故意摘掉启动钩子后预演仍然通过，说明检查抓不住问题' };
-
-    return { ok: true, detail: first.detail + '；反证通过（摘掉启动钩子后预演失败，检查有效）' };
-  }
-
-  /* ---------- 发版 ---------- */
-  function nextVersion(suggested) {
-    const cur = window.XN_VERSION || '1.0.0';
-    const ok = /^\d+\.\d+\.\d+$/.test(suggested || '');
-    const cmp = (a, b) => {
-      const A = a.split('.').map(Number), B = b.split('.').map(Number);
-      for (let i = 0; i < 3; i++) { if (A[i] !== B[i]) return A[i] - B[i]; }
-      return 0;
-    };
-    if (ok && cmp(suggested, cur) > 0) return suggested;
-    const [maj, min, pat] = cur.split('.').map(Number);
-    return `${maj}.${min}.${pat + 1}`;
-  }
-
-  function versionSource(v) {
-    return '/* 当前版本。自动迭代发布时会改写这个文件。 */\nwindow.XN_VERSION = ' + JSON.stringify(v) + ';\n';
-  }
-
-  function changelogSource(list) {
-    return '/* 版本记录。自动迭代新增的条目会写回这个文件。 */\nwindow.XN_CHANGELOG = ' + JSON.stringify(list, null, 2) + ';\n';
-  }
-
-  function b64(str) {
-    const bytes = new TextEncoder().encode(str);
-    let bin = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return btoa(bin);
-  }
-
-  function ghConfig() {
-    const p = state.cfg.publish || {};
-    return {
-      owner: (p.owner || '').trim(),
-      repo: (p.repo || '').trim(),
-      autoMerge: !!p.autoMerge,
-      direct: !!p.direct,
-      token: (() => { try { return sessionStorage.getItem(GH_TOKEN_KEY) || ''; } catch (e) { return ''; } })()
-    };
-  }
-
-  async function gh(path, opts) {
-    const cfg = ghConfig();
-    const res = await fetch('https://api.github.com' + path, {
-      method: (opts && opts.method) || 'GET',
-      headers: Object.assign({
-        'Authorization': 'Bearer ' + cfg.token,
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28'
-      }, (opts && opts.body) ? { 'Content-Type': 'application/json' } : {}),
-      body: (opts && opts.body) ? JSON.stringify(opts.body) : undefined
-    });
-    const text = await res.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch (e) {}
-    if (!res.ok) {
-      const msg = (data && data.message) || text.slice(0, 120) || res.status;
-      throw new Error(`GitHub ${res.status}：${msg}`);
-    }
-    return data;
-  }
-
-  async function publish(files, touched, entry, verifyDetail) {
-    const cfg = ghConfig();
-    if (!cfg.token || !cfg.owner || !cfg.repo) {
-      log('没配发布通道，产物留作草稿。', 'warn');
-      return { mode: 'draft' };
-    }
-    const repoPath = `/repos/${cfg.owner}/${cfg.repo}`;
-    const info = await gh(repoPath);
-    const base = info.default_branch || 'main';
-    const ref = await gh(`${repoPath}/git/ref/heads/${base}`);
-    const headSha = ref.object.sha;
-    const headCommit = await gh(`${repoPath}/git/commits/${headSha}`);
-
-    const branch = 'auto/v' + entry.version;
-    const treeItems = [];
-    for (const path of touched) {
-      const blob = await gh(`${repoPath}/git/blobs`, { method: 'POST', body: { content: b64(files[path]), encoding: 'base64' } });
-      treeItems.push({ path, mode: '100644', type: 'blob', sha: blob.sha });
-    }
-    const tree = await gh(`${repoPath}/git/trees`, {
-      method: 'POST',
-      body: { base_tree: headCommit.tree.sha, tree: treeItems }
-    });
-
-    const message = [
-      `${entry.fixCount ? 'fix' : 'feat'}: ${entry.title} (v${entry.version})`,
-      '',
-      `工单: ${entry.ticketTitle}`,
-      `Run: 语法检查 · 沙箱预演 · 反证`,
-      `Verify: ${verifyDetail}`,
-      `Not tried: 真机多浏览器、真实服务商（本次用假上游）`,
-      '',
-      `Score: 反馈 ${entry.feedbackCount} 条 / 工单来源 ${entry.source}`
-    ].join('\n');
-
-    const commit = await gh(`${repoPath}/git/commits`, {
-      method: 'POST',
-      body: { message, tree: tree.sha, parents: [headSha] }
-    });
-
-    if (cfg.direct) {
-      await gh(`${repoPath}/git/refs/heads/${base}`, {
-        method: 'PATCH', body: { sha: commit.sha, force: false }
-      });
+  function modelArgs(mode) {
+    var runtime = XN.models.runtime();
+    if (mode === 'gateway') {
+      if (!runtime.gatewayReady) return { error: '服务器没有下发本机网关地址（XN_GATEWAY_BASE）。' };
+      var gk = state.gatewayKey || S.sessionGet('xn.v2.gatewayKey', '') || '';
+      if (!gk) return { error: '先用「自迭代模型（本机网关）」填一次钥匙。' };
       return {
-        mode: 'direct',
-        url: `https://github.com/${cfg.owner}/${cfg.repo}/commit/${commit.sha}`,
-        commit: commit.sha.slice(0, 7),
-        branch: base
+        apiKey: gk,
+        providerBase: runtime.gatewayBase,
+        model: runtime.gatewayModel || '',
+        gateway: true
       };
     }
-
-    try {
-      await gh(`${repoPath}/git/refs`, { method: 'POST', body: { ref: 'refs/heads/' + branch, sha: commit.sha } });
-    } catch (e) {
-      await gh(`${repoPath}/git/refs/heads/${branch}`, { method: 'PATCH', body: { sha: commit.sha, force: true } });
+    var model = state.cfg.tutor.model || '';
+    if (!model || XN.models.isCloud(model)) return {};
+    var prov = state.cfg.tutor.provider || {};
+    var base = prov.base || state.cfg.tutor.baseUrl || '';
+    if (/^https?:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])/i.test(base)) {
+      return { error: '你选的是本机地址，Cloudflare 访问不到你的电脑。请换公网 API，或在设置里选「自迭代模型（本机网关）」。' };
     }
-
-    const pr = await gh(`${repoPath}/pulls`, {
-      method: 'POST',
-      body: {
-        title: `${entry.title}（v${entry.version}）`,
-        head: branch,
-        base,
-        body: `自动迭代产物。\n\n**改了什么**\n${entry.fixes.concat(entry.features).map((x) => '- ' + x).join('\n') || '- （见提交）'}\n\n**验证**\n${verifyDetail}\n\n**没验证**\n真机、多浏览器、真实服务商。\n\n合并前请自己点一遍：对话能发、学习台能记、侧栏能切。`
-      }
-    });
-
-    let merged = false;
-    if (cfg.autoMerge) {
-      try {
-        await gh(`${repoPath}/pulls/${pr.number}/merge`, { method: 'PUT', body: { merge_method: 'squash' } });
-        merged = true;
-        log('已按设置自动合并 PR #' + pr.number, 'warn');
-      } catch (e) {
-        log('自动合并失败：' + e.message, 'warn');
-      }
-    }
-
-    return { mode: 'pr', url: pr.html_url, number: pr.number, branch, merged };
+    return { apiKey: state.key || '', providerBase: base, model: model };
   }
 
-  /* ---------- 主循环 ---------- */
-  function stop() {
-    IT.stopped = true;
-    IT.running = false;
-    const btn = $('#itStop');
-    if (btn) btn.hidden = true;
-    setMeta('已停止');
-    log('收到停止，收尾。', 'warn');
+  function currentToken() {
+    var raw = $('#ciToken') ? $('#ciToken').value.trim() : '';
+    if (raw) GH_TOKEN = raw;
+    return GH_TOKEN;
   }
 
-  async function runOne(ticket, feedbackCount) {
-    setStep('plan', 'run');
-    const plan = await planPatch(ticket);
-    const big = plan.mode === 'rewrite';
-    log('方案：' + plan.title + '（' + (big
-      ? '整份重写 ' + ((plan.rewrites || []).length + (plan.creates || []).length) + ' 个文件'
-      : (plan.patches || []).length + ' 处小改') + '）', 'ok');
-    plan.ticketTitle = ticket.title;
-    plan.ticketId = ticket.id;
-    plan.source = ticket.source;
-    plan.feedbackCount = feedbackCount;
-
-    setStep('plan', 'ok');
-    setStep('verify', 'run');
-
-    let released;
-    try {
-      released = applyPlan(IT.sources, plan);
-    } catch (e) {
-      setStep('plan', 'fail');
-      ticket.status = 'failed';
-      renderQueue();
-      return { ok: false, reason: e.message };
-    }
-    log('应用方式：' + (released.mode === 'rewrite' ? '整份重写' : '逐处替换') + '，动到 ' + released.touched.length + ' 个文件');
-    const v = nextVersion(plan.version);
-    log('版本：' + (window.XN_VERSION || '?') + ' → ' + v);
-
-    const entry = {
-      version: v,
-      date: new Date().toISOString().slice(0, 10),
-      title: trim(plan.title || ticket.title, 30),
-      fixes: (plan.fixes || []).map((x) => trim(x, 120)).slice(0, 6),
-      features: (plan.features || []).map((x) => trim(x, 120)).slice(0, 6),
-      notes: trim(plan.notTried || '未说明没验证的部分。', 160),
-      ticketTitle: ticket.title,
-      source: ticket.source,
-      feedbackCount,
-      fixCount: (plan.fixes || []).length
-    };
-    if (!entry.fixes.length && !entry.features.length) entry.fixes.push(entry.title);
-
-    const files = Object.assign({}, released.files);
-    files['index.html'] = (files['index.html'] || '').replace(/\?v=\d+\.\d+\.\d+/g, '?v=' + v);
-    if (released.touched.indexOf('index.html') < 0) released.touched.push('index.html');
-    files['assets/version.js'] = versionSource(v);
-    const list = [entry].concat(window.XN_CHANGELOG || []);
-    files['assets/changelog.js'] = changelogSource(list);
-
-    const check = await verify(files);
-    log(check.detail, check.ok ? 'ok' : 'fail');
-    setStep('verify', check.ok ? 'ok' : 'fail');
-    if (!check.ok) {
-      ticket.status = 'failed';
-      renderQueue();
-      return { ok: false, reason: check.detail };
-    }
-
-    setStep('publish', 'run');
-    let pub = { mode: 'draft' };
-    try {
-      pub = await publish(files, released.touched.concat(['assets/version.js', 'assets/changelog.js']), entry, check.detail);
-      log(pub.mode === 'pr'
-        ? ('已提 PR #' + pub.number + (pub.merged ? '（已合并）' : '，等你点合并'))
-        : pub.mode === 'direct'
-          ? ('已直接提交到 ' + pub.branch + '：' + pub.commit)
-          : '草稿已生成', 'ok');
-      setStep('publish', 'ok');
-    } catch (e) {
-      log('发布失败：' + e.message, 'fail');
-      setStep('publish', 'fail');
-    }
-
-    // 记账：内存里立刻生效（页面本身要刷新才会用新代码）
-    window.XN_CHANGELOG = list;
-    window.XN_VERSION = v;
-    setStep('record', 'ok');
-    const chip = $('#verChip');
-    if (chip) chip.textContent = 'v' + v;
-
-    ticket.status = 'done';
-    renderQueue();
-
-    IT.result = {
-      version: v,
-      mode: released.mode,
-      title: entry.title,
-      fixes: entry.fixes,
-      features: entry.features,
-      notes: entry.notes,
-      patches: plan.patches.map((p) => ({ file: p.file, lines: String(p.replace || '').split('\n').length })),
-      verify: check.detail,
-      run: plan.run || '',
-      notTried: plan.notTried || '',
-      publish: pub,
-      files: Object.keys(files),
-      changed: released.touched
-    };
-    renderResult();
-    return { ok: true, result: IT.result };
+  function lockGuard() {
+    if (!state.admin) { XN.toast('先解锁管理模式'); return false; }
+    if (!API.isProxy()) { XN.toast('自迭代需要云端或本地后端'); return false; }
+    var lock = state.cloudRepo || {};
+    if (!lock.locked) { XN.toast('服务器没有锁定发布仓库'); return false; }
+    return true;
   }
 
-  /* ---------- 云端自迭代（推荐路径） ---------- */
-  function cloudReady() {
-    const lock = state.cloudRepo || {};
-    return !!(N.isProxy && N.isProxy()) && !!lock.locked;
-  }
-
-  async function startCloud() {
-    const lock = state.cloudRepo || {};
-    let token = '';
-    try { token = sessionStorage.getItem(GH_TOKEN_KEY) || ''; } catch (e) {}
-
-    const pick = ($('#itModel') && $('#itModel').value) || 'gateway';
-    const meta = $('#itModelMeta');
-    if (meta) meta.textContent = pick === 'gateway' ? '自迭代模型' : '跟随模型条';
-
-    IT.running = true;
-    IT.stopped = false;
-    IT.queue = [];
-    IT.log = [];
-    renderLog();
-    renderQueue();
-    $('#itStop').hidden = false;
-    setMeta('云端跑');
-    setStep('triage', 'run');
-
-    log('云端自迭代：仓库锁定为 ' + lock.owner + '/' + lock.name);
-    if (!token) log('没填 GitHub Token：只能试运行，不会提交', 'warn');
-
-    try {
-      const args = (N.iterateArgs ? N.iterateArgs(pick) : {});
-      const res = await fetch('api/iterate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({
-          password: (N.state && N.state.adminPwd) || '',
-          token: token,
-          dryRun: !token
-        }, args))
-      });
-      const j = await res.json();
-      (j.log || []).forEach((l) => log(l));
-      if (!j.ok) {
-        log('没成：' + (j.error || ''), 'fail');
-        setMeta('失败');
-        setStep('plan', 'fail');
-        return;
-      }
-      setStep('verify', 'ok');
-      setStep('publish', 'ok');
-      setStep('record', 'ok');
-      IT.result = {
-        version: j.version,
-        mode: 'cloud',
-        title: j.title,
-        publish: j.release && j.release.url
-          ? { mode: 'direct', url: j.release.url, branch: 'main' }
-          : { mode: 'direct', url: j.url || '', branch: 'main' }
-      };
-      renderResult();
-      log('完成：v' + j.version + (j.release && j.release.url ? '，已发版' : ''), 'ok');
-      setMeta('完成 · v' + j.version);
-    } catch (e) {
-      log('中断：' + (e.message || e), 'fail');
-      setMeta('中断');
-    } finally {
-      IT.running = false;
-      $('#itStop').hidden = true;
-    }
-  }
-
-  async function start() {
+  async function cloudRun(dryRun, triageOnly) {
     if (IT.running) return;
-    if (!state.admin) { toast('先解锁管理模式'); return; }
-    if (cloudReady()) {
-      const args = (N.iterateArgs ? N.iterateArgs() : {});
-      if (args.local) {
-        toast('本机地址云端访问不到，请换公网 Key，或用本机版');
-        return;
-      }
-      return startCloud();
+    if (!lockGuard()) return;
+
+    var pick = ($('#itModel') && $('#itModel').value) || 'gateway';
+    var args = modelArgs(pick);
+    if (args.error) { XN.toast(args.error); return; }
+
+    var token = currentToken();
+    if (!token && !dryRun && !(state.cloudRepo || {}).serverToken) {
+      XN.toast('要真的提交，得填 GitHub Token（只存在内存）');
+      return;
     }
-    if (!state.key && state.cfg.tutor.baseUrl.charAt(0) !== '/') { toast('先配 Key'); return; }
 
     IT.running = true;
     IT.stopped = false;
-    IT.queue = [];
     IT.log = [];
     IT.result = null;
     IT.stepState = {};
-    IT.steps.forEach(([k]) => setStep(k, 'idle'));
+    IT.steps.forEach(function (s) { setStep(s[0], 'idle'); });
     renderLog();
-    renderQueue();
     renderResult();
+    setMeta(dryRun ? '试运行' : '云端跑');
     $('#itStop').hidden = false;
-    setMeta('工作中');
-    log('开始。版本 ' + (window.XN_VERSION || '?'));
+    $('#itStart').disabled = true;
+    $('#itTriage').disabled = true;
+
+    var ctrl = new AbortController();
+    IT.abort = ctrl;
+    setStep('triage', 'run');
+    log('发布仓库锁定为 ' + state.cloudRepo.owner + '/' + state.cloudRepo.name);
+    log('模型：' + (pick === 'gateway' ? '自迭代模型（本机网关）' : ('跟随模型条 · ' + (state.cfg.tutor.model || '默认'))));
 
     try {
-      await loadSources();
-      log('读到 ' + Object.keys(IT.sources).length + ' 个文件');
-      const feedback = await gatherFeedback();
-      log('反馈 ' + feedback.length + ' 条（本地 ' + (state.feedback || []).length + '）');
+      var res = await fetch('api/iterate', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, XN.adminToken() ? { 'X-Admin-Token': XN.adminToken() } : {}),
+        body: JSON.stringify(Object.assign({
+          dryRun: !!dryRun,
+          triageOnly: !!triageOnly,
+          token: token
+        }, args)),
+        signal: ctrl.signal,
+        credentials: 'same-origin'
+      });
 
-      setStep('triage', 'run');
-      let tickets = await triage(feedback);
+      var data = null;
+      try { data = await res.json(); } catch (e) {}
+      if (res.status === 401) { XN.lockAdmin(); throw new Error('管理员会话失效，请重新解锁。'); }
+      if (!data) throw new Error('服务器返回了空响应（HTTP ' + res.status + '）');
+
+      (data.log || []).forEach(function (line) { log(line); });
+
+      if (data.tickets) {
+        IT.queue = data.tickets.map(function (x) {
+          return {
+            id: XN.uid('t'), title: x.title || '未命名', kind: x.kind || 'feature',
+            severity: x.severity || 2, why: x.why || '', scope: x.scope || '',
+            source: x.source || 'feedback', status: 'todo'
+          };
+        });
+        renderQueue();
+      }
+
+      if (!data.ok) {
+        setStep('plan', 'fail');
+        if (data.attempt) {
+          log('这一版想改：' + (data.attempt.title || '—'), 'warn');
+          (data.attempt.patches || []).forEach(function (p, i) {
+            log('  补丁 ' + (i + 1) + '：' + p.file, 'warn');
+          });
+          IT.result = {
+            version: '', title: data.attempt.title || '', fixes: [], features: [],
+            verify: '', publish: { mode: 'draft' }, changed: [],
+            notTried: data.error || '', attempt: data.attempt
+          };
+          renderResult();
+        }
+        throw new Error(data.error || ('HTTP ' + res.status));
+      }
+
       setStep('triage', 'ok');
-      log('拆出 ' + tickets.length + ' 条工单');
-
-      if (!tickets.length) {
-        setStep('critique', 'run');
-        tickets = await selfCritique();
-        setStep('critique', 'ok');
-        log('自检得到 ' + tickets.length + ' 条');
-      }
-      if (!tickets.length) {
-        setStep('grill', 'run');
-        tickets = await grill();
-        setStep('grill', 'ok');
-        log('自问自答得到 ' + tickets.length + ' 条');
-      }
-
-      IT.queue = tickets;
-      renderQueue();
-      if (tickets.length) {
-        if (!IT.stepState.critique || IT.stepState.critique === 'idle') setStep('critique', 'skip');
-        if (!IT.stepState.grill || IT.stepState.grill === 'idle') setStep('grill', 'skip');
-      }
-      if (!tickets.length) {
-        log('没有可做的事，收工。', 'warn');
-        setMeta('无事可做');
-        IT.running = false;
-        $('#itStop').hidden = true;
+      setStep('plan', 'ok');
+      setStep('verify', 'ok');
+      if (triageOnly) {
+        setStep('publish', 'skip');
+        setStep('release', 'skip');
+        setStep('record', 'skip');
+        setMeta('已整理 ' + (IT.queue.length || 0) + ' 条');
+        log('只整理反馈：' + (IT.queue.length || 0) + ' 条工单', 'ok');
         return;
       }
-
-      // 不限轮数：一直做到队列里没有 todo，或者你点了「停止」
-      const MAX_SAFETY = 60;   // 只是防死循环的保险丝，不是对你的限制
-      let done = 0;
-      for (let i = 0; i < MAX_SAFETY; i++) {
-        if (IT.stopped) break;
-        const next = IT.queue.filter((t) => t.status === 'todo').sort((a, b) => b.severity - a.severity)[0];
-        if (!next) break;
-        next.status = 'doing';
-        renderQueue();
-        log(`第 ${i + 1} 轮：${next.title}`);
-        let r;
-        try {
-          r = await runOne(next, feedback.length);
-        } catch (e) {
-          next.status = 'failed';
-          renderQueue();
-          setStep('plan', 'fail');
-          r = { ok: false, reason: e.message || String(e) };
-        }
-        if (!r.ok) { log('这一轮没过：' + r.reason, 'fail'); }
-        else done++;
-        await new Promise((res) => setTimeout(res, 300));
+      if (dryRun) {
+        setStep('publish', 'skip');
+        setStep('release', 'skip');
+        setStep('record', 'skip');
+      } else {
+        setStep('publish', data.commits ? 'ok' : 'skip');
+        setStep('release', data.tag ? 'ok' : 'skip');
+        setStep('record', 'ok');
       }
-      log(`收工：完成 ${done} 个版本。刷新页面才会用上新代码。`, 'ok');
-      setMeta(done ? '完成 · v' + (window.XN_VERSION || '') : '没产出');
+
+      IT.result = {
+        version: data.version || '',
+        title: data.title || '',
+        fixes: data.fixes || [],
+        features: data.features || [],
+        verify: data.verify || '',
+        run: data.run || '',
+        notTried: data.notTried || '',
+        publish: data.tag
+          ? { mode: 'tag', tag: data.tag, url: data.releaseUrl || ('https://github.com/' + state.cloudRepo.owner + '/' + state.cloudRepo.name + '/releases/tag/' + data.tag) }
+          : { mode: 'commit', url: data.url || '', commit: data.commit || '', branch: data.branch || 'main' },
+        changed: data.files || [],
+        attempt: data.attempt || null
+      };
+      renderResult();
+      setMeta(dryRun ? ('方案 v' + IT.result.version) : ('完成 · v' + IT.result.version));
+      log(dryRun ? '试运行完成，没有提交。' : '完成：v' + IT.result.version, 'ok');
+
+      if (data.planCacheKey) log('这次方案已缓存 10 分钟，重复点「试运行」不会重复烧 token。');
     } catch (e) {
-      log('中断：' + (e.message || e), 'fail');
-      setMeta('中断');
-      toast('迭代中断：' + (e.message || ''));
+      if (e && e.name === 'AbortError') {
+        log('已停止等待。云端可能仍在跑完这一轮。', 'warn');
+        setMeta('已停止');
+      } else {
+        log('没成：' + (e.message || e), 'fail');
+        setMeta('失败');
+      }
     } finally {
       IT.running = false;
+      IT.abort = null;
       $('#itStop').hidden = true;
+      $('#itStart').disabled = false;
+      $('#itTriage').disabled = false;
     }
+  }
+
+  function stop() {
+    IT.stopped = true;
+    if (IT.abort) IT.abort.abort();
   }
 
   async function triageOnly() {
-    if (IT.running) return;
-    if (!state.admin) return;
-    IT.running = true;
-    IT.log = [];
-    renderLog();
-    setMeta('整理中');
-    try {
-      await loadSources();
-      const feedback = await gatherFeedback();
-      log('反馈 ' + feedback.length + ' 条');
-      setStep('triage', 'run');
-      const tickets = await triage(feedback);
-      setStep('triage', 'ok');
-      IT.queue = tickets;
-      renderQueue();
-      log('拆出 ' + tickets.length + ' 条工单', tickets.length ? 'ok' : 'warn');
-      setMeta(tickets.length ? '待你点开始' : '没有可做的');
-    } catch (e) {
-      log('失败：' + (e.message || e), 'fail');
-      setMeta('失败');
-    } finally {
-      IT.running = false;
-    }
+    return cloudRun(true, true);
   }
 
-  N.IT.applyPlan = applyPlan;
-  N.IT.previewCheck = previewCheck;
-  N.IT.loadSources = loadSources;
-
-  /* ---------- 渲染 ---------- */
   function renderQueue() {
-    const box = $('#itQueue');
+    var box = $('#itQueue');
     if (!box) return;
-    const meta = $('#itQueueMeta');
+    var meta = $('#itQueueMeta');
     if (meta) meta.textContent = IT.queue.length + ' 条';
     if (!IT.queue.length) {
       box.innerHTML = '<p class="it-empty">还没工单。点「只整理反馈」或「开始工作」。</p>';
       return;
     }
-    box.innerHTML = IT.queue.map((t) => `
-      <div class="it-ticket ${t.status}">
-        <div class="it-ticket-top">
-          <span class="it-kind ${t.kind}">${t.kind === 'bug' ? '缺陷' : t.kind === 'feature' ? '功能' : '内容'}</span>
-          <strong>${esc(t.title)}</strong>
-          <span class="it-sev">S${t.severity}</span>
-        </div>
-        ${t.why ? `<p>${esc(t.why)}</p>` : ''}
-        <div class="it-ticket-foot"><span>${esc(t.scope || '—')}</span><span>${t.source === 'grill' ? '自问自答' : t.source === 'critique' ? '自检' : '反馈'}</span></div>
-      </div>`).join('');
+    box.innerHTML = IT.queue.map(function (x) {
+      return '<div class="it-ticket ' + x.status + '">' +
+        '<div class="it-ticket-top"><span class="it-kind ' + x.kind + '">' +
+        (x.kind === 'bug' ? '缺陷' : x.kind === 'feature' ? '功能' : '内容') + '</span>' +
+        '<strong>' + XN.esc(x.title) + '</strong><span class="it-sev">S' + x.severity + '</span></div>' +
+        (x.why ? '<p>' + XN.esc(x.why) + '</p>' : '') +
+        '<div class="it-ticket-foot"><span>' + XN.esc(x.scope || '—') + '</span><span>' +
+        (x.source === 'grill' ? '自问自答' : x.source === 'critique' ? '自检' : '反馈') + '</span></div></div>';
+    }).join('');
   }
 
   function renderResult() {
-    const box = $('#itResult');
+    var box = $('#itResult');
     if (!box) return;
-    const meta = $('#itResultMeta');
-    const r = IT.result;
+    var meta = $('#itResultMeta');
+    var r = IT.result;
     if (!r) {
       if (meta) meta.textContent = '还没跑过';
       box.innerHTML = '<p class="it-empty">跑一次「开始工作」，这里会出现版本号、改了哪些、验证过什么。</p>';
       $('#itResultBtns').hidden = true;
       return;
     }
-    if (meta) meta.textContent = 'v' + r.version;
-    const list = (arr) => (arr && arr.length ? arr.map((x) => `<li>${esc(x)}</li>`).join('') : '<li class="dim">无</li>');
-    const pubText = r.publish.mode === 'pr'
-      ? `<a href="${esc(r.publish.url)}" target="_blank" rel="noopener">PR #${r.publish.number}</a>${r.publish.merged ? '（已合并）' : '（等你合并）'}`
-      : r.publish.mode === 'direct'
-        ? `<a href="${esc(r.publish.url)}" target="_blank" rel="noopener">提交 ${esc(r.publish.commit)}</a>（已进 ${esc(r.publish.branch)}，Pages 一分钟内重新发布）`
-        : '草稿（没配发布通道，代码没提交，刷新即回到原版本）';
-    box.innerHTML = `
-      <div class="it-res-head"><strong>v${esc(r.version)}</strong><span>${esc(r.title)}</span>
-        <span class="it-mode">${r.mode === 'rewrite' ? '整份重写' : '逐处替换'}</span></div>
-      <div class="it-res-cols">
-        <div><h4>修复</h4><ul>${list(r.fixes)}</ul></div>
-        <div><h4>新增</h4><ul>${list(r.features)}</ul></div>
-      </div>
-      <dl class="it-res-meta">
-        <dt>验证</dt><dd>${esc(r.verify)}</dd>
-        <dt>发布</dt><dd>${pubText}</dd>
-        <dt>改到的文件</dt><dd>${esc(r.changed.join('、'))}</dd>
-        <dt>没验证</dt><dd>${esc(r.notTried || '—')}</dd>
-      </dl>`;
+    if (meta) meta.textContent = r.version ? 'v' + r.version : '未通过';
+    var list = function (arr) {
+      return (arr && arr.length ? arr.map(function (x) { return '<li>' + XN.esc(x) + '</li>'; }).join('') : '<li class="dim">无</li>');
+    };
+    var pubText = r.publish.mode === 'tag'
+      ? '<a href="' + XN.esc(r.publish.url) + '" target="_blank" rel="noopener">tag ' + XN.esc(r.publish.tag) + '</a>（Actions 正在打 exe）'
+      : r.publish.mode === 'commit'
+        ? '<a href="' + XN.esc(r.publish.url) + '" target="_blank" rel="noopener">提交 ' + XN.esc(r.publish.commit || '') + '</a>（' + XN.esc(r.publish.branch || 'main') + '）'
+        : '未提交（试运行或草稿）';
+
+    box.innerHTML = '<div class="it-res-head"><strong>' + (r.version ? 'v' + XN.esc(r.version) : '这一版') + '</strong>' +
+      '<span>' + XN.esc(r.title || '') + '</span><span class="it-mode">云端</span></div>' +
+      '<div class="it-res-cols"><div><h4>修复</h4><ul>' + list(r.fixes) + '</ul></div>' +
+      '<div><h4>新增</h4><ul>' + list(r.features) + '</ul></div></div>' +
+      '<dl class="it-res-meta">' +
+      '<dt>验证</dt><dd>' + XN.esc(r.verify || '—') + '</dd>' +
+      '<dt>发布</dt><dd>' + pubText + '</dd>' +
+      '<dt>改到的文件</dt><dd>' + XN.esc((r.changed || []).join('、') || '—') + '</dd>' +
+      '<dt>没验证</dt><dd>' + XN.esc(r.notTried || '—') + '</dd>' +
+      (r.attempt ? '<dt>失败时想改</dt><dd>' + XN.esc(r.attempt.title || '—') + '</dd>' : '') +
+      '</dl>';
     $('#itResultBtns').hidden = false;
-    const link = $('#itPRLink');
-    if (r.publish.mode === 'pr') { link.hidden = false; link.href = r.publish.url; }
-    else link.hidden = true;
+    var link = $('#itPRLink');
+    link.hidden = r.publish.mode !== 'tag';
+    if (r.publish.mode === 'tag') link.href = r.publish.url;
   }
 
   function downloadPatch() {
-    const r = IT.result;
+    var r = IT.result;
     if (!r) return;
-    N.download(`xiaonuan-v${r.version}-patch.json`, JSON.stringify({
+    XN.download('xiaonuan-v' + (r.version || 'draft') + '-patch.json', JSON.stringify({
       version: r.version,
       title: r.title,
       fixes: r.fixes,
       features: r.features,
       verify: r.verify,
+      run: r.run,
       notTried: r.notTried,
-      files: r.files,
+      changed: r.changed,
       publish: r.publish,
-      note: '这是自动迭代产出的变更说明。没配发布通道时，代码改动没有自动提交。'
+      attempt: r.attempt || null,
+      note: '自动迭代产出的变更说明与结果。'
     }, null, 2));
   }
 
-  /* ---------- 视图 ---------- */
-  N.views = N.views || {};
-  N.views.iterate = {
-    init() {
-      $('#itStart').addEventListener('click', start);
+  XN.views = XN.views || {};
+  XN.views.iterate = {
+    init: function () {
+      $('#itStart').addEventListener('click', function () { cloudRun(false, false); });
       $('#itStop').addEventListener('click', stop);
       $('#itTriage').addEventListener('click', triageOnly);
       $('#itDownload').addEventListener('click', downloadPatch);
-
-      // 发布通道已锁在服务器，这里不再有可配置项
+      IT.steps.forEach(function (s) { setStep(s[0], 'idle'); });
       renderQueue();
       renderResult();
       renderLog();
-      IT.steps.forEach(([k]) => setStep(k, 'idle'));
     },
 
-    onShow() {
-      if (!state.admin) { N.switchView('settings'); return; }
-      // 发布通道已锁在服务器，这里不再有可配置项
+    onShow: function () {
+      if (!state.admin) { XN.switchView('settings'); return; }
       renderQueue();
       renderResult();
       renderLog();
-      const chip = $('#verChip');
-      if (chip) chip.textContent = 'v' + (window.XN_VERSION || '');
+      var runtime = XN.models.runtime();
+      var opt = $('#itModel option[value="gateway"]');
+      if (opt) {
+        opt.disabled = !runtime.gatewayReady;
+        opt.textContent = runtime.gatewayReady ? '自迭代模型（本机网关）' : '自迭代模型（服务器未配置）';
+      }
     }
   };
 
-  function renderPubState() {
-    const cfg = ghConfig();
-    const el = $('#pubState');
-    if (!el) return;
-    if (!el) return;
-    el.textContent = cfg.token && cfg.owner && cfg.repo
-      ? (cfg.direct ? '已配置 · 直推 main' : (cfg.autoMerge ? '已配置 · 自动合并' : '已配置 · 提 PR'))
-      : '未配置';
-  }
-})(window.XN);
+  XN.IT.cloudRun = cloudRun;
+})(window);

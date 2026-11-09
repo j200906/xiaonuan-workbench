@@ -1007,3 +1007,90 @@ textarea.prompt {
 
 /* 模型思考时的占位 */
 .msg .content.thinking { color: var(--ink-4); font-style: italic; }
+
+/* ============ 1.5.0：提示队列 / Markdown 表格 / 分页 / 可达性 ============ */
+.toast-stack {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: min(92vw, 520px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.toast-item {
+  max-width: 100%;
+  padding: 9px 16px;
+  border-radius: 99px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: .83em;
+  line-height: 1.5;
+  text-align: center;
+  box-shadow: var(--shadow-2);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity var(--t) var(--ease), transform var(--t) var(--ease);
+}
+.toast-item.show { opacity: 1; transform: none; }
+.toast-item.error { background: var(--bad); color: #fff; }
+.toast-item.warn { background: var(--warn); color: #fff; }
+
+.note-more { display: flex; justify-content: center; padding: 14px 0 4px; }
+.keybar-remember {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  font-size: .78em;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.keybar-remember input { width: 14px; height: 14px; accent-color: var(--accent); }
+
+/* Markdown 表格 / 任务列表 */
+.msg .content .md-table { margin: 10px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.msg .content table { width: 100%; border-collapse: collapse; font-size: .92em; }
+.msg .content th, .msg .content td { padding: 7px 10px; border-bottom: 1px solid var(--line-soft); text-align: left; }
+.msg .content th { background: var(--sunk); font-weight: 600; }
+.msg .content tr:last-child td { border-bottom: 0; }
+.msg .content .ta-center { text-align: center; }
+.msg .content .ta-right { text-align: right; }
+.msg .content .md-task { display: inline-flex; align-items: baseline; gap: 5px; }
+.msg .content .md-task input { accent-color: var(--accent); }
+.msg .content del { color: var(--ink-3); }
+.msg .content img { max-width: 100%; border-radius: 10px; }
+
+/* 键盘焦点：所有可点元素都要看得见 */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.mp-opt:focus-visible, .note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
+
+/* 平板竖屏与窄手机 */
+@media (max-width: 1024px) and (min-width: 861px) {
+  :root { --rail-w: 208px; --pad: 18px; }
+  .board { grid-template-columns: 1fr 1fr; }
+  .card.wide { grid-column: 1 / -1; }
+}
+@media (max-width: 420px) {
+  .timer-num { font-size: 30px; }
+  .card-tools { flex-wrap: wrap; }
+  .search { width: 100%; }
+  .fb-row { align-items: flex-end; }
+  .model-pick { max-width: 104px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

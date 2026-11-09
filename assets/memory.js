@@ -26,7 +26,9 @@
 window.XN_MEM = (function () {
   'use strict';
 
-  var KEY = 'xn.mem.v2';
+  var KEY = 'xn.v2.mem';
+  var LEGACY_KEY = 'xn.mem.v2';
+  var BUF_KEY = 'xn.v2.memBuffer';
   var MAX_EXPLICIT = 120;
   var MAX_IMPLICIT = 200;
   var MAX_BUFFER = 80;
@@ -36,11 +38,14 @@ window.XN_MEM = (function () {
   var DECAY_FLOOR = 0.5;
   var EXPLICIT_WEIGHT = 1.5;
 
-  /* 高频虚词 / 人称代词，切 2-gram 前先当噪声丢掉 */
-  var STOP_CN = '的了吗呢吧啊呀哦嗯嘛我你您他她它们是在有就都也很不这那和与或把被给对么着呢啦哈';
+  /* 高频虚词 / 人称代词，切 2-gram 前先当噪声丢掉。
+     表太短会让"我们明天要不要一起复习"这种句子召回一堆无关记忆。 */
+  var STOP_CN = '的了吗呢吧啊呀哦嗯嘛我你您他她它们是在有就都也很不这那和与或把被给对么着呢啦哈' +
+    '要会能可以什怎样些个一上下来去说到得地过还又再才只更最没别让使从向于为以之其此该等' +
+    '吗嘛呗咯哇唉嗨喂请谢谢再见好的行成真太非常特别超级有点稍微比较如果因为所以但是然后';
 
   var data = null;
-  var buffer = [];
+  var buffer = loadBuffer();
 
   /* ---------------------------- 基础工具 ---------------------------- */
 
@@ -78,7 +83,10 @@ window.XN_MEM = (function () {
       implicit: [],
       relation: { stage: 0, warmth: 0, interactions: 0 },
       goals: [],
-      promises: []
+      promises: [],
+      seen: {},
+      msgCount: 0,
+      lastConsolidate: 0
     };
   }
 
@@ -131,6 +139,12 @@ window.XN_MEM = (function () {
       out.relation.interactions = typeof d.relation.interactions === 'number' && d.relation.interactions > 0 ? Math.floor(d.relation.interactions) : 0;
     }
 
+    if (d.seen && typeof d.seen === 'object') {
+      Object.keys(d.seen).slice(-200).forEach(function (k) { out.seen[k] = 1; });
+    }
+    out.msgCount = typeof d.msgCount === 'number' && d.msgCount > 0 ? Math.floor(d.msgCount) : 0;
+    out.lastConsolidate = typeof d.lastConsolidate === 'number' && d.lastConsolidate > 0 ? d.lastConsolidate : 0;
+
     if (isList(d.goals)) {
       for (i = 0; i < d.goals.length; i++) {
         it = d.goals[i];
@@ -171,6 +185,7 @@ window.XN_MEM = (function () {
 
     try {
       raw = localStorage.getItem(KEY);
+      if (!raw) raw = localStorage.getItem(LEGACY_KEY);
     } catch (e) {
       return blank();
     }
@@ -188,6 +203,19 @@ window.XN_MEM = (function () {
     }
 
     return normalize(obj);
+  }
+
+  function loadBuffer() {
+    try {
+      var raw = localStorage.getItem(BUF_KEY);
+      if (!raw) return [];
+      var list = JSON.parse(raw);
+      return isList(list) ? list.filter(function (x) { return typeof x === 'string'; }).slice(-MAX_BUFFER) : [];
+    } catch (e) { return []; }
+  }
+
+  function saveBuffer() {
+    try { localStorage.setItem(BUF_KEY, JSON.stringify(buffer)); } catch (e) { /* 配额满就留在内存 */ }
   }
 
   function load() {
@@ -293,6 +321,24 @@ window.XN_MEM = (function () {
 
   /* ---------------------------- 隐式记忆 ---------------------------- */
 
+  /* 只把"有信息量"的话存进隐式记忆。
+     以前每条用户消息都存，200 条上限几天就被"好""在吗"占满。 */
+  function meaningful(text) {
+    var s = trim(toStr(text));
+    if (s.length < 12) return false;
+    if (/^(你好|在吗|早安|晚安|谢谢|好的|好|嗯|哦|哈哈|ok|okay|hi|hello|test)[\s!！。.？?~～]*$/i.test(s)) return false;
+    return true;
+  }
+
+  function similar(a, b) {
+    var x = trim(toStr(a)).toLowerCase();
+    var y = trim(toStr(b)).toLowerCase();
+    if (!x || !y) return false;
+    if (x === y) return true;
+    if (x.length > 8 && y.length > 8 && (x.indexOf(y) >= 0 || y.indexOf(x) >= 0)) return true;
+    return false;
+  }
+
   function addImplicit(text, source) {
     var d = load();
     var c = trim(toStr(text));
@@ -300,8 +346,16 @@ window.XN_MEM = (function () {
     if (!c) {
       return false;
     }
+    if (src === 'dialog' && !meaningful(c)) {
+      return false;
+    }
     if (src !== 'dialog' && src !== 'note' && src !== 'goal' && src !== 'consolidate') {
       src = 'dialog';
+    }
+    for (var i = 0; i < d.implicit.length; i++) {
+      if (similar(d.implicit[i].content, c)) {
+        return false;
+      }
     }
     d.implicit.unshift({ id: mkId('i'), content: c, source: src, ts: now() });
     if (d.implicit.length > MAX_IMPLICIT) {
@@ -378,14 +432,15 @@ window.XN_MEM = (function () {
     return { seq: seq, uni: uni, map: map };
   }
 
-  /* 直接命中打分：每个命中的 2-gram +1，连续片段额外加权 */
-  function directScore(q, contentSeq) {
+  /* 直接命中打分：按 IDF 加权，越少见的 2-gram 越值钱。
+     以前每个命中都 +1，"我们今天要不要一起复习"里的"我们"会把噪声全捞上来。 */
+  function directScore(q, contentSeq, df, total) {
     var present = {};
     var idxOf = {};
     var i;
     var j;
     var len;
-    var total = 0;
+    var totalScore = 0;
 
     for (i = 0; i < contentSeq.length; i++) {
       present[contentSeq[i]] = 1;
@@ -393,11 +448,16 @@ window.XN_MEM = (function () {
 
     for (i = 0; i < q.uni.length; i++) {
       if (present[q.uni[i]] === 1) {
-        total += 1;
+        var weight = 1;
+        if (df && total) {
+          weight = Math.log(1 + total / (1 + (df[q.uni[i]] || 0)));
+          if (weight < 0.35) weight = 0.35;
+        }
+        totalScore += weight;
       }
     }
 
-    if (total <= 0) {
+    if (totalScore <= 0) {
       return 0;
     }
 
@@ -419,12 +479,12 @@ window.XN_MEM = (function () {
         len++;
       }
       if (len >= 2) {
-        total += 0.5 * (len - 1);
+        totalScore += 0.5 * (len - 1);
       }
       j += len;
     }
 
-    return total;
+    return totalScore;
   }
 
   /* 30 天线性衰减到 0.5 倍，之后不再降低 */
@@ -496,6 +556,9 @@ window.XN_MEM = (function () {
     if (!q.uni.length) {
       return out;
     }
+    if (q.uni.length > 60) {
+      q.uni = q.uni.slice(0, 60);
+    }
 
     /* 一次性切词，供打分、种子、文档频率共用 */
     for (i = 0; i < d.explicit.length; i++) {
@@ -514,10 +577,10 @@ window.XN_MEM = (function () {
       }
     }
 
-    /* 第一轮：直接命中 */
+    /* 第一轮：直接命中（IDF 加权） */
     for (i = 0; i < total; i++) {
       row = rows[i];
-      s = directScore(q, row.seq);
+      s = directScore(q, row.seq, df, total);
       if (s > 0) {
         hit['k' + row.it.content] = 1;
         pool.push(scored(row, s, 'direct'));
@@ -601,16 +664,20 @@ window.XN_MEM = (function () {
   /* ---------------------------- 关系 ---------------------------- */
 
   function labelOf(stage) {
-    if (stage >= 30) {
-      return '自己人';
-    }
-    if (stage >= 10) {
-      return '老朋友';
-    }
-    if (stage >= 3) {
-      return '熟了';
-    }
+    if (stage >= 3) return '自己人';
+    if (stage >= 2) return '老朋友';
+    if (stage >= 1) return '熟了';
     return '刚认识';
+  }
+
+  /* 关系等级由"有效互动次数"驱动，而不是 warmth/10：
+     以前 warmth 上限 100、stage 上限 10，10/30 两个标签永远够不到。
+     现在 10 / 30 / 80 次分别升一级，全部可达。 */
+  function stageOf(interactions) {
+    if (interactions >= 80) return 3;
+    if (interactions >= 30) return 2;
+    if (interactions >= 10) return 1;
+    return 0;
   }
 
   function relation() {
@@ -623,19 +690,24 @@ window.XN_MEM = (function () {
     };
   }
 
-  function touch() {
+  /* id 用来去重：重试、重新生成、工具回填都不该重复计数。 */
+  function touch(id) {
     var d = load();
     var r = d.relation;
-    var next;
+    var key = id ? String(id).slice(0, 80) : '';
 
-    r.interactions += 1;
-    r.warmth = Math.min(100, Math.round((r.warmth + 0.5) * 100) / 100);
-
-    next = Math.floor(r.warmth / 10);
-    if (next > r.stage) {
-      r.stage = next;
+    if (key) {
+      if (d.seen[key]) return relation();
+      d.seen[key] = 1;
+      var keys = Object.keys(d.seen);
+      if (keys.length > 200) {
+        keys.slice(0, keys.length - 200).forEach(function (k) { delete d.seen[k]; });
+      }
     }
 
+    r.interactions += 1;
+    r.warmth = Math.min(100, Math.round((r.warmth + 0.8) * 100) / 100);
+    r.stage = Math.max(r.stage, stageOf(r.interactions));
     save();
     return relation();
   }
@@ -746,11 +818,11 @@ window.XN_MEM = (function () {
     if (buffer.length > MAX_BUFFER) {
       buffer = buffer.slice(buffer.length - MAX_BUFFER);
     }
+    saveBuffer();
     return true;
   }
 
   function consolidate(dialogLines, summarizeFn) {
-    var d = load();
     var lines = [];
     var pending = buffer.length;
     var i;
@@ -776,11 +848,16 @@ window.XN_MEM = (function () {
 
     function done(summary) {
       var s = trim(toStr(summary));
-      if (s) {
+      if (s && s.length > 6) {
         addImplicit(s, 'consolidate');
       }
       /* 只清掉本轮已处理的行，等待期间新 push 的保留 */
       buffer = buffer.slice(pending);
+      saveBuffer();
+      var fresh = load();
+      fresh.lastConsolidate = now();
+      fresh.msgCount = 0;
+      save();
       return s;
     }
 
@@ -800,6 +877,17 @@ window.XN_MEM = (function () {
 
     done(res);
     return true;
+  }
+
+  /* 触发点：会话切换 / 页面隐藏时调用。攒够 8 条、或离上次超过 12 小时且已有 4 条，才真的总结。
+     以前 consolidate 是死代码，从来没被调用过。 */
+  function maybeConsolidate(summarizeFn, force) {
+    var d = load();
+    var age = now() - (d.lastConsolidate || 0);
+    var enough = buffer.length >= (force ? 1 : 8) ||
+      (buffer.length >= 4 && age > 12 * 3600000);
+    if (!enough) return null;
+    return consolidate([], summarizeFn);
   }
 
   /* ---------------------------- 对外接口 ---------------------------- */
@@ -830,6 +918,9 @@ window.XN_MEM = (function () {
     keepPromise: keepPromise,
 
     pushBuffer: pushBuffer,
-    consolidate: consolidate
+    consolidate: consolidate,
+    maybeConsolidate: maybeConsolidate,
+    bufferSize: function () { return buffer.length; },
+    meaningful: meaningful
   };
 })();

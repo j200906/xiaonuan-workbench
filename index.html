@@ -6,9 +6,11 @@
 <title>小暖</title>
 <meta name="description" content="一个可以对话、记笔记、收反馈的学习台。">
 <meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; frame-src 'self'; base-uri 'none'; form-action 'self'">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23b4553a'/%3E%3Ctext x='32' y='44' font-size='34' text-anchor='middle' fill='%23fff' font-family='serif'%3E%E6%9A%96%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="assets/theme.css?v=1.4.8">
-<link rel="stylesheet" href="assets/app.css?v=1.4.8">
+<link rel="stylesheet" href="assets/theme.css" data-asset>
+<link rel="stylesheet" href="assets/app.css" data-asset>
 </head>
 <body>
 
@@ -28,38 +30,42 @@
 
     <button class="new-chat" id="btnNew">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      <span>新对话</span>
+      <span data-i18n="nav.newChat">新对话</span>
       <kbd>⌘K</kbd>
     </button>
 
     <div class="side-scroll">
-      <p class="side-label" id="sessionLabel">最近</p>
-      <nav class="sessions" id="sessionList"></nav>
-      <p class="side-empty" id="sessionEmpty">还没有对话。上面那行就能开一个。</p>
+      <p class="side-label" id="sessionLabel" data-i18n="nav.recent">最近</p>
+      <nav class="sessions" id="sessionList" aria-label="对话列表"></nav>
+      <p class="side-empty" id="sessionEmpty" data-i18n="nav.empty">还没有对话。上面那行就能开一个。</p>
     </div>
 
     <div class="side-foot">
+      <button class="side-link" data-view="chat">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5h16v11H9l-5 4Z"/></svg>
+        <span data-i18n="nav.chat">新对话</span>
+      </button>
       <button class="side-link" data-view="study">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20"/></svg>
-        <span>学习台</span>
+        <span data-i18n="nav.study">学习台</span>
       </button>
       <button class="side-link" data-view="feedback">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h16v10H9l-5 3Z"/><path d="M8 10h8M8 13h5"/></svg>
-        <span>反馈箱</span>
+        <span data-i18n="nav.feedback">反馈箱</span>
         <em id="fbDot" hidden></em>
       </button>
       <button class="side-link" data-view="changelog">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v5l3 2"/><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3 4v4h4"/></svg>
-        <span>更新日志</span>
-        <em id="verChip">v1.2.0</em>
+        <span data-i18n="nav.changelog">更新日志</span>
+        <em id="verChip">v1.5.0</em>
       </button>
       <button class="side-link" data-view="iterate" id="navIterate" hidden>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6"/><path d="M17.5 3v4h-4M6.5 21v-4h4"/></svg>
-        <span>迭代</span>
+        <span data-i18n="nav.iterate">迭代</span>
       </button>
       <button class="side-link" data-view="settings">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3.1"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>
-        <span>设置</span>
+        <span data-i18n="nav.settings">设置</span>
       </button>
       <div class="conn" id="connBox">
         <span class="dot" id="connDot"></span>
@@ -79,7 +85,7 @@
       <h1 id="mainTitle">新对话</h1>
       <div class="head-right">
         <button class="model-pill" id="modelPill" type="button">deepseek-chat</button>
-        <button class="icon-btn" id="btnTheme" title="切换明暗" aria-label="切换明暗">
+        <button class="icon-btn" id="btnTheme" data-i18n-title="settings.themeMode" title="切换明暗" aria-label="切换明暗">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4.1"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>
         </button>
       </div>
@@ -87,18 +93,19 @@
 
     <!-- ---------- 对话 ---------- -->
     <section class="pane pane-chat" id="view-chat" data-view="chat">
-      <div class="scroll" id="messages"></div>
+      <div class="scroll" id="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
 
       <div class="dock">
         <div class="keybar" id="keyBar" hidden>
           <div class="keybar-head">
             <strong>接上模型就能开始</strong>
-            <span>Key 只存在这台设备的浏览器里，请求直接发给你选的服务商。</span>
+            <span>Key 默认只存在本次会话；勾选「记住」才会写进这台设备。</span>
           </div>
           <div class="keybar-row">
             <input id="keyInput" type="password" placeholder="sk-…" spellcheck="false" autocomplete="off">
             <button class="btn primary sm" id="keySave" type="button">保存并发送</button>
           </div>
+          <label class="keybar-remember"><input type="checkbox" id="keyRemember"> 记住 Key（下次打开不用再填）</label>
           <details class="keybar-adv">
             <summary>换服务商 / 改模型</summary>
             <div class="keybar-grid">
@@ -111,11 +118,11 @@
         </div>
 
         <form class="composer" id="composerForm">
-          <textarea id="input" rows="1" placeholder="说点什么…" spellcheck="false"></textarea>
+          <textarea id="input" rows="1" data-i18n-placeholder="chat.placeholder" placeholder="说点什么…" spellcheck="false"></textarea>
           <div class="composer-foot">
-            <span class="composer-hint" id="composerHint">Enter 发送 · Shift+Enter 换行</span>
+            <span class="composer-hint" id="composerHint" data-i18n="chat.hint">Enter 发送 · Shift+Enter 换行</span>
             <div class="composer-btns">
-              <button class="btn ghost sm web-toggle" id="btnWeb" type="button" aria-pressed="false" title="发消息前先上网查一下">联网</button>
+              <button class="btn ghost sm web-toggle" id="btnWeb" type="button" aria-pressed="false" data-i18n-title="chat.web" title="需要时先上网查">联网</button>
               <div class="model-pick" id="modelPickWrap">
                 <select id="modelPick" class="mp-native" tabindex="-1" aria-hidden="true"></select>
                 <button type="button" class="mp-trigger" id="modelPickTrigger"
@@ -125,14 +132,14 @@
                 </button>
                 <div class="mp-menu" id="modelMenu" role="listbox" aria-label="模型列表"></div>
               </div>
-              <button class="btn ghost sm" id="btnStop" type="button" hidden>停止</button>
-              <button class="send" id="btnSend" type="submit" aria-label="发送">
+              <button class="btn ghost sm" id="btnStop" type="button" hidden data-i18n="chat.stop">停止</button>
+              <button class="send" id="btnSend" type="submit" data-i18n-title="chat.send" aria-label="发送">
                 <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6M6 12l6-6 6 6"/></svg>
               </button>
             </div>
           </div>
         </form>
-        <p class="disclaimer">小暖会犯错。重要的结论，自己再核一遍。</p>
+        <p class="disclaimer" data-i18n="chat.disclaimer">小暖会犯错。重要的结论，自己再核一遍。</p>
       </div>
     </section>
 
@@ -141,20 +148,20 @@
       <div class="board">
         <article class="card">
           <header class="card-head">
-            <h2>今日目标</h2>
+            <h2 data-i18n="study.goalTitle">今日目标</h2>
             <span class="card-meta" id="goalMeta">0 / 0</span>
           </header>
           <div class="goal-list" id="goalList"></div>
           <form class="inline-form" id="goalForm">
-            <input id="goalInput" type="text" placeholder="今天必须做完的一件事…" maxlength="80" autocomplete="off">
-            <button class="btn sm" type="submit">加上</button>
+            <input id="goalInput" type="text" data-i18n-placeholder="study.goalPlaceholder" placeholder="今天必须做完的一件事…" maxlength="80" autocomplete="off">
+            <button class="btn sm" type="submit" data-i18n="study.add">加上</button>
           </form>
-          <p class="card-note">跨天自动清掉完成状态。</p>
+          <p class="card-note" data-i18n="study.goalNote">跨天自动清掉完成状态。</p>
         </article>
 
         <article class="card">
           <header class="card-head">
-            <h2>专注</h2>
+            <h2 data-i18n="study.focus">专注</h2>
             <span class="card-meta" id="timerPhase">未开始</span>
           </header>
           <div class="timer">
@@ -166,31 +173,34 @@
                 <button data-min="60">60</button>
               </div>
               <div class="timer-actions">
-                <button class="btn sm" id="timerStart" type="button">开始</button>
-                <button class="btn ghost sm" id="timerReset" type="button">归零</button>
+                <button class="btn sm" id="timerStart" type="button" data-i18n="study.start">开始</button>
+                <button class="btn ghost sm" id="timerReset" type="button" data-i18n="study.reset">归零</button>
               </div>
             </div>
           </div>
-          <p class="card-note">走神就归零，不用跟自己较劲。</p>
+          <p class="card-note" data-i18n="study.timerNote">走神就归零，不用跟自己较劲。</p>
         </article>
 
         <article class="card wide">
           <header class="card-head">
-            <h2>笔记</h2>
+            <h2 data-i18n="study.notes">笔记</h2>
             <div class="card-tools">
-              <input class="search" id="noteSearch" type="search" placeholder="搜标题或正文…" autocomplete="off">
-              <button class="btn sm" id="noteNew" type="button">写一条</button>
+              <input class="search" id="noteSearch" type="search" data-i18n-placeholder="study.noteSearch" placeholder="搜标题或正文…" autocomplete="off">
+              <button class="btn sm" id="noteNew" type="button" data-i18n="study.noteNew">写一条</button>
             </div>
           </header>
           <div class="note-list" id="noteList"></div>
+          <div class="note-more" id="noteMoreWrap" hidden>
+            <button class="btn ghost sm" id="noteMore" type="button">再看 20 条</button>
+          </div>
           <form class="note-form" id="noteForm" hidden>
-            <input id="noteTitle" type="text" placeholder="标题" maxlength="60" autocomplete="off">
-            <textarea id="noteBody" rows="5" placeholder="要点、错因、用自己的话复述一遍…"></textarea>
+            <input id="noteTitle" type="text" data-i18n-placeholder="study.noteTitle" placeholder="标题" maxlength="60" autocomplete="off">
+            <textarea id="noteBody" rows="5" data-i18n-placeholder="study.noteBody" placeholder="要点、错因、用自己的话复述一遍…"></textarea>
             <div class="note-form-row">
-              <input id="noteTag" type="text" placeholder="标签（可选）" maxlength="16" autocomplete="off">
+              <input id="noteTag" type="text" data-i18n-placeholder="study.noteTag" placeholder="标签（可选）" maxlength="16" autocomplete="off">
               <div>
-                <button class="btn ghost sm" type="button" id="noteCancel">取消</button>
-                <button class="btn primary sm" type="submit">存下</button>
+                <button class="btn ghost sm" type="button" id="noteCancel" data-i18n="study.cancel">取消</button>
+                <button class="btn primary sm" type="submit" data-i18n="study.save">存下</button>
               </div>
             </div>
           </form>
@@ -202,7 +212,7 @@
     <section class="pane" id="view-feedback" data-view="feedback" hidden>
       <div class="board">
         <article class="card">
-          <header class="card-head"><h2>投一条</h2><span class="card-meta">只存在你这里</span></header>
+          <header class="card-head"><h2 data-i18n="fb.title">投一条</h2><span class="card-meta" data-i18n="fb.localOnly">只存在你这里</span></header>
           <form class="fb-form" id="fbForm">
             <div class="chips" id="fbTypes">
               <button type="button" class="chip on" data-type="想法">想法</button>
@@ -210,51 +220,49 @@
               <button type="button" class="chip" data-type="内容">内容不对</button>
               <button type="button" class="chip" data-type="其他">其他</button>
             </div>
-            <textarea id="fbBody" rows="6" placeholder="哪里别扭、哪里断了、你想它变成什么样…写得越具体越有用。" maxlength="2000"></textarea>
-            <input id="fbContact" type="text" placeholder="联系方式（可选，方便回你）" maxlength="80" autocomplete="off">
+            <textarea id="fbBody" rows="6" data-i18n-placeholder="fb.placeholder" placeholder="哪里别扭、哪里断了、你想它变成什么样…写得越具体越有用。" maxlength="2000"></textarea>
+            <input id="fbContact" type="text" data-i18n-placeholder="fb.contact" placeholder="联系方式（可选，方便回你）" maxlength="80" autocomplete="off">
             <div class="fb-row">
               <span class="counter" id="fbCount">0 / 2000</span>
-              <button class="btn primary sm" type="submit">投进反馈箱</button>
+              <button class="btn primary sm" type="submit" data-i18n="fb.submit">投进反馈箱</button>
             </div>
           </form>
         </article>
 
         <article class="card">
           <header class="card-head">
-            <h2>已收录</h2>
+            <h2 data-i18n="fb.collected">已收录</h2>
             <div class="card-tools">
               <span class="card-meta" id="fbMeta">0 条</span>
-              <button class="btn ghost sm" id="fbPull" type="button" hidden>拉取云端</button>
-              <button class="btn ghost sm" id="fbExport" type="button">导出</button>
-              <button class="btn ghost sm danger" id="fbClear" type="button">清空</button>
+              <button class="btn ghost sm" id="fbPull" type="button" hidden data-i18n="fb.pull">拉取云端</button>
+              <button class="btn ghost sm" id="fbExport" type="button" data-i18n="fb.export">导出</button>
+              <button class="btn ghost sm danger" id="fbClear" type="button" data-i18n="fb.clear">清空</button>
             </div>
           </header>
           <div class="fb-list" id="fbList"></div>
-          <p class="card-note" id="fbSink">存在这台设备的浏览器里。</p>
+          <p class="card-note" id="fbSink" data-i18n="fb.sinkLocal">存在这台设备的浏览器里。</p>
         </article>
       </div>
     </section>
-
-    <!-- ---------- 架构（解锁后可见） ---------- -->
 
     <!-- ---------- 设置 ---------- -->
     <section class="pane" id="view-settings" data-view="settings" hidden>
       <div class="board">
         <article class="card wide" id="cloudIterCard" hidden>
           <header class="card-head">
-            <h2>云端自迭代</h2>
+            <h2 data-i18n="settings.cloudIterate">云端自迭代</h2>
             <span class="card-meta">在 Cloudflare 上跑，直接改 GitHub 里的文件</span>
           </header>
           <p class="hint">
-            用的是解锁时的密码 + 上面填的 API Key。点「开始迭代」它会：读反馈 → 改代码 → 升版本号 → 更新更新日志和 README →
-            提交到 main → 建 release，GitHub Actions 随后在 Windows 上打 exe 并挂到那次 release。先「试运行」只看方案、不动仓库。
+            用的是解锁后的会话令牌 + 模型 Key。它会：读反馈 → 出方案 → 校验 → 一次提交 → 打 tag。
+            GitHub Actions 随后在 Windows 上打 exe 并创建 release。先「试运行」只看方案、不动仓库。
           </p>
           <div class="grid-2">
             <label class="field"><span class="label">发布仓库（服务器锁定，不可改）</span><input id="ciOwner" type="text" readonly></label>
             <label class="field" hidden><span class="label">仓库名</span><input id="ciRepo" type="text" readonly></label>
           </div>
           <p class="hint" id="ciLockNote"></p>
-          <label class="field" id="ciTokenRow"><span class="label">GitHub Token（服务器没配时才需要）</span><input id="ciToken" type="password" spellcheck="false" autocomplete="off" placeholder="只勾 repo 写权限，用完可撤销"></label>
+          <label class="field" id="ciTokenRow"><span class="label">GitHub Token（服务器没配时才需要；只存在内存）</span><input id="ciToken" type="password" spellcheck="false" autocomplete="off" placeholder="只勾 repo 写权限，用完可撤销"></label>
           <div class="arch-btns">
             <button class="btn ghost sm" id="ciDry" type="button">试运行</button>
             <button class="btn sm" id="ciRun" type="button">开始迭代</button>
@@ -263,7 +271,7 @@
           <pre class="it-log" id="ciLog" hidden></pre>
         </article>
 
-        <h3 class="group-title">外观与布局</h3>
+        <h3 class="group-title" data-i18n="settings.appearance">外观与布局</h3>
         <article class="card wide">
           <header class="card-head">
             <h2>用一句话改版</h2>
@@ -277,35 +285,35 @@
         </article>
 
         <article class="card">
-          <header class="card-head"><h2>导航</h2><span class="card-meta">排序 / 改名 / 显隐</span></header>
+          <header class="card-head"><h2 data-i18n="settings.nav">导航</h2><span class="card-meta">排序 / 改名 / 显隐</span></header>
           <div class="nav-editor" id="navEditor"></div>
         </article>
 
         <article class="card">
-          <header class="card-head"><h2>外观</h2><span class="card-meta">即时生效</span></header>
+          <header class="card-head"><h2 data-i18n="settings.theme">外观</h2><span class="card-meta">即时生效</span></header>
           <div class="ctrl">
-            <label for="ctlAccent">主色</label>
+            <label for="ctlAccent" data-i18n="settings.accent">主色</label>
             <div class="swatches" id="ctlAccent">
-              <button data-color="#b4553a" style="--c:#b4553a"></button>
-              <button data-color="#2f6b5f" style="--c:#2f6b5f"></button>
-              <button data-color="#3d5a80" style="--c:#3d5a80"></button>
-              <button data-color="#7b4b8a" style="--c:#7b4b8a"></button>
-              <button data-color="#8a6a2f" style="--c:#8a6a2f"></button>
+              <button data-color="#b4553a" style="--c:#b4553a" aria-label="陶土红"></button>
+              <button data-color="#2f6b5f" style="--c:#2f6b5f" aria-label="墨绿"></button>
+              <button data-color="#3d5a80" style="--c:#3d5a80" aria-label="雾蓝"></button>
+              <button data-color="#7b4b8a" style="--c:#7b4b8a" aria-label="紫"></button>
+              <button data-color="#8a6a2f" style="--c:#8a6a2f" aria-label="赭石"></button>
               <input type="color" id="accentPick" value="#b4553a" aria-label="自定义主色">
             </div>
           </div>
           <div class="ctrl">
-            <label for="ctlRadius">圆角</label>
+            <label for="ctlRadius" data-i18n="settings.radius">圆角</label>
             <input type="range" id="ctlRadius" min="0" max="26" step="2" value="14">
             <output id="outRadius">14</output>
           </div>
           <div class="ctrl">
-            <label for="ctlFont">字号</label>
+            <label for="ctlFont" data-i18n="settings.fontSize">字号</label>
             <input type="range" id="ctlFont" min="13" max="18" step="1" value="15">
             <output id="outFont">15</output>
           </div>
           <div class="ctrl">
-            <label for="ctlTheme">明暗</label>
+            <label for="ctlTheme" data-i18n="settings.themeMode">明暗</label>
             <div class="seg" id="ctlTheme">
               <button data-theme="light" class="on">亮</button>
               <button data-theme="dark">暗</button>
@@ -313,17 +321,21 @@
             </div>
           </div>
           <div class="ctrl">
-            <label for="ctlDensity">密度</label>
+            <label for="ctlDensity" data-i18n="settings.density">密度</label>
             <div class="seg" id="ctlDensity">
               <button data-density="cozy" class="on">松</button>
               <button data-density="compact">紧</button>
             </div>
           </div>
+          <div class="ctrl">
+            <label for="setLocale" data-i18n="settings.language">语言</label>
+            <select id="setLocale"></select>
+          </div>
         </article>
 
         <article class="card wide">
           <header class="card-head">
-            <h2>小暖的设定</h2>
+            <h2 data-i18n="settings.persona">小暖的设定</h2>
             <span class="card-meta" id="promptMeta">字数 0</span>
           </header>
           <textarea class="prompt" id="ctlPrompt" rows="12" spellcheck="false"></textarea>
@@ -340,70 +352,58 @@
         </article>
 
         <article class="card wide">
-          <header class="card-head"><h2>配置</h2><span class="card-meta">导出后可在别的设备导入</span></header>
+          <header class="card-head"><h2 data-i18n="settings.config">配置</h2><span class="card-meta">导出后可在别的设备导入</span></header>
           <pre class="cfg-preview" id="cfgPreview"></pre>
           <div class="arch-btns">
-            <button class="btn sm" id="cfgExport" type="button">导出 config.json</button>
-            <button class="btn ghost sm" id="cfgImportBtn" type="button">导入</button>
+            <button class="btn sm" id="cfgExport" type="button" data-i18n="settings.exportConfig">导出 config.json</button>
+            <button class="btn ghost sm" id="cfgImportBtn" type="button" data-i18n="settings.import">导入</button>
             <input type="file" id="cfgImport" accept="application/json" hidden>
-            <button class="btn ghost sm danger" id="cfgReset" type="button">恢复默认</button>
+            <button class="btn ghost sm danger" id="cfgReset" type="button" data-i18n="settings.reset">恢复默认</button>
           </div>
         </article>
-      
+
         <article class="card">
-          <header class="card-head"><h2>模型</h2><span class="card-meta" id="setKeyMeta">—</span></header>
+          <header class="card-head"><h2 data-i18n="settings.model">模型</h2><span class="card-meta" id="setKeyMeta">—</span></header>
           <form id="setForm">
             <label class="field">
               <span class="label">从哪里调</span>
-              <select id="setProvider">
-                <optgroup label="用自己的 API（推荐）">
-                  <option value="custom">自定义（自己填地址和模型名）</option>
-                  <option value="gateway">自迭代模型（本机网关）</option>
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="moonshot">Moonshot / Kimi</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="zhipu">智谱 GLM</option>
-                  <option value="siliconflow">硅基流动</option>
-                </optgroup>
-                <optgroup label="云端自带（无需填 Key，质量一般）">
-                  <option value="cloud">Cloudflare 自带模型</option>
-                </optgroup>
-              </select>
+              <select id="setProvider"></select>
             </label>
             <label class="field" id="rowKey"><span class="label">API Key</span><input id="setKey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-…"></label>
+            <label class="keybar-remember"><input type="checkbox" id="setRemember"> 记住 Key（不勾则只存在本次会话）</label>
             <label class="field" id="rowBase"><span class="label">Base URL</span><input id="setBase" type="text" spellcheck="false"></label>
             <label class="field" id="rowModel"><span class="label">模型名</span><input id="setModel" type="text" spellcheck="false"></label>
             <div class="arch-btns">
-              <button class="btn primary sm" type="submit">保存并测试</button>
-              <button class="btn ghost sm" type="button" id="setTest">只测试</button>
+              <button class="btn primary sm" type="submit" data-i18n="settings.saveTest">保存并测试</button>
+              <button class="btn ghost sm" type="button" id="setTest" data-i18n="settings.testOnly">只测试</button>
             </div>
             <p class="hint" id="setMsg"></p>
           </form>
         </article>
 
         <article class="card">
-          <header class="card-head"><h2>管理模式</h2><span class="card-meta" id="adminState">未解锁</span></header>
+          <header class="card-head"><h2 data-i18n="settings.admin">管理模式</h2><span class="card-meta" id="adminState">未解锁</span></header>
           <form id="adminForm" class="admin-form">
-            <label class="field"><span class="label">管理密码</span><input id="adminPwd" type="password" autocomplete="off" placeholder="解锁后可改整页架构"></label>
+            <label class="field"><span class="label">管理密码</span><input id="adminPwd" type="password" autocomplete="off" placeholder="由服务器校验，前端不保存密码"></label>
             <div class="arch-btns">
-              <button class="btn primary sm" type="submit" id="adminUnlock">解锁架构</button>
-              <button class="btn ghost sm" type="button" id="adminLock" hidden>锁定</button>
+              <button class="btn primary sm" type="submit" id="adminUnlock" data-i18n="settings.unlock">解锁</button>
+              <button class="btn ghost sm" type="button" id="adminLock" hidden data-i18n="settings.lock">锁定</button>
             </div>
-            <p class="hint" id="adminMsg">密码只防误触，不防会看源码的人。要真锁住，把后端跑起来。</p>
+            <p class="hint" id="adminMsg">密码只发给服务器校验；解锁后拿到 12 小时会话令牌。</p>
           </form>
         </article>
 
         <article class="card wide">
-          <header class="card-head"><h2>本机数据</h2><span class="card-meta" id="storageMeta">—</span></header>
+          <header class="card-head"><h2 data-i18n="settings.data">本机数据</h2><span class="card-meta" id="storageMeta">—</span></header>
           <div class="kv" id="dataList"></div>
           <div class="arch-btns">
-            <button class="btn ghost sm" id="dataExport" type="button">导出全部</button>
-            <button class="btn ghost sm danger" id="dataClear" type="button">清空对话与笔记</button>
+            <button class="btn ghost sm" id="dataExport" type="button" data-i18n="settings.exportAll">导出全部</button>
+            <button class="btn ghost sm danger" id="dataClear" type="button" data-i18n="settings.clearData">清空对话与笔记</button>
           </div>
         </article>
 
         <article class="card wide">
-          <header class="card-head"><h2>关于</h2><span class="card-meta" id="verMeta">—</span></header>
+          <header class="card-head"><h2 data-i18n="settings.about">关于</h2><span class="card-meta" id="verMeta">—</span></header>
           <p class="about">
             小暖记得你在这台设备上说过的话，但记不住别的设备，也不会真的「想你」。
             它不假装有生活，被问到就直说。
@@ -412,7 +412,7 @@
             对话、笔记、目标都在浏览器本地。换设备不同步，清缓存会丢——重要内容记得导出。
           </p>
           <p class="about">
-            Windows 桌面版：<a href="https://github.com/j200906/xiaonuan-workbench/releases/latest" target="_blank" rel="noopener">下载 XiaoNuan.exe</a>
+            Windows 桌面版：<a href="https://github.com/j200906/xiaonuan-workbench/releases/latest" target="_blank" rel="noopener noreferrer">下载 XiaoNuan.exe</a>
             <span class="dim">（约 8 MB，双击即用，数据存在 %APPDATA%\xiaonuan）</span>
           </p>
         </article>
@@ -424,7 +424,7 @@
       <div class="board">
         <article class="card wide">
           <header class="card-head">
-            <h2>更新日志</h2>
+            <h2 data-i18n="nav.changelog">更新日志</h2>
             <span class="card-meta" id="clMeta">—</span>
           </header>
           <div class="cl-range">
@@ -447,14 +447,14 @@
             <span class="card-meta" id="itMeta">待命</span>
           </header>
           <p class="it-lead">
-            整理反馈 → 验证 → 自己找 bug → 自问自答 → 出补丁 → 沙箱里跑一遍 → 再故意改坏一次确认检查有效 → 提 PR。
-            没配发布通道也能跑，产物留在「本次结果」里，自己下载。
+            整理反馈 → 出方案 → 校验（唯一命中、括号、重复定义）→ 一次提交 → 打 tag。
+            GitHub Actions 会接着打 exe 并发版。试运行不碰仓库。
           </p>
           <div class="it-actions">
             <button class="btn primary sm" id="itStart" type="button">开始工作</button>
             <button class="btn sm" id="itTriage" type="button">只整理反馈</button>
             <button class="btn ghost sm" id="itStop" type="button" hidden>停止</button>
-            <span class="it-cycle" id="itCycleNote">一直做到没有工单为止</span>
+            <span class="it-cycle" id="itCycleNote">服务端会一直做到没有工单为止</span>
           </div>
           <div class="it-steps" id="itSteps"></div>
         </article>
@@ -473,15 +473,15 @@
               <option value="follow">跟随模型条所选</option>
             </select>
           </label>
-          <p class="card-note">发布仓库锁在服务器（j200906/xiaonuan-workbench），这里不用再填。要真的提交，还得有 GitHub Token —— 在「设置 → 云端自迭代」里填。</p>
+          <p class="card-note">发布仓库锁在服务器（j200906/xiaonuan-workbench），这里不用再填。GitHub Token 只在内存里，刷新即失效。</p>
         </article>
 
         <article class="card wide">
           <header class="card-head"><h2>本次结果</h2><span class="card-meta" id="itResultMeta">还没跑过</span></header>
           <div class="it-result" id="itResult"><p class="it-empty">跑一次「开始工作」，这里会出现版本号、改了哪些、验证过什么。</p></div>
           <div class="arch-btns" id="itResultBtns" hidden>
-            <button class="btn sm" id="itDownload" type="button">下载补丁</button>
-            <a class="btn ghost sm" id="itPRLink" target="_blank" rel="noopener" hidden>打开 PR</a>
+            <button class="btn sm" id="itDownload" type="button">下载补丁说明</button>
+            <a class="btn ghost sm" id="itPRLink" target="_blank" rel="noopener noreferrer" hidden>打开 Release</a>
           </div>
         </article>
 
@@ -494,16 +494,25 @@
   </main>
 </div>
 
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
-
-<script src="assets/version.js?v=1.4.8"></script>
-<script src="assets/changelog.js?v=1.4.8"></script>
-<script src="assets/persona.js?v=1.4.8"></script>
-<script src="assets/emotion.js?v=1.4.8"></script>
-<script src="assets/memory.js?v=1.4.8"></script>
-<script src="assets/tools.js?v=1.4.8"></script>
-<script src="assets/app.core.js?v=1.4.8"></script>
-<script src="assets/app.views.js?v=1.4.8"></script>
-<script src="assets/iterate.js?v=1.4.8"></script>
+<script defer src="assets/changelog.archive.js" data-asset></script>
+<script defer src="assets/changelog.js" data-asset></script>
+<script defer src="assets/version.js" data-asset></script>
+<script defer src="assets/lib/util.js" data-asset></script>
+<script defer src="assets/lib/store.js" data-asset></script>
+<script defer src="assets/lib/i18n.js" data-asset></script>
+<script defer src="assets/lib/md.js" data-asset></script>
+<script defer src="assets/lib/models.js" data-asset></script>
+<script defer src="assets/lib/api.js" data-asset></script>
+<script defer src="assets/lib/patch.js" data-asset></script>
+<script defer src="assets/persona.js" data-asset></script>
+<script defer src="assets/emotion.js" data-asset></script>
+<script defer src="assets/memory.js" data-asset></script>
+<script defer src="assets/tools.js" data-asset></script>
+<script defer src="assets/app.core.js" data-asset></script>
+<script defer src="assets/views.study.js" data-asset></script>
+<script defer src="assets/views.feedback.js" data-asset></script>
+<script defer src="assets/views.settings.js" data-asset></script>
+<script defer src="assets/views.changelog.js" data-asset></script>
+<script defer src="assets/iterate.js" data-asset></script>
 </body>
 </html>

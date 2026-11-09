@@ -1,129 +1,48 @@
-/* 小暖 · 核心：会话、配置、门禁、对话 */
-(function (N) {
+/* 小暖 · 核心
+ * 只做四件事：状态与配置、路由、会话与发送、管理模式。
+ * 视图逻辑在 views.*.js，模型请求在 lib/api.js。 */
+(function (root) {
   'use strict';
 
-  var ADMIN_PASSWORD = 'xiaonuanai';
-  var KEYS = {
-    cfg: 'xn.cfg.v1',
-    sessions: 'xn.sessions.v1',
-    current: 'xn.current.v1',
-    legacyChat: 'xn.chat.v1',
-    notes: 'xn.notes.v1',
-    goals: 'xn.goals.v1',
-    fb: 'xn.fb.v1',
-    key: 'xn.key.v1',
-    admin: 'xn.admin',
-    theme: 'xn.theme.local',
-    timer: 'xn.timer.v1',
-    mem: 'xn.mem.v1',
-    view: 'xn.view'
-  };
+  var XN = root.XN = root.XN || {};
+  var U = XN.util, S = XN.store, API = XN.api, MD = XN.md, M = XN.models;
+  var $ = U.$, $$ = U.$$, t = XN.t;
 
+  var VIEW_IDS = ['chat', 'study', 'feedback', 'settings', 'changelog', 'iterate'];
   var VIEW_META = {
-    chat: { title: '新对话' },
-    study: { title: '学习台' },
-    feedback: { title: '反馈箱' },
-    arch: { title: '架构' },
-    settings: { title: '设置' },
-    changelog: { title: '更新日志' },
-    iterate: { title: '迭代' }
+    chat: { title: 'nav.chat' },
+    study: { title: 'nav.study' },
+    feedback: { title: 'nav.feedback' },
+    settings: { title: 'nav.settings' },
+    changelog: { title: 'nav.changelog' },
+    iterate: { title: 'nav.iterate' }
   };
 
-  /* ---------- 工具 ---------- */
-  function $(sel, root) { return (root || document).querySelector(sel); }
-  function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-  function clamp(n, lo, hi) { n = Number(n); if (isNaN(n)) return lo; return Math.min(hi, Math.max(lo, n)); }
-  function pad(n) { return n < 10 ? '0' + n : '' + n; }
-  function fmtTime(ts) {
-    var d = new Date(ts || Date.now());
-    return pad(d.getHours()) + ':' + pad(d.getMinutes());
-  }
-  function fmtDate(ts) {
-    var d = new Date(ts || Date.now());
-    return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
-  }
-  function todayStr() {
-    var d = new Date();
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-  }
-  function bytes(n) {
-    if (n < 1024) return n + ' B';
-    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
-    return (n / 1048576).toFixed(2) + ' MB';
-  }
-
-  var toastTimer;
-  function toast(msg) {
-    var el = $('#toast');
-    if (!el) return;
-    el.textContent = msg;
-    el.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2200);
-  }
-
-  function download(name, text, type) {
-    var blob = new Blob([text], { type: type || 'application/json;charset=utf-8' });
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-  }
-
-  function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
-    return new Promise(function (resolve, reject) {
-      try {
-        var ta = document.createElement('textarea');
-        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); ta.remove(); resolve();
-      } catch (e) { reject(e); }
-    });
-  }
-
-  function readJSON(key, fallback) {
-    try {
-      var raw = localStorage.getItem(key);
-      if (!raw) return fallback;
-      var val = JSON.parse(raw);
-      return val == null ? fallback : val;
-    } catch (e) { return fallback; }
-  }
-  function writeJSON(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
-    catch (e) { toast('本机存储写不进去了（可能满了）'); return false; }
-  }
-
-  /* ---------- 配置 ---------- */
   function defaultConfig() {
     return {
-      version: 2,
+      version: 3,
       brand: '小暖',
-      labels: { study: '学习台', feedback: '反馈箱', arch: '架构', settings: '设置' },
+      labels: { chat: t('nav.chat'), study: t('nav.study'), feedback: t('nav.feedback'), settings: t('nav.settings'), changelog: t('nav.changelog'), iterate: t('nav.iterate') },
       nav: [
         { id: 'study', show: true },
         { id: 'feedback', show: true },
+        { id: 'changelog', show: true },
         { id: 'settings', show: true }
       ],
       style: { accent: '#b4553a', radius: 14, fontSize: 15, theme: 'light', density: 'cozy' },
       tutor: {
+        provider: { id: 'custom', base: '' },
+        ownProvider: { id: 'deepseek', base: 'https://api.deepseek.com/v1' },
         baseUrl: 'https://api.deepseek.com/v1',
         model: 'deepseek-chat',
         temperature: 0.8,
         stream: true,
         historyTurns: 14,
-        systemPrompt: ''   // 空 = 用 persona.js 动态拼；填了就用你填的
+        systemPrompt: '',
+        emoLLM: 'auto'
       },
-      feedback: { endpoint: '' }
+      feedback: { endpoint: '' },
+      limits: { sessions: 30, messagesPerSession: 60, notesPage: 20 }
     };
   }
 
@@ -132,17 +51,12 @@
     if (!patch || typeof patch !== 'object') return out;
     Object.keys(patch).forEach(function (k) {
       var v = patch[k];
-      if (v && typeof v === 'object' && !Array.isArray(v) && !Array.isArray(out[k]) &&
-          out[k] && typeof out[k] === 'object') {
-        out[k] = mergeConfig(out[k], v);
-      } else if (v !== undefined) {
-        out[k] = v;
-      }
+      if (U.isPlainObject(v) && U.isPlainObject(out[k])) out[k] = mergeConfig(out[k], v);
+      else if (v !== undefined) out[k] = v;
     });
     return out;
   }
 
-  /* ---------- 状态 ---------- */
   var state = {
     key: '',
     admin: false,
@@ -150,635 +64,291 @@
     sessions: [],
     currentId: '',
     notes: [],
-    goals: { date: todayStr(), items: [] },
+    goals: { date: U.todayStr(), items: [] },
     feedback: [],
-    timer: { min: 25, left: 25 * 60, running: false, endsAt: 0, done: 0, date: todayStr() },
+    timer: { min: 25, left: 25 * 60, running: false, endsAt: 0, done: 0, date: U.todayStr() },
     sending: false,
     abort: null,
     pendingText: '',
     view: 'chat',
-    conn: 'idle'
+    conn: 'idle',
+    web: false,
+    lastEmo: null,
+    lastEmoAt: 0,
+    emoCalls: 0,
+    cloudRepo: null,
+    autoProxy: false,
+    gatewayKey: '',
+    lastOwnProvider: null
   };
-  N.ADMIN_PASSWORD = ADMIN_PASSWORD;
+  XN.state = state;
+  XN.KEYS = S.KEYS;
 
-  /* ---------- 颜色 ---------- */
+  /* ---------- 配置 ---------- */
+  function saveConfig() {
+    S.set(S.KEYS.cfg, state.cfg);
+    if (XN.emit) XN.emit('config:change', state.cfg);
+  }
+  XN.saveConfig = saveConfig;
+
   function hex2rgb(h) {
     h = String(h || '#000').replace('#', '');
     if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
     var n = parseInt(h, 16);
-    if (isNaN(n)) return [0, 0, 0];
+    if (!isFinite(n)) return [0, 0, 0];
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
   function rgb2hex(a) {
     return '#' + a.map(function (v) {
-      v = Math.round(clamp(v, 0, 255));
+      v = Math.round(U.clamp(v, 0, 255));
       return (v < 16 ? '0' : '') + v.toString(16);
     }).join('');
   }
-  function mix(a, b, t) {
+  function mix(a, b, k) {
     var A = hex2rgb(a), B = hex2rgb(b);
-    return rgb2hex([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t]);
+    return rgb2hex([A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k, A[2] + (B[2] - A[2]) * k]);
   }
   function luminance(hex) {
-    var c = hex2rgb(hex).map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    var c = hex2rgb(hex).map(function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   }
 
   function resolvedTheme() {
-    var local = localStorage.getItem(KEYS.theme);
-    var t = local || (state.cfg.style && state.cfg.style.theme) || 'light';
-    if (t === 'auto') {
-      t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    var local = S.get(S.KEYS.theme, '');
+    var mode = local || (state.cfg.style && state.cfg.style.theme) || 'light';
+    if (mode === 'auto') {
+      return root.matchMedia && root.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
-    return t;
+    return mode === 'dark' ? 'dark' : 'light';
   }
 
   function applyConfig() {
     var cfg = state.cfg;
-    var root = document.documentElement;
+    var el = document.documentElement;
     var theme = resolvedTheme();
-    root.setAttribute('data-theme', theme);
-    root.setAttribute('data-density', cfg.style.density === 'compact' ? 'compact' : 'cozy');
+    el.setAttribute('data-theme', theme);
+    el.setAttribute('data-density', cfg.style.density === 'compact' ? 'compact' : 'cozy');
 
     var panel = theme === 'dark' ? '#1d1c15' : '#fffefb';
-    var accent = cfg.style.accent;
-    root.style.setProperty('--accent', accent);
-    root.style.setProperty('--accent-soft', mix(accent, panel, theme === 'dark' ? 0.84 : 0.9));
-    root.style.setProperty('--accent-line', mix(accent, panel, theme === 'dark' ? 0.68 : 0.74));
-    root.style.setProperty('--accent-ink', luminance(accent) > 0.62 ? '#201d18' : '#ffffff');
-    root.style.setProperty('--radius', clamp(cfg.style.radius, 0, 26) + 'px');
-    root.style.setProperty('--fs', clamp(cfg.style.fontSize, 12, 20) + 'px');
+    var accent = cfg.style.accent || '#b4553a';
+    el.style.setProperty('--accent', accent);
+    el.style.setProperty('--accent-soft', mix(accent, panel, theme === 'dark' ? 0.84 : 0.9));
+    el.style.setProperty('--accent-line', mix(accent, panel, theme === 'dark' ? 0.68 : 0.74));
+    el.style.setProperty('--accent-ink', luminance(accent) > 0.62 ? '#201d18' : '#ffffff');
+    el.style.setProperty('--radius', U.clamp(cfg.style.radius, 0, 26) + 'px');
+    el.style.setProperty('--fs', U.clamp(cfg.style.fontSize, 12, 20) + 'px');
 
-    if ($('#brandName')) $('#brandName').textContent = cfg.brand || '小暖';
-    document.title = (cfg.brand || '小暖');
+    var brand = cfg.brand || t('app.name');
+    if ($('#brandName')) $('#brandName').textContent = brand;
+    document.title = brand;
 
     renderSideLinks();
     updateHeader();
+    if (XN.emit) XN.emit('theme:change', theme);
   }
+  XN.applyConfig = applyConfig;
 
   function renderSideLinks() {
-    var order = (state.cfg.nav || []).filter(function (n) { return n.id !== 'chat'; });
-    order.forEach(function (item) {
-      var btn = document.querySelector('.side-link[data-view="' + item.id + '"]');
-      if (!btn) return;
-      var label = (state.cfg.labels && state.cfg.labels[item.id]) || VIEW_META[item.id].title;
+    var labels = state.cfg.labels || {};
+    $$('.side-link').forEach(function (btn) {
+      var id = btn.dataset.view;
+      if (!id) return;
       var span = btn.querySelector('span');
-      if (span) span.textContent = label;
-      var visible = item.show !== false;
-      btn.hidden = !visible;
+      if (span) span.textContent = labels[id] || t((VIEW_META[id] && VIEW_META[id].title) || 'nav.chat');
+
+      if (id === 'chat' || id === 'iterate') {
+        btn.hidden = id === 'iterate' ? !state.admin : false;
+        return;
+      }
+      var item = (state.cfg.nav || []).filter(function (n) { return n.id === id; })[0];
+      btn.hidden = !item || item.show === false;
     });
+
+    /* 固定顺序：对话 → 可排序项 → 迭代 → 设置 → 连接状态 */
+    var side = $('.side-foot');
+    if (side) {
+      var conn = side.querySelector('.conn');
+      var order = ['chat'].concat((state.cfg.nav || []).map(function (n) { return n.id; })).concat(['iterate', 'settings']);
+      order.forEach(function (id) {
+        var btn = side.querySelector('.side-link[data-view="' + id + '"]');
+        if (btn) side.insertBefore(btn, conn || null);
+      });
+    }
   }
+  XN.renderSideLinks = renderSideLinks;
 
   function updateHeader() {
     var titleEl = $('#mainTitle');
-    if (!titleEl) return;
-    if (state.view === 'chat') {
-      var s = currentSession();
-      titleEl.textContent = s && s.messages.length ? sessionTitle(s) : ((state.cfg.labels && state.cfg.labels.chat) || '新对话');
-    } else {
-      titleEl.textContent = (state.cfg.labels && state.cfg.labels[state.view]) || VIEW_META[state.view].title;
+    if (titleEl) {
+      if (state.view === 'chat') {
+        var s = currentSession();
+        titleEl.textContent = s && s.messages.length ? sessionTitle(s) : (state.cfg.labels.chat || t('nav.chat'));
+      } else {
+        titleEl.textContent = state.cfg.labels[state.view] || t((VIEW_META[state.view] && VIEW_META[state.view].title) || 'nav.chat');
+      }
     }
     $$('.side-link').forEach(function (b) {
-      b.classList.toggle('on', state.view !== 'chat' && b.dataset.view === state.view);
+      b.classList.toggle('on', b.dataset.view === state.view);
     });
     var pill = $('#modelPill');
-    if (pill) pill.textContent = state.cfg.tutor.model || 'deepseek-chat';
+    if (pill) pill.textContent = state.cfg.tutor.model || t('chat.selectModel');
+    var chip = $('#verChip');
+    if (chip) chip.textContent = 'v' + (root.XN_VERSION || '?');
   }
 
-  var VIEW_IDS = ['chat', 'study', 'feedback', 'settings', 'changelog', 'iterate'];
   function switchView(id) {
     if (VIEW_IDS.indexOf(id) < 0) id = 'chat';
-    if (id === 'arch') id = 'settings';               // 架构已并入设置
     if (id === 'iterate' && !state.admin) id = 'settings';
     state.view = id;
-    $$('.pane').forEach(function (v) { v.hidden = v.dataset.view !== id; });
+    $$('.pane').forEach(function (p) { p.hidden = p.dataset.view !== id; });
     updateHeader();
-    try { sessionStorage.setItem(KEYS.view, id); } catch (e) {}
-    if (N.views && N.views[id] && N.views[id].onShow) N.views[id].onShow();
-    if (id === 'chat') setTimeout(function () { scrollBottom(true); }, 30);
+    S.sessionSet(S.KEYS.view, id);
+    var view = XN.views && XN.views[id];
+    if (view && view.onShow) {
+      try { view.onShow(); } catch (e) { console.error('[xn] view', id, e); U.toast('这个页面出了点问题：' + e.message, 'error'); }
+    }
+    if (id === 'chat') setTimeout(function () { scrollBottom(true); }, 20);
     closeSide();
   }
-  N.switchView = switchView;
+  XN.switchView = switchView;
 
   function closeSide() {
-    document.getElementById('app').classList.remove('side-open');
+    var app = $('#app');
+    if (app) app.classList.remove('side-open');
     var scrim = $('#scrim');
     if (scrim) scrim.hidden = true;
   }
   function openSide() {
-    document.getElementById('app').classList.add('side-open');
+    var app = $('#app');
+    if (app) app.classList.add('side-open');
     var scrim = $('#scrim');
     if (scrim) scrim.hidden = false;
   }
 
-  N.state = state;
-  N.isProxy = isProxy;
-  N.$ = $; N.$$ = $$; N.esc = esc; N.uid = uid; N.toast = toast;
-  N.readJSON = readJSON; N.writeJSON = writeJSON; N.download = download;
-  N.fmtTime = fmtTime; N.fmtDate = fmtDate; N.todayStr = todayStr; N.bytes = bytes;
-  N.mergeConfig = mergeConfig; N.defaultConfig = defaultConfig;
-  N.viewMeta = VIEW_META; N.KEYS = KEYS;
-
-  function saveConfig() {
-    writeJSON(KEYS.cfg, state.cfg);
-    if (N.onConfigChange) N.onConfigChange();
-  }
-  N.saveConfig = saveConfig;
-  N.applyConfig = applyConfig;
-  N.renderSideLinks = renderSideLinks;
-
-  /* ---------- Markdown ---------- */
-  function inlineMd(s) {
-    return esc(s)
-      .replace(/`([^`\n]+)`/g, function (m, c) { return '<code>' + c + '</code>'; })
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|[\s(（])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-      .replace(/\[([^\]]{1,80})\]\((https?:[^\s)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  }
-
-  function mdBlocks(src) {
-    var lines = src.split('\n');
-    var html = '', list = null, para = [];
-    function flushPara() {
-      if (para.length) {
-        html += '<p>' + inlineMd(para.join('\n')).replace(/\n/g, '<br>') + '</p>';
-        para = [];
-      }
-    }
-    function closeList() { if (list) { html += '</' + list + '>'; list = null; } }
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].replace(/\s+$/, '');
-      if (!line.trim()) { flushPara(); closeList(); continue; }
-      var m;
-      if ((m = line.match(/^(#{1,4})\s+(.*)$/))) {
-        flushPara(); closeList();
-        var lv = Math.min(m[1].length, 3);
-        html += '<h' + lv + '>' + inlineMd(m[2]) + '</h' + lv + '>';
-        continue;
-      }
-      if (/^\s*[-*+]\s+/.test(line)) {
-        flushPara();
-        if (list !== 'ul') { closeList(); html += '<ul>'; list = 'ul'; }
-        html += '<li>' + inlineMd(line.replace(/^\s*[-*+]\s+/, '')) + '</li>';
-        continue;
-      }
-      if (/^\s*\d+[.)]\s+/.test(line)) {
-        flushPara();
-        if (list !== 'ol') { closeList(); html += '<ol>'; list = 'ol'; }
-        html += '<li>' + inlineMd(line.replace(/^\s*\d+[.)]\s+/, '')) + '</li>';
-        continue;
-      }
-      if (/^>\s?/.test(line)) {
-        flushPara(); closeList();
-        html += '<blockquote>' + inlineMd(line.replace(/^>\s?/, '')) + '</blockquote>';
-        continue;
-      }
-      if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) { flushPara(); closeList(); html += '<hr>'; continue; }
-      para.push(line);
-    }
-    flushPara(); closeList();
-    return html;
-  }
-
-  function md(src) {
-    var text = String(src == null ? '' : src).replace(/\r\n/g, '\n');
-    var parts = text.split('```');
-    var out = '';
-    for (var i = 0; i < parts.length; i++) {
-      if (i % 2 === 1) {
-        var code = parts[i].replace(/^[A-Za-z0-9+#._-]*\n/, '').replace(/\n$/, '');
-        out += '<pre><code>' + esc(code) + '</code></pre>';
-      } else {
-        out += mdBlocks(parts[i]);
-      }
-    }
-    return out;
-  }
-  N.md = md;
-
-  /* ---------- API ---------- */
-  function ApiError(message, status) {
-    var e = new Error(message);
-    e.name = 'ApiError';
-    e.status = status;
-    return e;
-  }
-
-  function friendlyError(status, detail) {
-    var low = String(detail || '').toLowerCase();
-    if (status === 401 || status === 403) return 'Key 无效或没有权限（' + status + '）。检查一下是不是没复制完整。';
-    if (status === 402 || low.indexOf('insufficient') >= 0 || low.indexOf('balance') >= 0) return '余额不足（' + status + '）。去服务商后台充点再试。';
-    if (status === 404) return '接口路径或模型名不对（404）。确认 Base URL 带 /v1，模型名存在。';
-    if (status === 429) return '请求太频繁（429）。等十几秒再试。';
-    if (status >= 500) return '服务商那边出错了（' + status + '）。不是你写错了，过一会儿再试。';
-    return '请求失败（' + status + '）。' + (detail ? String(detail).slice(0, 200) : '');
-  }
-
-  var MODEL_BY_PROVIDER = {
-    deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-    moonshot: ['moonshot-v1-8k', 'moonshot-v1-32k', 'kimi-latest'],
-    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
-    zhipu: ['glm-4-flash', 'glm-4-plus'],
-    siliconflow: ['deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct'],
-    custom: []
-  };
-
-  // 云端只留一个；想要别的模型就去填自己的 Key
-  var CLOUD_MODELS = [
-    { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '云端唯一' }
-  ];
-
-  function currentProvider() {
-    var p = state.cfg.tutor.provider;
-    if (p && p.id) return p.id;
-    return isProxy() ? 'cloud' : 'custom';
-  }
-
-  function modelLabel(id) {
-    var hit = CLOUD_MODELS.filter(function (m) { return m.id === id; })[0];
-    return hit ? hit.name : id;
-  }
-
-  function isCloudModel(id) {
-    return String(id || '').indexOf('@cf/') === 0;
-  }
-
-  function buildGroups() {
-    var prov = currentProvider();
-    var groups = [];
-    var own = (MODEL_BY_PROVIDER[prov] || []).slice();
-    var cur = state.cfg.tutor.model || '';
-    // 用云端模型时，不要把上一个服务商的模型名混进来
-    if (prov === 'cloud') own = [];
-    else if (cur && !isCloudModel(cur) && own.indexOf(cur) < 0) own.unshift(cur);
-    if (own.length) {
-      groups.push({
-        label: '自己的 API',
-        items: own.map(function (m) { return { id: m, name: m, note: '' }; })
-      });
-    }
-    groups.push({ label: '云端自带（唯一，不用 Key）', items: CLOUD_MODELS });
-    return groups;
-  }
-
-  function renderModelPick() {
-    var trigger = $('#modelPickTrigger');
-    var menu = $('#modelMenu');
-    if (!trigger || !menu) return;
-
-    var cur = state.cfg.tutor.model || '';
-    var groups = buildGroups();
-
-    // 隐藏的原生 select：状态同步 + 无障碍
-    var sel = $('#modelPick');
-    sel.innerHTML = groups.reduce(function (acc, g) {
-      return acc.concat(g.items.map(function (m) {
-        return '<option value="' + esc(m.id) + '">' + esc(m.name) + '</option>';
-      }));
-    }, []).join('');
-    sel.value = cur;
-
-    menu.innerHTML = groups.map(function (g) {
-      return '<div class="mp-group"><div class="mp-group-label">' + esc(g.label) + '</div>' +
-        g.items.map(function (m) {
-          var on = m.id === cur;
-          return '<div class="mp-opt" role="option" data-id="' + esc(m.id) + '" aria-selected="' + on + '">' +
-            '<svg class="mp-check" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.4 5 9l4.5-5.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-            '<span class="mp-name">' + esc(m.name) + '</span>' +
-            '<span class="mp-tag">' + esc(m.note || '') + '</span>' +
-            '</div>';
-        }).join('') + '</div>';
-    }).join('');
-
-    $('#modelPickText').textContent = cur ? modelLabel(cur) : '选模型';
-    trigger.title = cur || '';
-    trigger.disabled = false;
-  }
-
-  function selectModel(id) {
-    state.cfg.tutor.model = id;
-    if (isCloudModel(id)) {
-      state.cfg.tutor.provider = { id: 'cloud', base: '' };
-      state.cfg.tutor.baseUrl = '/api';
-    } else if (!state.cfg.tutor.provider || state.cfg.tutor.provider.id === 'cloud') {
-      // 从云端模型切回自己的模型，但没有存过服务商：回设置里挑一个
-      toast('换成 ' + modelLabel(id) + ' 后，去设置里填一次 Key');
-    }
-    saveConfig();
-    updateHeader();
-    renderModelPick();
-    toast('换成 ' + modelLabel(id));
-  }
-  N.renderModelPick = renderModelPick;
-  N.selectModel = selectModel;
-
-  function apiBase() { return String(state.cfg.tutor.baseUrl || '').trim().replace(/\/+$/, ''); }
-  function isProxy() { return apiBase().charAt(0) === '/'; }
-  function chatUrl() { return isProxy() ? apiBase() + '/chat' : apiBase() + '/chat/completions'; }
-
-  async function apiChatRaw(messages, opts) {
-    opts = opts || {};
-    var proxy = isProxy();
-    var key = state.key;
-    if (!key && !proxy) throw ApiError('还没有填 API Key。');
-
-    var body = {
-      model: state.cfg.tutor.model || 'deepseek-chat',
-      messages: messages,
-      temperature: opts.temperature != null ? opts.temperature : state.cfg.tutor.temperature,
-      stream: false
-    };
-    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
-    if (opts.tools && opts.tools.length) {
-      body.tools = opts.tools;
-      body.tool_choice = 'auto';
-    }
-    if (proxy && key && state.cfg.tutor.provider && state.cfg.tutor.provider.base) {
-      body.providerBase = state.cfg.tutor.provider.base;
-    }
-
-    var headers = { 'Content-Type': 'application/json' };
-    if (key) headers['Authorization'] = 'Bearer ' + key;
-
-    var res = await fetch(chatUrl(), { method: 'POST', headers: headers, body: JSON.stringify(body) });
-    if (!res.ok) {
-      var raw = '';
-      try { raw = await res.text(); } catch (e) {}
-      throw ApiError('模型返回 ' + res.status + '：' + String(raw).slice(0, 140));
-    }
-    var j = await res.json();
-    var msg = (j.choices && j.choices[0] && j.choices[0].message) || {};
-    return { content: msg.content || '', toolCalls: msg.tool_calls || null };
-  }
-  N.apiChatRaw = apiChatRaw;
-
-  function lastUserText(session) {
-    var list = (session ? session.messages : []) || [];
-    for (var i = list.length - 1; i >= 0; i--) {
-      if (list[i].role === 'user' && list[i].content) return list[i].content;
-    }
-    return '';
-  }
-
-  function systemPromptFor(session) {
-    var custom = String(state.cfg.tutor.systemPrompt || '').trim();
-    if (custom) return custom;
-    if (!window.XN_PERSONA || !window.XN_PERSONA.build) return '你叫小暖。';
-
-    var q = lastUserText(session);
-    var mem = window.XN_MEM;
-
-    var memories = state.memory || [];
-    var extra = '';
-    if (mem) {
-      var act = mem.getActiveMemories ? mem.getActiveMemories() : null;
-      var trails = mem.activate ? mem.activate(q, 6) : [];
-      if (act && act.explicit && act.explicit.length) {
-        memories = act.explicit.slice();
-      }
-      if (trails.length) {
-        extra = trails.map(function (t) { return t.content; }).join('；');
-      }
-    }
-
-    var prompt = window.XN_PERSONA.build({
-      query: q,
-      emo: state.lastEmo || window.XN_PERSONA.detectEmotion(q),
-      memories: memories,
-      notes: state.notes || [],
-      goals: ((state.goals && state.goals.items) || []).filter(function (g) { return !g.done; }).map(function (g) { return g.text; }),
-      name: mem && mem.name ? mem.name() : ''
-    });
-
-    if (extra) prompt += '\n【顺着这句话联想起来的事】' + extra;
-    if (mem && mem.relation) {
-      var rel = mem.relation();
-      prompt += '\n【你们的关系】' + rel.label + '（聊过 ' + rel.interactions + ' 次）';
-    }
-    if (mem && mem.promises) {
-      var live = mem.promises().filter(function (x) { return !x.kept; });
-      if (live.length) prompt += '\n【你答应过、还没做到的事】' + live.slice(0, 5).map(function (x) { return x.text; }).join('；');
-    }
-    if (window.XN_EMO && window.XN_EMO.hint) {
-      prompt = prompt.replace(/情绪应对提示：[^\n]*/, '情绪应对提示：' + window.XN_EMO.hint(state.lastEmo));
-    }
-    return prompt;
-  }
-
-  function buildMessages(extraSystem) {
-    var sys = systemPromptFor(currentSession());
-    if (extraSystem) sys += '\n\n' + extraSystem;
-    var msgs = [{ role: 'system', content: sys }];
-    var turns = clamp(state.cfg.tutor.historyTurns, 2, 40);
-    var s = currentSession();
-    var hist = (s ? s.messages : []).filter(function (m) {
-      return m.role === 'user' || (m.role === 'assistant' && m.content && !m.pending);
-    }).slice(-turns * 2);
-    hist.forEach(function (m) {
-      if (!m.content) return;
-      msgs.push({ role: m.role, content: m.content });
-    });
-    return msgs;
-  }
-
-  async function apiChat(messages, opts) {
-    opts = opts || {};
-    var proxy = isProxy();
-    var key = opts.key || state.key;
-    if (!key && !proxy) throw ApiError('还没有填 API Key。');
-    if (!apiBase()) throw ApiError('还没有填 Base URL。');
-
-    var body = {
-      model: state.cfg.tutor.model || 'deepseek-chat',
-      messages: messages,
-      temperature: opts.temperature != null ? opts.temperature : state.cfg.tutor.temperature,
-      stream: !!opts.stream
-    };
-    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
-    if (proxy && key && state.cfg.tutor.provider && state.cfg.tutor.provider.base) {
-      body.providerBase = state.cfg.tutor.provider.base;
-    }
-
-    var headers = { 'Content-Type': 'application/json' };
-    if (key) headers['Authorization'] = 'Bearer ' + key;
-
-    var res;
-    try {
-      res = await fetch(chatUrl(), {
-        method: 'POST', headers: headers, body: JSON.stringify(body), signal: opts.signal
-      });
-    } catch (e) {
-      if (e && e.name === 'AbortError') throw e;
-      throw ApiError('请求没发出去。可能是断网、代理拦截，或者这个服务商不允许浏览器直连。');
-    }
-
-    if (!res.ok) {
-      var detail = '';
-      try {
-        var raw = await res.text();
-        try {
-          var j = JSON.parse(raw);
-          detail = (j.error && (j.error.message || j.error.type)) || j.message || raw;
-        } catch (e2) { detail = raw; }
-      } catch (e3) {}
-      throw ApiError(friendlyError(res.status, detail), res.status);
-    }
-
-    if (!opts.stream) {
-      var data = await res.json();
-      var msg = (data.choices && data.choices[0] && data.choices[0].message) || {};
-      return { text: (msg.content || '').trim(), reasoning: (msg.reasoning_content || '').trim() };
-    }
-
-    if (!res.body || !res.body.getReader) {
-      var d2 = await res.json();
-      var m2 = (d2.choices && d2.choices[0] && d2.choices[0].message) || {};
-      var t2 = (m2.content || '').trim();
-      if (t2 && opts.onDelta) opts.onDelta(t2);
-      return { text: t2, reasoning: (m2.reasoning_content || '').trim() };
-    }
-
-    var reader = res.body.getReader();
-    var decoder = new TextDecoder('utf-8');
-    var buf = '', acc = '', reasoning = '', finished = false;
-
-    while (!finished) {
-      var chunk = await reader.read();
-      if (chunk.done) break;
-      buf += decoder.decode(chunk.value, { stream: true });
-      var lines = buf.split('\n');
-      buf = lines.pop();
-      for (var i = 0; i < lines.length; i++) {
-        var line = lines[i].trim();
-        if (!line || line.charAt(0) === ':') continue;
-        if (line.indexOf('data:') !== 0) continue;
-        var payload = line.slice(5).trim();
-        if (payload === '[DONE]') { finished = true; break; }
-        var json;
-        try { json = JSON.parse(payload); } catch (e) { continue; }
-        var delta = (json.choices && json.choices[0] && json.choices[0].delta) || {};
-        if (delta.reasoning_content) {
-          reasoning += delta.reasoning_content;
-          if (opts.onReasoning) opts.onReasoning(delta.reasoning_content);
-        }
-        if (delta.content) {
-          acc += delta.content;
-          if (opts.onDelta) opts.onDelta(delta.content);
-        }
-      }
-    }
-    return { text: acc, reasoning: reasoning };
-  }
-  N.apiChat = apiChat;
-
   /* ---------- 会话 ---------- */
   function sessionTitle(s) {
     var first = (s.messages || []).filter(function (m) { return m.role === 'user' && m.content; })[0];
-    var text = first ? first.content.replace(/\s+/g, ' ').trim() : '新对话';
+    var text = first ? first.content.replace(/\s+/g, ' ').trim() : t('nav.chat');
     return text.length > 22 ? text.slice(0, 21) + '…' : text;
   }
-  N.sessionTitle = sessionTitle;
+  XN.sessionTitle = sessionTitle;
 
   function currentSession() {
     return state.sessions.filter(function (s) { return s.id === state.currentId; })[0] || null;
   }
-  N.currentSession = currentSession;
+  XN.currentSession = currentSession;
 
+  var saving = false;
   function saveSessions() {
-    var keep = state.sessions
-      .filter(function (s) { return s.messages && s.messages.length; })
-      .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); })
-      .slice(0, 30)
-      .map(function (s) {
-        return {
-          id: s.id, ts: s.ts, title: sessionTitle(s),
-          messages: s.messages.filter(function (m) { return !m.pending; }).slice(-60)
-        };
-      });
-    writeJSON(KEYS.sessions, keep);
-    writeJSON(KEYS.current, state.currentId);
-  }
-  N.saveSessions = saveSessions;
+    if (saving) return;
+    saving = true;
+    var limits = state.cfg.limits || {};
+    var maxSessions = limits.sessions || 30;
+    var maxMsgs = limits.messagesPerSession || 60;
 
-  function newSession() {
-    var s = { id: uid(), ts: Date.now(), messages: [] };
+    var list = state.sessions
+      .filter(function (s) { return (s.messages && s.messages.length) || s.id === state.currentId; })
+      .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); })
+      .slice(0, maxSessions)
+      .map(function (s) {
+        var msgs = s.messages.filter(function (m) { return !m.pending; });
+        var trimmed = msgs.slice(-maxMsgs).map(function (m) {
+          return {
+            id: m.id, role: m.role, content: m.content, reasoning: m.reasoning,
+            ts: m.ts, error: m.error || '', incomplete: !!m.incomplete,
+            tools: m.tools || null
+          };
+        });
+        return { id: s.id, ts: s.ts, title: sessionTitle(s), messages: trimmed };
+      });
+
+    S.set(S.KEYS.sessions, list);
+    S.set(S.KEYS.current, state.currentId);
+    saving = false;
+  }
+  XN.saveSessions = saveSessions;
+
+  function newSession(silent) {
+    var s = { id: U.uid('s'), ts: Date.now(), messages: [] };
     state.sessions.unshift(s);
     state.currentId = s.id;
+    saveSessions();
     renderSessions();
     renderThread();
     switchView('chat');
-    setTimeout(function () { $('#input').focus(); }, 50);
+    setTimeout(function () {
+      var input = $('#input');
+      if (input) input.focus();
+    }, 40);
+    if (!silent) U.toast(t('chat.newSession'));
     return s;
   }
-  N.newSession = newSession;
+  XN.newSession = newSession;
 
   function openSession(id) {
+    if (state.sending && state.abort) state.abort.abort();
     state.currentId = id;
+    saveSessions();
     renderSessions();
     renderThread();
     switchView('chat');
+    maybeConsolidate();
   }
 
   function deleteSession(id, ev) {
     if (ev) ev.stopPropagation();
     var s = state.sessions.filter(function (x) { return x.id === id; })[0];
     if (!s) return;
-    if (s.messages.length && !confirm('删掉这个对话？删了就找不回来。')) return;
+    if (s.messages.length && !confirm(t('chat.deleteAsk'))) return;
     state.sessions = state.sessions.filter(function (x) { return x.id !== id; });
     if (state.currentId === id) {
       var next = state.sessions.filter(function (x) { return x.messages.length; })[0];
       state.currentId = next ? next.id : '';
-      if (!state.currentId) newSession();
+      if (!state.currentId) {
+        newSession(true);
+        U.toast(t('chat.deleted'));
+        return;
+      }
     }
     saveSessions();
     renderSessions();
     renderThread();
-    toast('删掉了');
+    U.toast(t('chat.deleted'));
   }
 
   function renderSessions() {
     var box = $('#sessionList');
     if (!box) return;
     var list = state.sessions
-      // 当前这个即使还没说话也要显示，否则点了「新对话」界面上一点反应都没有
-      .filter(function (s) {
-        return (s.messages && s.messages.length) || s.id === state.currentId;
-      })
+      .filter(function (s) { return (s.messages && s.messages.length) || s.id === state.currentId; })
       .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
-    $('#sessionEmpty').hidden = list.length > 0;
-    $('#sessionLabel').hidden = list.length === 0;
+    var empty = $('#sessionEmpty'), label = $('#sessionLabel');
+    if (empty) empty.hidden = list.length > 0;
+    if (label) label.hidden = list.length === 0;
+
     box.innerHTML = list.map(function (s) {
-      return '<div class="session' + (s.id === state.currentId ? ' on' : '') + '" data-id="' + s.id + '">' +
+      return '<div class="session' + (s.id === state.currentId ? ' on' : '') + '" data-id="' + U.esc(s.id) + '">' +
         '<button class="ses-main" type="button">' +
-        '<span class="ses-title">' + esc(sessionTitle(s)) + '</span>' +
-        '<span class="ses-time">' + fmtTime(s.ts) + '</span>' +
+        '<span class="ses-title">' + U.esc(sessionTitle(s)) + '</span>' +
+        '<span class="ses-time">' + U.fmtTime(s.ts) + '</span>' +
         '</button>' +
-        '<button class="ses-del" type="button" title="删除">×</button>' +
+        '<button class="ses-del" type="button" title="删除" aria-label="删除对话">×</button>' +
         '</div>';
     }).join('');
-
-    $$('.ses-main', box).forEach(function (b) {
-      b.addEventListener('click', function () {
-        openSession(b.closest('.session').dataset.id);
-      });
-    });
-    $$('.ses-del', box).forEach(function (b) {
-      b.addEventListener('click', function (ev) {
-        deleteSession(b.closest('.session').dataset.id, ev);
-      });
-    });
   }
-  N.renderSessions = renderSessions;
+  XN.renderSessions = renderSessions;
 
   /* ---------- 对话渲染 ---------- */
   function scrollBottom(force) {
     var box = $('#messages');
     if (!box) return;
-    var near = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
+    var near = box.scrollHeight - box.scrollTop - box.clientHeight < 180;
     if (force || near) box.scrollTop = box.scrollHeight;
   }
-  N.scrollBottom = scrollBottom;
+  XN.scrollBottom = scrollBottom;
 
   function greeting() {
     var h = new Date().getHours();
@@ -790,43 +360,50 @@
   }
 
   function emptyState() {
-    var starters = (window.XN_PERSONA && window.XN_PERSONA.starters) || [];
+    var starters = (root.XN_PERSONA && root.XN_PERSONA.starters) || [];
     return '<div class="empty" id="chatEmpty">' +
-      '<h2>' + greeting() + '</h2>' +
-      '<p>今天想动哪一块？小暖不替你写完作业，但会陪你把卡住的拆开。</p>' +
+      '<h2>' + U.esc(greeting()) + '</h2>' +
+      '<p>' + U.esc(t('chat.emptyBody')) + '</p>' +
       '<div class="chips">' + starters.map(function (s) {
-        return '<button class="chip" type="button" data-prompt="' + esc(s) + '">' +
-          esc(s.length > 18 ? s.slice(0, 17) + '…' : s) + '</button>';
+        return '<button class="chip" type="button" data-prompt="' + U.esc(s) + '">' +
+          U.esc(s.length > 18 ? s.slice(0, 17) + '…' : s) + '</button>';
       }).join('') + '</div></div>';
   }
 
   function messageNode(m) {
     var div = document.createElement('div');
+    div.className = 'msg ' + (m.role === 'user' ? 'user' : 'bot');
+    div.dataset.id = m.id || '';
+
     if (m.role === 'user') {
-      div.className = 'msg user';
       div.innerHTML = '<div class="body"><div class="content"></div></div>';
       div.querySelector('.content').textContent = m.content;
       return div;
     }
 
-    div.className = 'msg bot';
     div.innerHTML = '<div class="body">' +
-      '<div class="who-line"><span>小暖</span><span>' + fmtTime(m.ts) + '</span></div>' +
-      (m.reasoning ? '<div class="reasoning"></div>' : '') +
+      '<div class="who-line"><span>' + U.esc(state.cfg.brand || t('app.name')) + '</span><span>' + U.fmtTime(m.ts) + '</span></div>' +
+      '<div class="reasoning" hidden></div>' +
       '<div class="content"></div>' +
-      (m.error ? '<p class="err">' + esc(m.error) + '</p>' : '') +
+      (m.error ? '<p class="err"></p>' : '') +
       '<div class="msg-tools">' +
-      '<button type="button" data-copy>复制</button>' +
-      '<button type="button" data-retry>重新生成</button>' +
+      '<button type="button" data-copy>' + U.esc(t('chat.copy')) + '</button>' +
+      '<button type="button" data-retry>' + U.esc(t('chat.retry')) + '</button>' +
       '</div></div>';
 
-    if (m.reasoning) div.querySelector('.reasoning').textContent = m.reasoning;
+    if (m.reasoning) {
+      var r = div.querySelector('.reasoning');
+      r.hidden = false;
+      r.textContent = m.reasoning;
+    }
+    if (m.error) div.querySelector('.err').textContent = m.error;
+
     var content = div.querySelector('.content');
     if (m.pending) content.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
-    else if (m.content) content.innerHTML = md(m.content);
+    else if (m.content) content.innerHTML = MD.render(m.content);
 
     div.querySelector('[data-copy]').addEventListener('click', function () {
-      copyText(m.content || '').then(function () { toast('复制好了'); }, function () { toast('复制失败'); });
+      U.copyText(m.content || '').then(function () { U.toast(t('chat.copied')); }, function () { U.toast(t('chat.copyFailed')); });
     });
     div.querySelector('[data-retry]').addEventListener('click', function () {
       var s = currentSession();
@@ -863,7 +440,7 @@
     box.appendChild(thread);
     scrollBottom(true);
   }
-  N.renderThread = renderThread;
+  XN.renderThread = renderThread;
 
   function autoGrow() {
     var input = $('#input');
@@ -882,31 +459,106 @@
 
   function updateConn(mode) {
     var dot = $('#connDot'), text = $('#connText');
-    if (!dot) return;
-    var connected = !!state.key || isProxy();
-    dot.classList.toggle('off', mode === 'off' || !connected);
+    var connected = !!state.key || API.isProxy();
+    if (dot) dot.classList.toggle('off', mode === 'off' || !connected);
     if (!text) return;
-    if (mode === 'busy') text.textContent = '生成中…';
-    else if (!connected) text.textContent = '未配置 Key';
-    else if (mode === 'off') text.textContent = '连接有问题';
-    else text.textContent = (state.admin ? '架构模式 · ' : '') + (state.cfg.tutor.model || '已连接');
+    if (mode === 'busy') text.textContent = t('nav.busy');
+    else if (!connected) text.textContent = t('nav.noKey');
+    else if (mode === 'off') text.textContent = t('nav.connError');
+    else text.textContent = (state.admin ? t('settings.admin') + ' · ' : '') + (state.cfg.tutor.model || t('nav.connected'));
   }
-  N.updateConn = updateConn;
+  XN.updateConn = updateConn;
 
-  async function webSearchFor(q) {
-    try {
-      var res = await fetch('api/search?q=' + encodeURIComponent(q), { cache: 'no-store' });
-      var j = await res.json();
-      return (j && j.items) || [];
-    } catch (e) {
-      return [];
+  /* ---------- 人设 / 记忆 ---------- */
+  function lastUserText(session) {
+    var list = (session ? session.messages : []) || [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (list[i].role === 'user' && list[i].content) return list[i].content;
     }
+    return '';
+  }
+
+  function systemPromptFor(session) {
+    var custom = String(state.cfg.tutor.systemPrompt || '').trim();
+    if (custom) return custom;
+    if (!root.XN_PERSONA || !root.XN_PERSONA.build) return '你叫小暖。';
+
+    var q = lastUserText(session);
+    var mem = root.XN_MEM;
+    var act = mem && mem.getActiveMemories ? mem.getActiveMemories() : null;
+    var memories = act && act.explicit ? act.explicit : (state.memory || []);
+    var trails = mem && mem.activate ? mem.activate(q, 6) : [];
+
+    var prompt = root.XN_PERSONA.build({
+      query: q,
+      emo: state.lastEmo || root.XN_PERSONA.detectEmotion(q),
+      memories: memories,
+      notes: state.notes || [],
+      goals: ((state.goals && state.goals.items) || []).filter(function (g) { return !g.done; }).map(function (g) { return g.text; }),
+      name: mem && mem.name ? mem.name() : ''
+    });
+
+    if (trails.length) {
+      prompt += '\n【顺着这句话联想起来的事】' + trails.map(function (x) { return x.content; }).join('；');
+    }
+    if (mem && mem.relation) {
+      var rel = mem.relation();
+      prompt += '\n【你们的关系】' + rel.label + '（有效互动 ' + rel.interactions + ' 次）';
+    }
+    if (mem && mem.promises) {
+      var live = mem.promises().filter(function (x) { return !x.kept; });
+      if (live.length) prompt += '\n【你答应过、还没做到的事】' + live.slice(0, 5).map(function (x) { return x.text; }).join('；');
+    }
+    if (root.XN_EMO && root.XN_EMO.hint) {
+      prompt = prompt.replace(/情绪应对提示：[^\n]*/, '情绪应对提示：' + root.XN_EMO.hint(state.lastEmo));
+    }
+    return prompt;
+  }
+
+  function buildMessages(extraSystem) {
+    var sys = systemPromptFor(currentSession());
+    if (extraSystem) sys += '\n\n' + extraSystem;
+    var msgs = [{ role: 'system', content: sys }];
+    var turns = U.clamp(state.cfg.tutor.historyTurns, 2, 40);
+    var s = currentSession();
+    var hist = (s ? s.messages : []).filter(function (m) {
+      return (m.role === 'user' && m.content) || (m.role === 'assistant' && m.content && !m.pending);
+    }).slice(-turns * 2);
+    hist.forEach(function (m) {
+      msgs.push({ role: m.role, content: m.content });
+    });
+    return API.fitMessages(msgs, 24000);
+  }
+
+  /* ---------- 发送 ---------- */
+  function needsTools(text) {
+    if (state.web) return true;
+    return /今天|现在|几点|几号|星期|日期|今年|新闻|天气|最新/.test(String(text || ''));
+  }
+
+  async function detectEmotion(text) {
+    if (!root.XN_EMO) return null;
+    var chatFn = null;
+    var mode = state.cfg.tutor.emoLLM;
+    if (mode !== false) {
+      var quick = root.XN_PERSONA ? root.XN_PERSONA.detectEmotion(text) : { emo: 'neutral', intensity: 0.3 };
+      var needLlm = quick.emo === 'neutral' || quick.intensity < 0.45;
+      var throttleOk = Date.now() - state.lastEmoAt > 45000 && state.emoCalls < 6;
+      if (needLlm && throttleOk && (state.key || API.isProxy())) {
+        state.lastEmoAt = Date.now();
+        state.emoCalls++;
+        chatFn = function (messages) {
+          return API.chatText(messages, { maxTokens: 90, temperature: 0 }).catch(function () { return ''; });
+        };
+      }
+    }
+    try { return await root.XN_EMO.analyze(text, chatFn); }
+    catch (e) { return null; }
   }
 
   async function runAssistant() {
-    var s = currentSession();
-    if (!s) s = newSession();
-    var bot = { role: 'assistant', content: '', reasoning: '', ts: Date.now(), pending: true };
+    var s = currentSession() || newSession(true);
+    var bot = { id: U.uid('m'), role: 'assistant', content: '', reasoning: '', ts: Date.now(), pending: true, tools: [] };
     s.messages.push(bot);
     s.ts = Date.now();
     renderThread();
@@ -919,77 +571,85 @@
     state.abort = ctrl;
     setSending(true);
 
-    // 模型要想十几秒：先给个可见的占位，别让界面像死了
-    if (!contentEl.textContent) {
-      contentEl.textContent = '正在想…';
-      contentEl.classList.add('thinking');
-    }
     var thinkingCleared = false;
     function clearThinking() {
       if (thinkingCleared) return;
       thinkingCleared = true;
       contentEl.classList.remove('thinking');
     }
+    contentEl.textContent = t('chat.thinking');
+    contentEl.classList.add('thinking');
 
     var reasoningEl = null;
     function ensureReasoning() {
       if (reasoningEl) return reasoningEl;
-      reasoningEl = document.createElement('div');
-      reasoningEl.className = 'reasoning';
-      bodyEl.insertBefore(reasoningEl, contentEl);
+      reasoningEl = node.querySelector('.reasoning');
+      reasoningEl.hidden = false;
       return reasoningEl;
     }
 
     try {
       var msgs = buildMessages();
       var res;
-      if (state.web && window.XN_TOOLS) {
-        // 走工具循环：模型自己决定搜不搜、搜什么
-        var loopRes = await window.XN_TOOLS.loopWithFallback({
+      var userText = lastUserText(s);
+
+      if (needsTools(userText) && root.XN_TOOLS) {
+        contentEl.textContent = state.web ? '正在查资料…' : '正在看时间…';
+        var loopRes = await root.XN_TOOLS.loopWithFallback({
           messages: msgs,
-          chat: function (m, tools) { return apiChatRaw(m, { tools: tools }); },
-          textChat: function (m) { return apiChatRaw(m, {}); },
+          specs: root.XN_TOOLS.specsFor(state.web),
+          signal: ctrl.signal,
+          chat: function (m, tools) { return API.chatRaw(m, { tools: tools, signal: ctrl.signal }); },
+          textChat: function (m) { return API.chatRaw(m, { signal: ctrl.signal }).then(function (r) { return r.content; }); },
           onTool: function (name, args, result) {
-            toast('用了工具：' + name + (result && result.ok ? '' : '（没跑通）'));
+            bot.tools.push({ name: name, ok: !!(result && result.ok) });
+            U.toast('用了工具：' + name + (result && result.ok ? '' : '（没跑通）'));
           }
         });
-        res = { text: (loopRes && loopRes.content) || '' };
+        res = { text: (loopRes && loopRes.content) || '', reasoning: '' };
         bot.content = res.text;
         contentEl.textContent = bot.content;
+        clearThinking();
+      } else if (state.cfg.tutor.stream === false) {
+        var plain = await API.chatRaw(msgs, { signal: ctrl.signal });
+        res = { text: plain.content, reasoning: plain.reasoning };
+        bot.content = res.text;
+        bot.reasoning = res.reasoning || '';
+        if (bot.reasoning) ensureReasoning().textContent = bot.reasoning;
+        contentEl.textContent = bot.content;
+        clearThinking();
       } else {
-        res = await apiChat(msgs, {
-        stream: !!state.cfg.tutor.stream,
-        signal: ctrl.signal,
-        onDelta: function (d) {
-          clearThinking();
-          bot.content += d;
-          if (reasoningEl) reasoningEl.hidden = true;
-          node.classList.add('streaming');
-          contentEl.textContent = bot.content;
-          scrollBottom();
-        },
-        onReasoning: function (r) {
-          clearThinking();
-          bot.reasoning += r;
-          var el = ensureReasoning();
-          el.textContent = bot.reasoning;
-          el.hidden = false;
-          scrollBottom();
-        }
+        res = await API.streamChat(msgs, {
+          stream: true,
+          signal: ctrl.signal,
+          onDelta: function (d) {
+            clearThinking();
+            bot.content += d;
+            if (reasoningEl) reasoningEl.hidden = true;
+            node.classList.add('streaming');
+            contentEl.textContent = bot.content;
+            scrollBottom();
+          },
+          onReasoning: function (r) {
+            clearThinking();
+            bot.reasoning += r;
+            ensureReasoning().textContent = bot.reasoning;
+            scrollBottom();
+          }
         });
+        if (!state.cfg.tutor.stream && res.text && !bot.content) {
+          bot.content = res.text;
+          contentEl.textContent = bot.content;
+        }
+        if (res.aborted) bot.incomplete = true;
       }
 
-      if (!state.cfg.tutor.stream && res.text && !bot.content) {
-        bot.content = res.text;
-        contentEl.textContent = bot.content;
-      }
       if (!bot.content.trim()) {
-        bot.content = '';
-        bot.error = '模型返回了空内容。可能被安全策略拦了，或者模型名不对。';
+        bot.error = t('chat.emptyReply');
       }
       clearThinking();
       node.classList.remove('streaming');
-      contentEl.innerHTML = bot.content ? md(bot.content) : '';
+      contentEl.innerHTML = bot.content ? MD.render(bot.content) : '';
       if (bot.error) {
         var p = document.createElement('p');
         p.className = 'err';
@@ -1000,16 +660,17 @@
     } catch (e) {
       node.classList.remove('streaming');
       if (e && e.name === 'AbortError') {
-        if (!bot.content) bot.content = '（已停止）';
-        contentEl.innerHTML = md(bot.content);
+        if (!bot.content) bot.content = t('chat.stopped');
+        bot.incomplete = !!bot.content;
+        contentEl.innerHTML = MD.render(bot.content);
       } else {
-        bot.error = (e && e.message) || '出错了。';
-        contentEl.innerHTML = bot.content ? md(bot.content) : '';
+        bot.error = (e && e.message) || t('common.failed');
+        contentEl.innerHTML = bot.content ? MD.render(bot.content) : '';
         var pe = document.createElement('p');
         pe.className = 'err';
         pe.textContent = bot.error;
         bodyEl.appendChild(pe);
-        if (e && e.status === 401) updateConn('off');
+        if (e && (e.status === 401 || e.status === 403)) updateConn('off');
       }
     } finally {
       bot.pending = false;
@@ -1018,22 +679,75 @@
       saveSessions();
       renderSessions();
       updateHeader();
+      if (root.XN_MEM && root.XN_MEM.pushBuffer && bot.content) {
+        root.XN_MEM.pushBuffer('小暖：' + bot.content.slice(0, 200));
+      }
     }
   }
+
+  async function sendMessage(raw) {
+    if (state.sending) return;
+    var text = String(raw == null ? ($('#input') ? $('#input').value : '') : raw).trim();
+    if (!text) return;
+
+    if (!state.key && !API.isProxy()) {
+      showKeyBar(text);
+      return;
+    }
+
+    var mRemember = text.match(/^记住[，,：:\s]*(.+)$/);
+    var mForget = text.match(/^忘(?:了|掉)[，,：:\s]*(.+)$/);
+    if (mRemember) {
+      var item = mRemember[1].trim();
+      if (item && root.XN_MEM) root.XN_MEM.addExplicit(item);
+      if (item) U.toast('记住了：' + item.slice(0, 30));
+    } else if (mForget) {
+      var topic = mForget[1].trim();
+      var removed = root.XN_MEM ? root.XN_MEM.forget(topic) : 0;
+      U.toast(removed ? '忘了 ' + removed + ' 条' : '没找到相关的记忆');
+    }
+
+    state.lastEmo = await detectEmotion(text);
+
+    if (root.XN_MEM) {
+      try {
+        if (root.XN_MEM.meaningful && root.XN_MEM.meaningful(text)) {
+          root.XN_MEM.addImplicit(text.slice(0, 160), 'dialog');
+          root.XN_MEM.pushBuffer('用户：' + text.slice(0, 200));
+        }
+      } catch (e) {}
+    }
+
+    var s = currentSession() || newSession(true);
+    var userMsg = { id: U.uid('m'), role: 'user', content: text, ts: Date.now() };
+    s.messages.push(userMsg);
+    s.ts = Date.now();
+    if (!s.title) s.title = sessionTitle(s);
+    /* 关系只按"用户真的发了一条新消息"计数：重试、重新生成都不会重复加 */
+    if (root.XN_MEM && root.XN_MEM.touch) root.XN_MEM.touch(userMsg.id);
+
+    var input = $('#input');
+    if (input) { input.value = ''; autoGrow(); }
+    renderThread();
+    renderSessions();
+    updateHeader();
+    await runAssistant();
+  }
+  XN.sendMessage = sendMessage;
 
   /* ---------- Key 行内提示 ---------- */
   function showKeyBar(pending) {
     if (pending) state.pendingText = pending;
     var bar = $('#keyBar');
+    if (!bar) return;
     bar.hidden = false;
     var msg = $('#keyMsg');
-    msg.textContent = '';
-    msg.className = 'keybar-msg';
+    if (msg) { msg.textContent = ''; msg.className = 'keybar-msg'; }
     $('#keyBase').value = state.cfg.tutor.baseUrl || '';
     $('#keyModel').value = state.cfg.tutor.model || '';
     setTimeout(function () { $('#keyInput').focus(); }, 30);
   }
-  N.showKeyBar = showKeyBar;
+  XN.showKeyBar = showKeyBar;
 
   function hideKeyBar() {
     var bar = $('#keyBar');
@@ -1041,15 +755,39 @@
     state.pendingText = '';
   }
 
+  function saveStoredKey(key, remember) {
+    try {
+      if (!key) {
+        localStorage.removeItem(S.KEYS.key);
+        sessionStorage.removeItem(S.KEYS.key);
+        return;
+      }
+      if (remember) {
+        localStorage.setItem(S.KEYS.key, key);
+        sessionStorage.removeItem(S.KEYS.key);
+      } else {
+        sessionStorage.setItem(S.KEYS.key, key);
+        localStorage.removeItem(S.KEYS.key);
+      }
+    } catch (e) {}
+  }
+  XN.saveStoredKey = saveStoredKey;
+
+  function storedKey() {
+    try { return localStorage.getItem(S.KEYS.key) || sessionStorage.getItem(S.KEYS.key) || ''; }
+    catch (e) { return ''; }
+  }
+
   async function saveKeyFromBar() {
     var key = $('#keyInput').value.trim();
     var base = $('#keyBase').value.trim();
     var model = $('#keyModel').value.trim();
+    var remember = $('#keyRemember') ? $('#keyRemember').checked : false;
     var msg = $('#keyMsg');
+
     if (base) state.cfg.tutor.baseUrl = base;
     if (model) state.cfg.tutor.model = model;
-
-    if (!key && !isProxy()) {
+    if (!key && !API.isProxy()) {
       msg.textContent = '先填一个 Key。';
       $('#keyInput').focus();
       return;
@@ -1060,8 +798,7 @@
     msg.className = 'keybar-msg';
     msg.textContent = '正在试一下…';
     try {
-      await apiChat([{ role: 'user', content: '只回一个字：好' }],
-        { key: key, stream: false, maxTokens: 8, temperature: 0 });
+      await API.chatText([{ role: 'user', content: '只回一个字：好' }], { key: key, maxTokens: 8, temperature: 0, timeoutMs: 30000 });
     } catch (e) {
       msg.textContent = e.message || '没通。';
       btn.disabled = false;
@@ -1070,7 +807,9 @@
     btn.disabled = false;
 
     state.key = key;
-    saveStoredKey(key, true);
+    saveStoredKey(key, remember);
+    state.cfg.tutor.provider = { id: M.providerOfBase(base || state.cfg.tutor.baseUrl), base: base || state.cfg.tutor.baseUrl };
+    if (state.cfg.tutor.provider.id !== 'cloud') state.cfg.tutor.ownProvider = { id: state.cfg.tutor.provider.id, base: state.cfg.tutor.baseUrl };
     saveConfig();
     updateConn('ok');
     msg.className = 'keybar-msg ok';
@@ -1078,158 +817,169 @@
     var pending = state.pendingText;
     hideKeyBar();
     if (pending) sendMessage(pending);
-    else toast('接上了');
-  }
-
-  function saveStoredKey(key, remember) {
-    try {
-      if (!key) { localStorage.removeItem(KEYS.key); sessionStorage.removeItem(KEYS.key); return; }
-      if (remember) {
-        localStorage.setItem(KEYS.key, key);
-        sessionStorage.removeItem(KEYS.key);
-      } else {
-        sessionStorage.setItem(KEYS.key, key);
-        localStorage.removeItem(KEYS.key);
-      }
-    } catch (e) {}
-  }
-  N.saveStoredKey = saveStoredKey;
-
-  function storedKey() {
-    try { return localStorage.getItem(KEYS.key) || sessionStorage.getItem(KEYS.key) || ''; } catch (e) { return ''; }
+    else U.toast('接上了');
   }
 
   /* ---------- 管理模式 ---------- */
+  function adminToken() {
+    return S.sessionGet(S.KEYS.admin, '');
+  }
+  XN.adminToken = adminToken;
+
   async function unlockAdmin(password) {
     var pwd = String(password || '');
     if (!pwd) return { ok: false, error: '先填密码。' };
-    if (isProxy()) {
-      try {
-        var r = await fetch('/api/admin/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: pwd })
-        });
-        var j = await r.json();
-        if (j && j.reason === 'not_configured') {
-          if (pwd !== ADMIN_PASSWORD) return { ok: false, error: '密码不对。' };
-        } else if (!j || !j.ok) {
-          return { ok: false, error: '服务器说密码不对。' };
-        }
-      } catch (e) {
-        return { ok: false, error: '问不到服务器，没法确认密码。' };
+    if (!API.isProxy()) return { ok: false, error: '管理密码必须由服务器校验，本地静态页面不支持解锁。' };
+    try {
+      var j = await API.adminVerify(pwd);
+      state.admin = true;
+      S.sessionSet(S.KEYS.admin, j.token);
+      renderSideLinks();
+      updateConn('ok');
+      if (XN.views && XN.views.settings && XN.views.settings.render) {
+        try { XN.views.settings.render(); } catch (e) {}
       }
-    } else if (pwd !== ADMIN_PASSWORD) {
-      return { ok: false, error: '密码不对。' };
+      return { ok: true, expires: j.expires };
+    } catch (e) {
+      return { ok: false, error: e.message || t('error.adminNet') };
     }
-
-    state.admin = true;
-    state.adminPwd = pwd;
-    try { sessionStorage.setItem(KEYS.admin, '1'); } catch (e) {}
-    renderSideLinks();
-    updateConn('ok');
-    var navIter = $('#navIterate');
-    if (navIter) navIter.hidden = false;
-    // 解锁后要立刻把设置页里那块云端自迭代刷出来
-    if (N.views && N.views.settings && N.views.settings.render) {
-      try { N.views.settings.render(); } catch (e) {}
-    }
-    return { ok: true };
   }
-  N.unlockAdmin = unlockAdmin;
+  XN.unlockAdmin = unlockAdmin;
 
   function lockAdmin() {
     state.admin = false;
-    state.adminPwd = '';
-    try { sessionStorage.removeItem(KEYS.admin); } catch (e) {}
+    S.sessionRemove(S.KEYS.admin);
     renderSideLinks();
     updateConn('ok');
-    var navIter = $('#navIterate');
-    if (navIter) navIter.hidden = true;
     if (state.view === 'iterate') switchView('settings');
   }
-  N.lockAdmin = lockAdmin;
+  XN.lockAdmin = lockAdmin;
 
-  /* ---------- 发送 ---------- */
-  async function sendMessage(raw) {
-    if (state.sending) return;
-    var text = String(raw == null ? $('#input').value : raw).trim();
-    if (!text) return;
+  /* ---------- 模型选择 ---------- */
+  function providerId() {
+    var p = state.cfg.tutor.provider;
+    if (p && p.id) return p.id;
+    return API.isProxy() ? 'cloud' : 'custom';
+  }
 
-    if (!state.key && !isProxy()) {
-      showKeyBar(text);
+  function renderModelPick() {
+    var trigger = $('#modelPickTrigger');
+    var menu = $('#modelMenu');
+    if (!trigger || !menu) return;
+
+    var cur = state.cfg.tutor.model || '';
+    var groups = M.groups(providerId(), cur);
+    var sel = $('#modelPick');
+    var options = [];
+    groups.forEach(function (g) {
+      g.items.forEach(function (m) {
+        if (!m.disabled && m.id) options.push('<option value="' + U.esc(m.id) + '">' + U.esc(m.name) + '</option>');
+      });
+    });
+    sel.innerHTML = options.join('');
+    sel.value = cur;
+
+    var idx = 0;
+    menu.innerHTML = groups.map(function (g) {
+      return '<div class="mp-group"><div class="mp-group-label">' + U.esc(g.label) + '</div>' +
+        g.items.map(function (m) {
+          var on = m.id === cur;
+          var id = 'mp-opt-' + (idx++);
+          return '<div class="mp-opt' + (m.disabled ? ' disabled' : '') + '" id="' + id + '" role="option" data-id="' + U.esc(m.id) + '" aria-selected="' + on + '"' +
+            (m.disabled ? ' aria-disabled="true"' : ' tabindex="-1"') + '>' +
+            '<svg class="mp-check" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.4 5 9l4.5-5.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+            '<span class="mp-name">' + U.esc(m.name) + '</span>' +
+            '<span class="mp-tag">' + U.esc(m.note || '') + '</span></div>';
+        }).join('') + '</div>';
+    }).join('');
+
+    $('#modelPickText').textContent = cur ? M.label(cur) : t('chat.selectModel');
+    trigger.title = cur || '';
+    trigger.disabled = false;
+  }
+  XN.renderModelPick = renderModelPick;
+
+  function selectModel(id) {
+    if (!id) return;
+    if (M.isCloud(id) && !M.runtime().cloudEnabled) {
+      U.toast('这个部署没启用云端自带模型，请在设置里填自己的 API。');
       return;
     }
+    var old = state.cfg.tutor.model;
+    state.cfg.tutor.model = id;
 
-    // 「记住 / 忘了」两条最简单的长期记忆指令，对应原程序的 explicit memory
-    var mRemember = text.match(/^记住[，,：:\s]*(.+)$/);
-    var mForget = text.match(/^忘(?:了|掉)[，,：:\s]*(.+)$/);
-    if (mRemember) {
-      var item = mRemember[1].trim();
-      if (item && (state.memory || []).indexOf(item) < 0) {
-        state.memory = state.memory || [];
-        state.memory.push(item);
-        writeJSON(KEYS.mem, state.memory);
-      }
-      if (window.XN_MEM && item) window.XN_MEM.addExplicit(item);
-    } else if (mForget) {
-      var key = mForget[1].trim();
-      state.memory = (state.memory || []).filter(function (x) { return x.indexOf(key) < 0; });
-      writeJSON(KEYS.mem, state.memory);
-      if (window.XN_MEM) window.XN_MEM.forget(key);
+    if (M.isCloud(id)) {
+      state.cfg.tutor.ownProvider = state.cfg.tutor.provider && state.cfg.tutor.provider.id !== 'cloud'
+        ? { id: state.cfg.tutor.provider.id, base: state.cfg.tutor.baseUrl }
+        : state.cfg.tutor.ownProvider;
+      state.cfg.tutor.provider = { id: 'cloud', base: '' };
+      state.cfg.tutor.baseUrl = '/api';
+    } else if (providerId() === 'cloud') {
+      var own = state.cfg.tutor.ownProvider || { id: 'custom', base: '' };
+      state.cfg.tutor.provider = { id: own.id, base: own.base };
+      state.cfg.tutor.baseUrl = own.base || state.cfg.tutor.baseUrl;
+      if (!own.base) U.toast(t('chat.noProvider'));
     }
-
-    if (window.XN_EMO) {
-      try {
-        // 先用关键词，够用就不多打一次模型
-        var quick = window.XN_EMO.analyze ? null : null;
-        var chatFn = (state.cfg.tutor.emoLLM === true)
-          ? function (m) { return apiChatRaw(m, { maxTokens: 90, temperature: 0 }).then(function (r) { return r.content; }); }
-          : null;
-        state.lastEmo = await window.XN_EMO.analyze(text, chatFn);
-      } catch (e) { state.lastEmo = null; }
-    }
-    if (window.XN_MEM) {
-      try {
-        window.XN_MEM.touch();
-        if (window.XN_MEM.pushBuffer) window.XN_MEM.pushBuffer('用户：' + text);
-        if (window.XN_MEM.addImplicit) window.XN_MEM.addImplicit(text.slice(0, 120), 'dialog');
-      } catch (e) {}
-    }
-
-    var s = currentSession();
-    if (!s) s = newSession();
-    s.messages.push({ role: 'user', content: text, ts: Date.now() });
-    s.ts = Date.now();
-    if (!s.title) s.title = sessionTitle(s);
-
-    var input = $('#input');
-    input.value = '';
-    autoGrow();
-    renderThread();
-    renderSessions();
+    if (old !== id) saveConfig();
     updateHeader();
-    await runAssistant();
+    renderModelPick();
+    U.toast('换成 ' + M.label(id));
   }
-  N.sendMessage = sendMessage;
+  XN.selectModel = selectModel;
+
+  /* ---------- 兼容包装 ---------- */
+  function apiChat(messages, opts) {
+    opts = opts || {};
+    if (opts.stream) {
+      return API.streamChat(messages, opts).then(function (r) {
+        return { text: r.text, reasoning: r.reasoning };
+      });
+    }
+    return API.chatRaw(messages, opts).then(function (r) {
+      return { text: r.content, reasoning: r.reasoning };
+    });
+  }
+  function apiChatRaw(messages, opts) {
+    return API.chatRaw(messages, opts).then(function (r) {
+      return { content: r.content, toolCalls: r.toolCalls };
+    });
+  }
+  XN.apiChat = apiChat;
+  XN.apiChatRaw = apiChatRaw;
+
+  /* ---------- 记忆巩固 ---------- */
+  var consolidating = false;
+  function maybeConsolidate() {
+    if (consolidating || !root.XN_MEM || !root.XN_MEM.maybeConsolidate) return;
+    if (!state.key && !API.isProxy()) return;
+    consolidating = true;
+    var task = root.XN_MEM.maybeConsolidate(function (text) {
+      return API.chatText([
+        { role: 'system', content: '把这段对话压成一句不超过 40 字的中文摘要，只保留对以后有用的偏好、目标或事实。只输出摘要。' },
+        { role: 'user', content: String(text).slice(0, 3000) }
+      ], { maxTokens: 100, temperature: 0.2 }).then(function (s) { return String(s || '').trim(); });
+    });
+    if (task && typeof task.then === 'function') {
+      task.catch(function () {}).then(function () { consolidating = false; });
+    } else {
+      consolidating = false;
+    }
+  }
 
   /* ---------- 绑定 ---------- */
   function bind() {
-    $('#btnNew').addEventListener('click', function () {
-      var cur = currentSession();
-      if (cur && !cur.messages.length) {
-        // 已经是空对话：不清屏，但必须给出看得见的反馈，否则像是按钮坏了
-        var box = $('#input');
-        if (box) { box.value = ''; autoGrow(); box.focus(); }
-        toast('已经是新对话了，直接说吧');
-        return;
-      }
-      newSession();
-      toast('新对话');
-    });
+    $('#btnNew').addEventListener('click', function () { newSession(); });
 
-    $$('.side-link').forEach(function (b) {
-      b.addEventListener('click', function () { switchView(b.dataset.view); });
+    /* 侧栏用事件委托：以后动态加视图也不会漏绑 */
+    document.addEventListener('click', function (e) {
+      var link = e.target.closest('.side-link[data-view]');
+      if (link) { switchView(link.dataset.view); return; }
+
+      var ses = e.target.closest('.session');
+      if (ses) {
+        if (e.target.closest('.ses-del')) deleteSession(ses.dataset.id, e);
+        else openSession(ses.dataset.id);
+      }
     });
 
     $('#sideOpen').addEventListener('click', openSide);
@@ -1238,53 +988,68 @@
 
     $('#btnTheme').addEventListener('click', function () {
       var next = resolvedTheme() === 'dark' ? 'light' : 'dark';
-      try { localStorage.setItem(KEYS.theme, next); } catch (e) {}
+      S.set(S.KEYS.theme, next);
       applyConfig();
     });
 
     $('#modelPill').addEventListener('click', function () { switchView('settings'); });
 
-    var pickWrap = $('#modelPickWrap');
-    var pickTrigger = $('#modelPickTrigger');
-    function closePick() {
-      if (!pickWrap) return;
-      pickWrap.classList.remove('is-open');
-      if (pickTrigger) pickTrigger.setAttribute('aria-expanded', 'false');
-    }
-    if (pickTrigger) {
-      pickTrigger.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var open = pickWrap.classList.toggle('is-open');
-        pickTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
-      });
-      $('#modelMenu').addEventListener('click', function (e) {
-        var opt = e.target.closest('.mp-opt');
-        if (!opt) return;
-        selectModel(opt.dataset.id);
-        closePick();
-      });
-      document.addEventListener('click', function (e) {
-        if (pickWrap && !pickWrap.contains(e.target)) closePick();
-      });
-      document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') closePick();
-      });
-    }
-    var webBtn = $('#btnWeb');
-    if (webBtn) {
-      var paintWeb = function () { webBtn.setAttribute('aria-pressed', state.web ? 'true' : 'false'); };
-      paintWeb();
-      webBtn.addEventListener('click', function () {
-        state.web = !state.web;
-        paintWeb();
-        toast(state.web ? '联网已开：每次发消息前先查一遍' : '联网已关');
-      });
-    }
+    var wrap = $('#modelPickWrap');
+    var trigger = $('#modelPickTrigger');
+    var menu = $('#modelMenu');
 
-    // 隐藏的原生 select 仍然可能被外部改（无障碍/脚本），保持同步
+    function closePick() {
+      if (!wrap) return;
+      wrap.classList.remove('is-open');
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+    function openPick() {
+      wrap.classList.add('is-open');
+      trigger.setAttribute('aria-expanded', 'true');
+      var opts = $$('.mp-opt:not(.disabled)', menu);
+      if (opts.length) opts[0].focus();
+    }
+    trigger.addEventListener('click', function (e) {
+      e.stopPropagation();
+      wrap.classList.contains('is-open') ? closePick() : openPick();
+    });
+    menu.addEventListener('click', function (e) {
+      var opt = e.target.closest('.mp-opt');
+      if (!opt || opt.classList.contains('disabled')) return;
+      selectModel(opt.dataset.id);
+      closePick();
+      trigger.focus();
+    });
+    menu.addEventListener('keydown', function (e) {
+      var opts = $$('.mp-opt:not(.disabled)', menu);
+      var idx = opts.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); opts[Math.min(opts.length - 1, idx + 1)].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); opts[Math.max(0, idx - 1)].focus(); }
+      else if (e.key === 'Enter' || e.key === ' ') {
+        if (idx >= 0) { e.preventDefault(); selectModel(opts[idx].dataset.id); closePick(); trigger.focus(); }
+      } else if (e.key === 'Escape') { closePick(); trigger.focus(); }
+    });
+    document.addEventListener('click', function (e) {
+      if (wrap && !wrap.contains(e.target)) closePick();
+    });
+
     $('#modelPick').addEventListener('change', function () {
       if (this.value) selectModel(this.value);
     });
+
+    var webBtn = $('#btnWeb');
+    if (webBtn) {
+      var paint = function () {
+        webBtn.setAttribute('aria-pressed', state.web ? 'true' : 'false');
+        webBtn.classList.toggle('on', state.web);
+      };
+      paint();
+      webBtn.addEventListener('click', function () {
+        state.web = !state.web;
+        paint();
+        U.toast(state.web ? t('chat.webOn') : t('chat.webOff'));
+      });
+    }
 
     var input = $('#input');
     input.addEventListener('input', autoGrow);
@@ -1311,86 +1076,136 @@
       if (e.key === 'Escape') {
         if (state.sending && state.abort) state.abort.abort();
         closeSide();
+        closePick();
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'k') {
         e.preventDefault();
         newSession();
+      }
+    });
+
+    /* 页面隐藏前落盘，并把缓冲送去巩固 */
+    function flush() {
+      saveSessions();
+      maybeConsolidate();
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') flush();
+    });
+    root.addEventListener('pagehide', flush);
+
+    /* 存储出问题要让用户知道，而不是静默丢数据 */
+    XN.on('storage:issue', function (issue) {
+      if (issue.kind === 'quota' || issue.kind === 'quota-fatal') {
+        U.toast('本机存储满了：先导出备份，再删掉旧对话。', 'error', 5000);
       }
     });
   }
 
   /* ---------- 启动 ---------- */
   async function detectProxy() {
-    try {
-      if (storedKey()) return;
-      if (state.cfg.tutor.baseUrl !== defaultConfig().tutor.baseUrl) return;
-      var host = location.hostname;
-      if (host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '') return;
-      var res = await fetch('api/config', { cache: 'no-store' });
-      if (!res.ok) return;
-      var cfg = await res.json();
-      if (cfg && cfg.repo) state.cloudRepo = cfg.repo;
-      if (cfg && cfg.proxy) {
+    if (!root.location || !/^https?:$/.test(location.protocol)) return;
+    var cfg = await API.fetchConfig();
+    if (!cfg) return;
+
+    if (cfg.repo) state.cloudRepo = cfg.repo;
+    if (cfg.gateway && cfg.gateway.base) {
+      M.setRuntime({ gatewayBase: cfg.gateway.base, gatewayModel: cfg.gateway.model || '' });
+    }
+    M.setRuntime({ cloudEnabled: cfg.backend === 'workers-ai' });
+    if (cfg.models && cfg.models.length) M.setCloudModels(cfg.models);
+
+    if (cfg.proxy) {
+      state.autoProxy = true;
+      if (!storedKey() && state.cfg.tutor.baseUrl === defaultConfig().tutor.baseUrl) {
         state.cfg.tutor.baseUrl = '/api';
-        if (!state.cfg.tutor.provider || !state.cfg.tutor.provider.id) {
+        if (cfg.backend === 'workers-ai') {
           state.cfg.tutor.provider = { id: 'cloud', base: '' };
+          if (cfg.model) state.cfg.tutor.model = cfg.model;
+        } else {
+          /* 本地/自建后端：走 /api 代理，但模型仍是你自己的服务商 */
+          state.cfg.tutor.provider = { id: 'custom', base: '/api' };
+          state.cfg.tutor.ownProvider = { id: 'custom', base: '/api' };
+          if (cfg.model) state.cfg.tutor.model = cfg.model;
         }
-        if (cfg.model) state.cfg.tutor.model = cfg.model;
-        writeJSON(KEYS.cfg, state.cfg);
-        state.autoProxy = true;
+        saveConfig();
       }
-    } catch (e) { /* 没有后端就当没这回事 */ }
+    }
   }
 
-  async function boot() {
-    var saved = readJSON(KEYS.cfg, null);
+  function loadState() {
+    S.migrate();
+
+    var saved = S.get(S.KEYS.cfg, null);
     state.cfg = saved ? mergeConfig(defaultConfig(), saved) : defaultConfig();
     state.cfg.nav = (state.cfg.nav || []).filter(function (n) { return n.id !== 'chat'; });
     if (!state.cfg.nav.length) state.cfg.nav = defaultConfig().nav;
     state.cfg.labels = mergeConfig(defaultConfig().labels, state.cfg.labels || {});
 
     state.key = storedKey();
-    state.notes = readJSON(KEYS.notes, []);
-    state.feedback = readJSON(KEYS.fb, []);
-    state.goals = readJSON(KEYS.goals, { date: todayStr(), items: [] });
-    state.timer = readJSON(KEYS.timer, { min: 25, left: 25 * 60, running: false, endsAt: 0, done: 0, date: todayStr() });
+    state.gatewayKey = S.sessionGet('xn.v2.gatewayKey', '');
+    state.notes = S.get(S.KEYS.notes, []);
+    if (!Array.isArray(state.notes)) state.notes = [];
+    state.feedback = S.get(S.KEYS.feedback, []);
+    if (!Array.isArray(state.feedback)) state.feedback = [];
 
-    var sessions = readJSON(KEYS.sessions, null);
+    state.goals = S.get(S.KEYS.goals, { date: U.todayStr(), items: [] });
+    if (!state.goals || !Array.isArray(state.goals.items)) state.goals = { date: U.todayStr(), items: [] };
+    if (state.goals.date !== U.todayStr()) {
+      state.goals.date = U.todayStr();
+      state.goals.items.forEach(function (g) { g.done = false; });
+      S.set(S.KEYS.goals, state.goals);
+    }
+
+    state.timer = S.get(S.KEYS.timer, { min: 25, left: 25 * 60, running: false, endsAt: 0, done: 0, date: U.todayStr() });
+    if (!state.timer || typeof state.timer !== 'object') state.timer = { min: 25, left: 1500, running: false, endsAt: 0, done: 0, date: U.todayStr() };
+    if (state.timer.date !== U.todayStr()) {
+      state.timer.date = U.todayStr();
+      state.timer.done = 0;
+      state.timer.running = false;
+      state.timer.endsAt = 0;
+      S.set(S.KEYS.timer, state.timer);
+    }
+
+    var sessions = S.get(S.KEYS.sessions, null);
     if (!sessions) {
-      var legacy = readJSON(KEYS.legacyChat, []);
-      sessions = legacy && legacy.length
-        ? [{ id: uid(), ts: Date.now(), title: '', messages: legacy }]
+      var legacy = S.get('xn.chat.v1', []);
+      sessions = Array.isArray(legacy) && legacy.length
+        ? [{ id: U.uid('s'), ts: Date.now(), title: '', messages: legacy }]
         : [];
     }
-    state.sessions = sessions || [];
-    state.currentId = readJSON(KEYS.current, '') || '';
+    state.sessions = Array.isArray(sessions) ? sessions : [];
+    state.currentId = S.get(S.KEYS.current, '') || '';
+    state.admin = !!adminToken();
 
-    if (state.goals.date !== todayStr()) {
-      state.goals.date = todayStr();
-      state.goals.items.forEach(function (g) { g.done = false; });
-      writeJSON(KEYS.goals, state.goals);
-    }
-    if (state.timer.date !== todayStr()) {
-      state.timer.date = todayStr();
-      state.timer.done = 0;
-      writeJSON(KEYS.timer, state.timer);
-    }
+    /* 配额剪枝：先砍旧会话和旧反馈，配置与 Key 永远不动 */
+    S.onPrune(function () {
+      state.sessions = state.sessions.slice(0, 6);
+      state.feedback = state.feedback.slice(0, 50);
+      saveSessions();
+      S.set(S.KEYS.feedback, state.feedback);
+    });
+  }
 
-    try { state.admin = sessionStorage.getItem(KEYS.admin) === '1'; } catch (e) {}
-
+  async function boot() {
+    loadState();
     await detectProxy();
+    XN.i18n.apply();
     applyConfig();
     bind();
     renderModelPick();
 
-    if (N.views) {
-      Object.keys(N.views).forEach(function (k) {
-        if (N.views[k] && N.views[k].init) N.views[k].init();
+    if (XN.views) {
+      Object.keys(XN.views).forEach(function (k) {
+        var v = XN.views[k];
+        if (v && v.init) {
+          try { v.init(); } catch (e) { console.error('[xn] init', k, e); }
+        }
       });
     }
 
     if (!state.sessions.length) {
-      state.sessions.push({ id: uid(), ts: Date.now(), messages: [] });
+      state.sessions.push({ id: U.uid('s'), ts: Date.now(), messages: [] });
       state.currentId = state.sessions[0].id;
     } else if (!currentSession()) {
       state.currentId = state.sessions[0].id;
@@ -1398,17 +1213,39 @@
 
     renderSessions();
     renderThread();
-    var navIter = $('#navIterate');
-    if (navIter) navIter.hidden = !state.admin;
-    var verChip = $('#verChip');
-    if (verChip) verChip.textContent = 'v' + (window.XN_VERSION || '1.0.0');
-    updateConn(state.key || isProxy() ? 'ok' : 'idle');
+    renderSideLinks();
+    updateConn(state.key || API.isProxy() ? 'ok' : 'idle');
 
-    var want = 'chat';
-    try { want = sessionStorage.getItem(KEYS.view) || 'chat'; } catch (e) {}
-    switchView(want === 'iterate' && !state.admin ? 'settings' : want);
+    var want = S.sessionGet(S.KEYS.view, 'chat');
+    if (want === 'iterate' && !state.admin) want = 'settings';
+    switchView(VIEW_IDS.indexOf(want) >= 0 ? want : 'chat');
+    XN.ready = true;
+    if (XN.emit) XN.emit('ready');
   }
 
-  N.boot = boot;
-  document.addEventListener('DOMContentLoaded', boot);
-})(window.XN = window.XN || {});
+  XN.boot = boot;
+  XN.defaultConfig = defaultConfig;
+  XN.mergeConfig = mergeConfig;
+  XN.viewMeta = VIEW_META;
+  XN.resolvedTheme = resolvedTheme;
+  XN.maybeConsolidate = maybeConsolidate;
+
+  /* 旧代码兼容 */
+  XN.md = MD.render;
+  XN.esc = U.esc;
+  XN.$ = $;
+  XN.$$ = $$;
+  XN.toast = U.toast;
+  XN.uid = U.uid;
+  XN.todayStr = U.todayStr;
+  XN.fmtDate = U.fmtDate;
+  XN.fmtTime = U.fmtTime;
+  XN.bytes = U.bytes;
+  XN.download = U.download;
+  XN.readJSON = S.get;
+  XN.writeJSON = S.set;
+
+  /* defer 脚本按顺序执行；等本轮脚本都注册完再 boot，避免漏掉后面的视图模块 */
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+  else setTimeout(boot, 0);
+})(window);

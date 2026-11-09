@@ -24,11 +24,11 @@
 window.XN_TOOLS = (function () {
   'use strict';
 
-  /* 搜索结果最多回填几条，网页正文最多回填多少字 */
+  /* 搜索结果最多回填几条，网页正文最多回填多少字。
+     3500 字对长文问答太短，关键段落经常刚好在截断线后面；提到 12000。 */
   var SEARCH_LIMIT = 5;
-  var FETCH_LIMIT = 3500;
-  /* 正文更长的截断提示 */
-  var CUT_MARK = '\n…（正文过长，已截断）';
+  var FETCH_LIMIT = 12000;
+  var CUT_MARK = '\n…（正文过长，已截断；可以用 offset 参数继续读）';
 
   /* 不支持 tools 时用于猜测「这句话要不要联网」的关键词表 */
   var AUTO_KEYWORDS = [
@@ -67,13 +67,17 @@ window.XN_TOOLS = (function () {
       type: 'function',
       function: {
         name: 'fetch_page',
-        description: '抓取一个网页的正文纯文本。用于用户给出链接、或搜索结果摘要不够需要看全文时。',
+        description: '抓取一个网页的正文纯文本。用于用户给出链接、或搜索结果摘要不够需要看全文时。长文可先用 offset 读中段。',
         parameters: {
           type: 'object',
           properties: {
             url: {
               type: 'string',
               description: '完整网址，必须带 http:// 或 https://'
+            },
+            offset: {
+              type: 'number',
+              description: '从第几个字符开始读，默认 0；一次最多返回 12000 字'
             }
           },
           required: ['url']
@@ -152,7 +156,8 @@ window.XN_TOOLS = (function () {
       lines.push('   ' + (it.url || ''));
       lines.push('   ' + (it.snippet || '(无摘要)'));
     }
-    var head = '搜索「' + q + '」获得 ' + total + ' 条，给出前 ' + n + ' 条：';
+    var source = data.source === 'wikipedia' ? '维基百科' : (data.source === 'duckduckgo' ? 'DuckDuckGo' : '网页');
+    var head = '搜索「' + q + '」（来源：' + source + '）获得 ' + total + ' 条，给出前 ' + n + ' 条：';
     return { ok: true, text: head + '\n' + lines.join('\n') };
   }
 
@@ -164,13 +169,15 @@ window.XN_TOOLS = (function () {
     }
 
     var data = await getJSON('api/fetch?url=' + encodeURIComponent(u));
-    var body = String(data.text || '');
-    if (body.length > FETCH_LIMIT) {
-      body = body.slice(0, FETCH_LIMIT) + CUT_MARK;
+    var full = String(data.text || '');
+    var offset = Math.max(0, Number(args.offset) || 0);
+    var body = full.slice(offset, offset + FETCH_LIMIT);
+    if (offset + FETCH_LIMIT < full.length) {
+      body += CUT_MARK + '（总长 ' + full.length + ' 字，下次 offset=' + (offset + FETCH_LIMIT) + '）';
     }
     var text = '标题：' + (data.title || '(无标题)') + '\n'
       + '网址：' + (data.url || u) + '\n'
-      + '正文：\n' + (body || '(正文为空)');
+      + '正文' + (offset ? '（从 ' + offset + ' 字开始）' : '') + '：\n' + (body || '(正文为空)');
     return { ok: true, text: text };
   }
 
@@ -203,10 +210,11 @@ window.XN_TOOLS = (function () {
    * loopWithFallback 需要先探一次 chat 才能判断服务商是否支持 tools，
    * 探到的结果直接喂进来复用，避免同一轮重复请求。
    */
-  async function loopCore(opts, firstRes) {
+  async function loopCore(opts, firstRes, firstSpecs) {
     opts = opts || {};
     var messages = opts.messages || [];
     var chat = opts.chat;
+    var toolSpecs = opts.specs || specs;
     var maxRounds = typeof opts.maxRounds === 'number' && opts.maxRounds > 0 ? opts.maxRounds : 3;
     var onTool = typeof opts.onTool === 'function' ? opts.onTool : null;
     var onText = typeof opts.onText === 'function' ? opts.onText : null;
@@ -220,8 +228,17 @@ window.XN_TOOLS = (function () {
     }
 
     var pending = firstRes || null;
+    var started = Date.now();
 
     while (rounds < maxRounds) {
+      if (opts.signal && opts.signal.aborted) {
+        var stopErr = new Error('aborted');
+        stopErr.name = 'AbortError';
+        throw stopErr;
+      }
+      /* 工具循环也要有总时长上限，避免模型无限调工具把页面拖死 */
+      if (Date.now() - started > (opts.deadlineMs || 180000)) break;
+
       rounds++;
 
       var res;
@@ -230,7 +247,7 @@ window.XN_TOOLS = (function () {
         pending = null;
       } else {
         /* 这里不 catch：让调用方（loopWithFallback）能感知服务商不支持 tools */
-        res = await chat(messages, specs);
+        res = await chat(messages, toolSpecs);
       }
 
       content = (res && res.content) ? String(res.content) : '';
@@ -268,12 +285,14 @@ window.XN_TOOLS = (function () {
     }
 
     /* 轮数用尽：摘掉工具、强制收尾，逼模型用已有信息说话 */
-    try {
-      var fin = await chat(messages, []);
-      var finText = (fin && fin.content) ? String(fin.content) : '';
-      if (finText) content = finText;
-    } catch (e) {
-      /* 收尾也失败就保留上一轮内容 */
+    if (!(opts.signal && opts.signal.aborted)) {
+      try {
+        var fin = await chat(messages, []);
+        var finText = (fin && fin.content) ? String(fin.content) : '';
+        if (finText) content = finText;
+      } catch (e) {
+        /* 收尾也失败就保留上一轮内容 */
+      }
     }
 
     if (!content) {
@@ -286,6 +305,12 @@ window.XN_TOOLS = (function () {
 
   async function loop(opts) {
     return await loopCore(opts, null);
+  }
+
+  /* 联网开关只影响搜索/抓网页；时间工具永远可用。 */
+  function specsFor(online) {
+    if (online) return specs;
+    return specs.filter(function (s) { return s.function && s.function.name === 'now'; });
   }
 
   /* ---------------- 对外：带降级的两条路 ---------------- */
@@ -317,6 +342,7 @@ window.XN_TOOLS = (function () {
     var messages = opts.messages || [];
     var chat = opts.chat;
     var textChat = opts.textChat;
+    var toolSpecs = opts.specs || specs;
     var onTool = typeof opts.onTool === 'function' ? opts.onTool : null;
     var maxRounds = typeof opts.maxRounds === 'number' && opts.maxRounds > 0 ? opts.maxRounds : 3;
 
@@ -326,8 +352,9 @@ window.XN_TOOLS = (function () {
     /* 先按「支持 tools」探一轮 */
     if (typeof chat === 'function') {
       try {
-        first = await chat(messages, specs);
+        first = await chat(messages, toolSpecs);
       } catch (e) {
+        if (e && e.name === 'AbortError') throw e;
         unsupported = true;
       }
       if (!unsupported) {
@@ -339,10 +366,13 @@ window.XN_TOOLS = (function () {
           return await loopCore({
             messages: messages,
             chat: chat,
+            specs: toolSpecs,
             maxRounds: maxRounds,
             onTool: onTool,
-            onText: opts.onText
-          }, first);
+            onText: opts.onText,
+            signal: opts.signal,
+            deadlineMs: opts.deadlineMs
+          }, first, toolSpecs);
         }
       }
     } else {
@@ -353,7 +383,7 @@ window.XN_TOOLS = (function () {
     var calls = [];
     var query = needSearch(messages);
 
-    if (query) {
+    if (query && toolSpecs.some(function (s) { return s.function && s.function.name === 'web_search'; })) {
       var result = await run('web_search', { query: query });
       calls.push({ name: 'web_search', args: { query: query }, ok: result.ok });
       if (onTool) onTool('web_search', { query: query }, result);
@@ -377,6 +407,7 @@ window.XN_TOOLS = (function () {
 
   return {
     specs: specs,
+    specsFor: specsFor,
     run: run,
     loop: loop,
     loopWithFallback: loopWithFallback

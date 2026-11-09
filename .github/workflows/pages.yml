@@ -23,11 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Assemble site
         run: |
           mkdir -p _site
           cp index.html _site/
           cp -r assets _site/
+          node scripts/stamp.mjs _site
 
       - uses: actions/configure-pages@v5
 

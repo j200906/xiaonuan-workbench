@@ -1,15 +1,15 @@
 name: 打包 Windows 程序
 
-# 每次发版（云端自迭代会创建 release）自动打 exe 并挂到该 release 上。
-# 也可以在 Actions 页面手动触发，补传某个 tag。
+# 自迭代只打 tag，不再提前建空 release。
+# 这里在 tag 上打 exe，成功后才创建/更新 release；打包失败不会留下空壳。
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 要补传的 tag（例如 v1.3.3）
+        description: 要补传的 tag（例如 v1.5.0）
         required: true
 
 permissions:
@@ -20,6 +20,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -38,14 +40,28 @@ jobs:
         shell: pwsh
         run: |
           if (!(Test-Path dist/XiaoNuan.exe)) { throw "没有生成 dist/XiaoNuan.exe" }
-          "体积: {0:N2} MB" -f ((Get-Item dist/XiaoNuan.exe).Length / 1MB)
+          $size = (Get-Item dist/XiaoNuan.exe).Length
+          "体积: {0:N2} MB" -f ($size / 1MB)
+          if ($size -lt 1MB) { throw "产物太小，可能没打进去" }
+          (Get-FileHash dist/XiaoNuan.exe -Algorithm SHA256).Hash.ToLower() + "  XiaoNuan.exe" |
+            Out-File -Encoding ascii dist/XiaoNuan.exe.sha256
+          Get-Content dist/XiaoNuan.exe.sha256
 
-      - name: 上传到 Release
+      - name: 创建或更新 Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          TAG: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
-          if (!$env:TAG) { throw "拿不到 tag" }
-          gh release upload "$env:TAG" dist/XiaoNuan.exe --clobber
-          gh release view "$env:TAG" --json assets --jq '.assets[].name'
+          $tag = if ($env:TAG -like 'v*') { $env:TAG } else { $env:DISPATCH_TAG }
+          if (!$tag) { throw "拿不到 tag" }
+          $notes = "小暖 $tag`n`n由 GitHub Actions 在 Windows 上打包。下载 XiaoNuan.exe 双击即用，数据存在 %APPDATA%\xiaonuan。"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag dist/XiaoNuan.exe dist/XiaoNuan.exe.sha256 --clobber
+          } else {
+            gh release create $tag dist/XiaoNuan.exe dist/XiaoNuan.exe.sha256 `
+              --title "小暖 $tag" --notes $notes --latest
+          }
+          gh release view $tag --json tagName,assets --jq '{tag: .tagName, assets: [.assets[].name]}'

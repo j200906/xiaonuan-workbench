@@ -1,0 +1,21 @@
+{
+  "name": "xiaonuan-workbench",
+  "version": "1.5.0",
+  "private": true,
+  "type": "module",
+  "description": "小暖：可以对话、记笔记、收反馈、自迭代的学习工作台",
+  "scripts": {
+    "test": "node --test tests/unit.test.mjs",
+    "smoke": "node tests/smoke.mjs",
+    "ui": "node tests/ui-check.mjs",
+    "stamp": "node scripts/stamp.mjs",
+    "lint": "eslint .",
+    "check": "node scripts/check.mjs"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

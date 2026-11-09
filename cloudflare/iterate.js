@@ -1,47 +1,49 @@
 /**
- * 云端自迭代
+ * 小暖 · 云端自迭代
  *
- * 跑在 Cloudflare 上，不在浏览器里。给它一个 GitHub 仓库和一次性 token，
- * 它会：读反馈 → 想办法 → 校验 → 改文件 → 提交通。浏览器关掉也不影响它跑完。
+ * 一次运行做这些事：
+ *   读反馈 → 出方案 → 补丁校验 → 一次性提交（Git Data API）→ 打 tag
+ * 发版交给 GitHub Actions（tag 触发），不再先建一个空 release。
  *
- * 安全边界：
- *   - 必须带管理员密码（服务端的 XN_ADMIN_PASSWORD）
- *   - token 由调用方每次传入，不落库、不打日志
- *   - 只允许改白名单文件，find 必须唯一，禁止 eval / 外链脚本
+ * 安全边界由 worker.js 统一做：同源 + 管理员令牌 + 限流 + 体积上限。
+ * 这里只处理业务，不接收明文密码。
  */
 
-const ALLOWED_HOSTS = [
-  'api.deepseek.com', 'api.moonshot.cn', 'api.openai.com',
-  'open.bigmodel.cn', 'api.siliconflow.cn'
+import {
+  safeBase, b64encode, b64decode, bumpVersion
+} from './shared.js';
+import { validatePlan, balance } from './rules.js';
+
+const EDITABLE = [
+  'index.html',
+  'assets/app.css',
+  'assets/theme.css',
+  'assets/app.core.js',
+  'assets/views.study.js',
+  'assets/views.feedback.js',
+  'assets/views.settings.js',
+  'assets/views.changelog.js',
+  'assets/iterate.js',
+  'assets/persona.js',
+  'assets/emotion.js',
+  'assets/memory.js',
+  'assets/tools.js',
+  'assets/lib/util.js',
+  'assets/lib/store.js',
+  'assets/lib/i18n.js',
+  'assets/lib/md.js',
+  'assets/lib/models.js',
+  'assets/lib/api.js',
+  'assets/lib/patch.js'
 ];
 
-function safeBase(raw, fallback, env) {
-  try {
-    const u = new URL(String(raw));
-    if (u.protocol !== 'https:') return fallback;
-    const extra = String((env && env.XN_EXTRA_HOSTS) || '').split(',').map((x) => x.trim()).filter(Boolean);
-    if (ALLOWED_HOSTS.concat(extra).indexOf(u.hostname) < 0) return fallback;
-    return (u.origin + u.pathname).replace(/\/+$/, '');
-  } catch (e) { return fallback; }
-}
-
-const EDITABLE = ['index.html', 'assets/app.css', 'assets/app.core.js', 'assets/app.views.js'];
 const VERSION_FILE = 'assets/version.js';
 const CHANGELOG_FILE = 'assets/changelog.js';
-const MAX_PATCHES = 4;
-
-function b64encode(str) {
-  const bytes = new TextEncoder().encode(str);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-
-function b64decode(b64) {
-  const bin = atob(String(b64).replace(/\s/g, ''));
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
+const ARCHIVE_FILE = 'assets/changelog.archive.js';
+const README_FILE = 'README.md';
+const MAX_PATCHES = 8;
+const TOTAL_BUDGET = 100000;
+const FILE_BUDGET = 18000;
 
 function jsonBody(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -51,96 +53,141 @@ function jsonBody(obj, status = 200) {
 }
 
 async function ghFetch(url, token, init = {}) {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: 'Bearer ' + token,
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'xiaonuan-cloud-iterate',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(init.headers || {})
-    }
-  });
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'xiaonuan-cloud-iterate/1.5',
+    ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(init.headers || {})
+  };
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const res = await fetch(url, { ...init, headers });
   const text = await res.text();
   let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text.slice(0, 200) }; }
-  return { status: res.status, data };
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text.slice(0, 300) }; }
+  return { status: res.status, data, headers: res.headers };
 }
 
-async function readFile(owner, repo, path, token) {
-  const r = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=main`, token);
-  if (r.status !== 200) throw new Error(`读不到 ${path}（HTTP ${r.status}）`);
+async function readFile(owner, repo, path, branch, token, optional) {
+  const r = await ghFetch(
+    `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`,
+    token
+  );
+  if (r.status === 404 && optional) return { content: '', sha: '', missing: true };
+  if (r.status !== 200) {
+    const msg = (r.data && r.data.message) || ('HTTP ' + r.status);
+    throw new Error(`读不到 ${path}（${msg}）`);
+  }
   return { content: b64decode(r.data.content), sha: r.data.sha };
 }
 
-async function writeFile(owner, repo, path, content, sha, message, token) {
-  const r = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, token, {
-    method: 'PUT',
-    body: JSON.stringify({ message, content: b64encode(content), sha, branch: 'main' })
-  });
-  if (r.status !== 200 && r.status !== 201) {
-    throw new Error(`提交 ${path} 失败（HTTP ${r.status}）${JSON.stringify(r.data).slice(0, 160)}`);
-  }
-  return r.data.commit.sha.slice(0, 7);
+function parseArrayFile(text, name) {
+  const s = String(text || '');
+  const a = s.indexOf('[');
+  const b = s.lastIndexOf(']');
+  if (a < 0 || b <= a) throw new Error(name + ' 格式不对，找不到数组');
+  return JSON.parse(s.slice(a, b + 1));
 }
 
-/* ---------- 问模型 ---------- */
+function writeArrayFile(name, list, note) {
+  return '/* ' + note + ' */\nwindow.' + name + ' = ' + JSON.stringify(list, null, 2) + ';\n';
+}
 
-async function ask(env, apiKey, base, model, system, user, maxTokens = 2000) {
+function outline(code) {
+  const lines = String(code || '').split('\n');
+  const hits = [];
+  lines.forEach((line, i) => {
+    const m = line.match(/^\s{0,4}(?:async\s+)?(?:function\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(|class\s+([A-Za-z_$][\w$]*))/);
+    if (m && hits.length < 60) hits.push((i + 1) + ':' + (m[1] || m[2] || m[3]));
+  });
+  return hits.join(', ');
+}
+
+function digest(files) {
+  const entries = Object.keys(files);
+  const per = Math.max(6000, Math.min(FILE_BUDGET, Math.floor(TOTAL_BUDGET / Math.max(1, entries.length))));
+  let used = 0;
+  return entries.map((p) => {
+    const text = String(files[p] || '');
+    const room = Math.max(2000, Math.min(per, TOTAL_BUDGET - used));
+    const body = text.length > room ? text.slice(0, room) + '\n/* …（本文件后面省略；如需改这里，find 要带足够上下文）*/' : text;
+    used += Math.min(text.length, room);
+    return `### ${p}（${text.split('\n').length} 行）\n结构：${outline(text)}\n\`\`\`\n${body}\n\`\`\``;
+  }).join('\n\n');
+}
+
+async function askModel(env, opts, system, user, maxTokens) {
   const messages = [
     { role: 'system', content: system },
     { role: 'user', content: user }
   ];
 
-  const key = apiKey || env.XN_API_KEY;
-  if (key) {
+  if (opts.apiKey) {
     const fallback = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-    const host = safeBase(base, fallback, env);
-    const useModel = model || env.XN_MODEL || 'deepseek-chat';
-    const res = await fetch(host + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-      body: JSON.stringify({ model: useModel, messages, temperature: 0.4, max_tokens: maxTokens })
-    });
-    const j = await res.json();
-    return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+    const base = safeBase(opts.providerBase, fallback, env);
+    const model = opts.model || env.XN_MODEL || 'deepseek-chat';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 120000);
+    try {
+      const res = await fetch(base + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + opts.apiKey },
+        body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 }),
+        signal: ctrl.signal,
+        redirect: 'error'
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + text.slice(0, 180));
+      let data;
+      try { data = JSON.parse(text); } catch (e) { throw new Error('模型返回的不是 JSON'); }
+      return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
-  const out = await env.AI.run(env.XN_ITER_MODEL || '@cf/mistralai/mistral-small-3.1-24b-instruct', { messages, max_tokens: maxTokens });
+  if (!env.AI) throw new Error('服务器没有 AI 绑定，也没有提供模型 Key');
+  const name = env.XN_ITER_MODEL || '@cf/zai-org/glm-4.7-flash';
+  const params = { messages, max_tokens: maxTokens || 3000 };
+  if (name.indexOf('glm') >= 0) params.chat_template_kwargs = { enable_thinking: false };
+  const out = await env.AI.run(name, params);
   if (typeof out === 'string') return out;
-  if (typeof out === 'string') return out;
-  if (out && typeof out.response === 'string' && out.response) return out.response;
-  if (out && out.choices && out.choices[0] && out.choices[0].message) {
-    const m = out.choices[0].message;
-    return m.content || m.reasoning || '';
-  }
+  if (out && typeof out.response === 'string') return out.response;
+  if (out && out.choices && out.choices[0] && out.choices[0].message) return out.choices[0].message.content || '';
   return '';
 }
 
 function pickJson(text) {
   const s = String(text || '');
   const a = s.indexOf('{');
-  const b = s.lastIndexOf('}');
-  if (a < 0 || b <= a) return null;
-  try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
+  if (a < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = a; i < s.length; i++) {
+    const ch = s.charAt(i);
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(s.slice(a, i + 1)); } catch (e) { return null; }
+      }
+    }
+  }
+  return null;
 }
 
-/* ---------- README 与发版 ---------- */
-
-const README_FILE = 'README.md';
-
 function patchReadme(text, entry) {
-  // 仓库里的换行可能是 CRLF，先归一，改完再还原，免整份文件进 diff
   const crlf = /\r\n/.test(String(text));
   let c = String(text).replace(/\r\n/g, '\n');
-
-  // 版本块
   c = c.replace(
     /<!-- XN:VERSION -->[\s\S]*?<!-- \/XN:VERSION -->/,
     `<!-- XN:VERSION -->\n当前版本 **v${entry.version}**\n<!-- /XN:VERSION -->`
   );
-
-  // 最近更新：新条目插到最前，最多留 5 条
   const bullet = `- **v${entry.version}** ${entry.title}`;
   const m = c.match(/<!-- XN:RECENT -->\n([\s\S]*?)<!-- \/XN:RECENT -->/);
   if (m) {
@@ -154,46 +201,46 @@ function patchReadme(text, entry) {
   return crlf ? c.replace(/\n/g, '\r\n') : c;
 }
 
-async function makeRelease(owner, repo, token, entry) {
-  const fixes = (entry.fixes || []).map((x) => '- ' + x).join('\n');
-  const feats = (entry.features || []).map((x) => '- ' + x).join('\n');
-  const body = [
-    `**v${entry.version}** ${entry.title}`,
-    feats ? '\n### 新增\n' + feats : '',
-    fixes ? '\n### 修掉\n' + fixes : '',
-    '\n\n---\n程序由 GitHub Actions 在 Windows 上现打，稍等一两分钟后刷新本页即可下载 `XiaoNuan.exe`。'
-  ].join('\n');
-
-  const r = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/releases`, token, {
-    method: 'POST',
-    body: JSON.stringify({
-      tag_name: 'v' + entry.version,
-      name: `小暖 v${entry.version} · ${entry.title}`,
-      body,
-      target_commitish: 'main',
-      draft: false,
-      prerelease: false
-    })
-  });
-  if (r.status === 201 || r.status === 200) {
-    return { ok: true, url: r.data.html_url, tag: r.data.tag_name };
+function verifyFiles(files, touched) {
+  for (const p of touched) {
+    if (!/\.js$/.test(p)) continue;
+    const bal = balance(files[p]);
+    if (!bal.ok) return { ok: false, detail: p + ' 括号不配平：' + bal.reason };
   }
-  // 422 = 这个 tag 已经有 release 了，不算失败
-  if (r.status === 422) return { ok: true, reused: true, tag: 'v' + entry.version };
-  return { ok: false, status: r.status, error: JSON.stringify(r.data).slice(0, 200) };
+  const html = String(files['index.html'] || '');
+  const refs = [...html.matchAll(/(?:src|href)="(assets\/[^"]+\.(?:js|css))"/g)].map((m) => m[1]);
+  const missing = refs.filter((p) => !files[p] && !/^assets\/(theme|app)\.css$/.test(p));
+  if (missing.length) return { ok: false, detail: 'index.html 引用了不存在的文件：' + missing.slice(0, 3).join('、') };
+  return { ok: true, detail: '括号扫描通过；index.html 引用完整；未跑真机回归' };
 }
 
-/* ---------- 主流程 ---------- */
+async function loadFeedback(env) {
+  if (!env.XN_KV) return [];
+  const listed = await env.XN_KV.list({ prefix: 'fb:', limit: 50 });
+  const rows = await Promise.all(listed.keys.map(async (k) => {
+    const raw = await env.XN_KV.get(k.name);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }));
+  return rows.filter(Boolean).sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+}
+
+function feedbackText(feedback) {
+  return feedback.slice(0, 30).map((f, i) =>
+    `${i + 1}. [${f.type || '其他'}] ${String(f.body || '').slice(0, 200)}`
+  ).join('\n') || '（没有新反馈；请基于代码结构做一次自检）';
+}
 
 export async function runIteration(env, opts) {
-  const { token: clientToken, password, dryRun, apiKey, providerBase, model } = opts;
+  opts = opts || {};
+  if (opts.authorized !== true) return jsonBody({ ok: false, error: '未授权' }, 401);
 
-  // 仓库锁定在服务端，客户端传什么都不认
   const owner = String(env.XN_REPO_OWNER || '').trim();
   const repo = String(env.XN_REPO_NAME || '').trim();
-  const token = clientToken || env.XN_GH_TOKEN || '';
-  if (!env.XN_ADMIN_PASSWORD) return jsonBody({ ok: false, error: '服务器没设管理密码（XN_ADMIN_PASSWORD）' }, 501);
-  if (String(password || '') !== String(env.XN_ADMIN_PASSWORD)) return jsonBody({ ok: false, error: '密码不对' }, 401);
+  const token = String(opts.token || env.XN_GH_TOKEN || '').trim();
+  const dryRun = !!opts.dryRun;
+  const triageOnly = !!opts.triageOnly;
+
   if (!owner || !repo) {
     return jsonBody({ ok: false, error: '服务器没有锁定发布仓库（XN_REPO_OWNER / XN_REPO_NAME）' }, 501);
   }
@@ -202,173 +249,272 @@ export async function runIteration(env, opts) {
   }
 
   const log = [];
+  const started = Date.now();
   const say = (t) => log.push(t);
 
-  say('发布仓库已锁定：' + owner + '/' + repo);
-  if (opts.owner && String(opts.owner) !== owner) {
-    say('客户端传的 owner 被忽略（仓库锁死在服务器）');
-  }
+  say('仓库锁定：' + owner + '/' + repo);
+  say('模式：' + (triageOnly ? '只整理反馈' : dryRun ? '试运行' : '真跑'));
 
   /* 1. 反馈 */
   let feedback = [];
-  if (env.XN_KV) {
-    try {
-      const listed = await env.XN_KV.list({ prefix: 'fb:', limit: 50 });
-      for (const k of listed.keys) {
-        const raw = await env.XN_KV.get(k.name);
-        if (raw) { try { feedback.push(JSON.parse(raw)); } catch (e) {} }
-      }
-      feedback.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
-    } catch (e) { say('读反馈失败：' + e.message); }
+  try {
+    feedback = await loadFeedback(env);
+    say(`云端反馈 ${feedback.length} 条`);
+  } catch (e) {
+    say('读反馈失败：' + e.message);
   }
-  say(`云端反馈 ${feedback.length} 条`);
 
-  /* 2. 版本与文件 */
-  const vFile = await readFile(owner, repo, VERSION_FILE, token);
-  const cur = (vFile.content.match(/XN_VERSION\s*=\s*"([^"]+)"/) || [])[1] || '1.0.0';
-  const parts = cur.split('.').map(Number);
-  const next = `${parts[0]}.${parts[1]}.${(parts[2] || 0) + 1}`;
-  say(`当前版本 ${cur} → 计划 ${next}`);
+  if (triageOnly) {
+    if (!feedback.length) {
+      say('没有反馈，工单为空');
+      return jsonBody({ ok: true, triageOnly: true, tickets: [], log });
+    }
+    const raw = await askModel(
+      env, opts,
+      '你是工单拆解器。把用户反馈拆成可执行工单，合并重复项，不发明用户没说过的问题。只输出 JSON。',
+      `反馈：\n${feedbackText(feedback)}\n\n输出：{"tickets":[{"title":"不超过16字","kind":"bug|feature|content","severity":1-3,"why":"依据","scope":"页面或文件"}]}\n最多 5 条。没有可做的就返回 {"tickets":[]}。`,
+      1200
+    );
+    const data = pickJson(raw);
+    const tickets = Array.isArray(data && data.tickets) ? data.tickets.slice(0, 5) : [];
+    say('拆出 ' + tickets.length + ' 条工单');
+    return jsonBody({ ok: true, triageOnly: true, tickets, log });
+  }
+
+  /* 2. 仓库信息与文件（并行） */
+  const info = await ghFetch(`https://api.github.com/repos/${owner}/${repo}`, token);
+  if (info.status !== 200) {
+    return jsonBody({ ok: false, error: '读仓库失败：' + ((info.data && info.data.message) || info.status), log }, 502);
+  }
+  const branch = info.data.default_branch || 'main';
+  say('默认分支：' + branch);
+
+  const optional = new Set([ARCHIVE_FILE]);
+  const reads = await Promise.all(EDITABLE.concat([README_FILE, CHANGELOG_FILE, ARCHIVE_FILE]).map(async (p) => {
+    try {
+      const f = await readFile(owner, repo, p, branch, token, optional.has(p));
+      return [p, f];
+    } catch (e) {
+      return [p, { error: e.message }];
+    }
+  }));
 
   const files = {};
-  for (const p of EDITABLE) {
-    const f = await readFile(owner, repo, p, token);
-    files[p] = f.content;
+  const missing = [];
+  reads.forEach(([p, f]) => {
+    if (f.error) missing.push(p + '：' + f.error);
+    else files[p] = f.content;
+  });
+  if (missing.length) {
+    return jsonBody({ ok: false, error: '读文件失败：' + missing.slice(0, 3).join('；'), log }, 502);
   }
 
-  /* 3. 让模型出方案 */
-  const digest = Object.keys(files)
-    .map((p) => `### ${p}\n${files[p].split('\n').slice(0, 70).join('\n')}`)
-    .join('\n\n');
+  const recent = parseArrayFile(files[CHANGELOG_FILE], 'changelog.js');
+  const cur = (recent[0] && recent[0].version) ||
+    (String(files[VERSION_FILE] || '').match(/XN_VERSION\s*=\s*["']([^"']+)["']/) || [])[1] ||
+    '1.5.0';
+  say(`当前版本 ${cur}，最近版本 ${(recent[0] && recent[0].version) || '?'}`);
 
-  const fbText = feedback.slice(0, 25)
-    .map((f, i) => `${i + 1}. [${f.type}] ${String(f.body || '').slice(0, 160)}`)
-    .join('\n') || '（没有新反馈）';
+  /* 3. 模型出方案 */
+  const cacheKey = 'iterate:plan:' + owner + '/' + repo;
+  if (dryRun && env.XN_KV && opts.useCache !== false) {
+    try {
+      const cached = await env.XN_KV.get(cacheKey, 'json');
+      if (cached && cached.at && Date.now() - cached.at < 600000) {
+        say('命中 10 分钟内的试运行方案，没有重复调用模型');
+        return jsonBody(Object.assign({}, cached.result, { log, cacheHit: true }), 200);
+      }
+    } catch (e) { /* 缓存坏了继续 */ }
+  }
 
-  if (apiKey) say('用你的 Key 跑：' + (model || '默认模型') + ' @ ' + (providerBase || '默认地址'));
-  const rawText = await ask(
-    env,
-    apiKey,
-    providerBase,
-    model,
-    '你是代码修改计划器。只输出一个 JSON 对象，不要解释、不要 markdown 代码块。改动必须小、可验证。',
-    `仓库：${owner}/${repo}，当前版本 ${cur}。\n\n用户反馈：\n${fbText}\n\n` +
-    `文件内容（节选）：\n${digest}\n\n` +
-    `请挑 1 个最值得做的问题，给出补丁。输出：\n` +
-    `{"version":"${next}","title":"不超过18字","fixes":["改了什么"],"features":[],` +
-    `"patches":[{"file":"白名单文件","find":"原文里逐字存在且只出现一次的片段","replace":"替换成"}]}\n` +
-    `规则：file 只能是 ${EDITABLE.join(' / ')}；find 至少 12 个字符；最多 ${MAX_PATCHES} 处；` +
-    `不许 eval、外链脚本、改 localStorage 键名。`,
-    1600
+  const planPrompt = `仓库：${owner}/${repo}，当前版本 ${cur}。\n\n` +
+    `用户反馈：\n${feedbackText(feedback)}\n\n` +
+    `代码（节选，按文件给结构 + 正文）：\n${digest(files)}\n\n` +
+    `请挑 1 个最值得做的问题，给出可验证的改动。允许大改，但一次最多重写 3 个文件或新建 2 个。\n` +
+    `输出一个 JSON 对象，不要解释、不要 markdown 代码块：\n` +
+    `{"mode":"patch|rewrite","bump":"patch|minor|major","title":"不超过18字","fixes":["改了什么"],"features":[],"verify":"你打算怎么验证","notTried":"你没法验证什么",` +
+    `"patches":[{"file":"白名单文件","find":"原文里逐字存在且只出现一次的片段","replace":"替换成"}],` +
+    `"rewrites":[{"file":"","content":"完整文件"}],"creates":[{"file":"assets/新文件.js","content":"..."}]}\n` +
+    `规则：file 只能是 ${EDITABLE.join(' / ')}；find 至少 8 字；最多 ${MAX_PATCHES} 处；` +
+    `不许 eval / new Function / document.write / 外链脚本 / javascript:；不许改 server、cloudflare、.github、tests；` +
+    `patch 模式不要同时给 rewrites。`;
+
+  say('把 ' + Object.keys(files).length + ' 个文件交给模型…');
+  const rawText = await askModel(
+    env, opts,
+    '你是代码修改计划器。只输出一个 JSON 对象。改动必须小、可验证、能通过括号扫描。',
+    planPrompt,
+    4200
   );
   const plan = pickJson(rawText);
-
-  if (!plan || !Array.isArray(plan.patches) || !plan.patches.length) {
-    return jsonBody({
-      ok: false,
-      error: '模型没给出可用补丁',
-      raw: String(rawText || '').slice(0, 800),
-      log
-    }, 502);
+  if (!plan) {
+    return jsonBody({ ok: false, error: '模型没给出可解析的 JSON', raw: String(rawText || '').slice(0, 600), log }, 502);
   }
+
+  const bump = ['patch', 'minor', 'major'].indexOf(plan.bump) >= 0 ? plan.bump : 'patch';
+  const next = bumpVersion(cur, bump);
+  plan.version = next;
 
   /* 4. 校验并应用 */
-  const applied = [];
+  let applied;
   try {
-  for (const p of plan.patches.slice(0, MAX_PATCHES)) {
-    const file = String(p.file || '');
-    if (!EDITABLE.includes(file)) throw new Error('不允许改 ' + file);
-    const find = String(p.find || '');
-    const replace = String(p.replace || '');
-    if (find.length < 12) throw new Error('find 太短，容易改错地方');
-    const hits = files[file].split(find).length - 1;
-    if (hits !== 1) throw new Error(`${file} 里命中 ${hits} 次（必须正好 1 次）`);
-    if (/(eval\s*\(|document\.write|<script[^>]+src="https?:)/.test(replace)) throw new Error('替换内容含被禁止的写法');
-
-    // 这些是踩过的坑：模型容易把原片段又抄一遍，造成重复定义 / 缺逗号
-    if (replace.indexOf(find) >= 0) throw new Error('替换内容里原样带着被替换的片段，等于重复插入');
-    const defs = (replace.match(/(?:^|[\s,{])([A-Za-z_$][\w$]*)\s*\(\)\s*\{/g) || [])
-      .map((x) => (x.match(/([A-Za-z_$][\w$]*)\s*\(\)/) || [])[1])
-      .filter(Boolean);
-    for (const name of defs) {
-      const re = new RegExp('(^|[\\s,{])' + name + '\\s*\\(\\)\\s*\\{');
-      if (re.test(files[file])) throw new Error(`${file} 里已经有 ${name}()，再插一遍会重复定义`);
-    }
-
-    // 括号平衡：插入后整体必须配平，否则语法一定坏
-    const bal = (t, a, b) => (t.split(a).length - t.split(b).length);
-    const before = files[file];
-    const after = before.replace(find, replace);
-    if (bal(after, '{', '}') !== bal(before, '{', '}') ||
-        bal(after, '(', ')') !== bal(before, '(', ')')) {
-      throw new Error(`${file} 括号不配平，这一版会语法错误`);
-    }
-    files[file] = files[file].replace(find, replace);
-    applied.push(file);
-  }
+    applied = validatePlan(files, plan, EDITABLE, { maxPatches: MAX_PATCHES, maxRewrites: 3, maxCreates: 2 });
   } catch (e) {
-    return jsonBody({ ok: false, error: '这一版没通过校验：' + e.message, log, planTitle: plan.title }, 422);
+    const attempt = {
+      title: String(plan.title || '').slice(0, 40),
+      mode: plan.mode,
+      patches: (plan.patches || []).slice(0, MAX_PATCHES).map((p) => ({
+        file: p.file,
+        find: String(p.find || '').slice(0, 120)
+      })),
+      rewrites: (plan.rewrites || []).map((r) => r.file),
+      reason: e.message
+    };
+    return jsonBody({ ok: false, error: '这一版没通过校验：' + e.message, attempt, log }, 422);
   }
-  say(`补丁 ${applied.length} 处：${[...new Set(applied)].join(', ')}`);
+  say(`方案：${plan.title || '未命名'}（${applied.mode}，动 ${applied.touched.length} 个文件）`);
 
-  /* 5. 版本号与更新日志 */
-  files[VERSION_FILE] = `/* 当前版本。自动迭代发布时会改写这个文件。 */\nwindow.XN_VERSION = "${plan.version || next}";\n`;
-  const clFile = await readFile(owner, repo, CHANGELOG_FILE, token);
   const entry = {
-    version: plan.version || next,
+    version: next,
     date: new Date().toISOString().slice(0, 10),
     title: String(plan.title || '云端自迭代').slice(0, 30),
-    fixes: Array.isArray(plan.fixes) ? plan.fixes.slice(0, 6) : [],
-    features: Array.isArray(plan.features) ? plan.features.slice(0, 6) : [],
+    fixes: Array.isArray(plan.fixes) ? plan.fixes.map((x) => String(x).slice(0, 120)).slice(0, 8) : [],
+    features: Array.isArray(plan.features) ? plan.features.map((x) => String(x).slice(0, 120)).slice(0, 8) : [],
     source: 'cloud',
-    feedbackCount: feedback.length
+    feedbackCount: feedback.length,
+    notes: String(plan.notTried || '').slice(0, 200)
   };
-  files[CHANGELOG_FILE] = clFile.content.replace(
-    'window.XN_CHANGELOG = [',
-    'window.XN_CHANGELOG = [\n' + JSON.stringify(entry, null, 2) + ','
-  );
+  if (!entry.fixes.length && !entry.features.length) entry.fixes.push(entry.title);
 
-  if (dryRun) {
-    return jsonBody({
-      ok: true, dryRun: true,
-      version: plan.version || next, title: entry.title,
-      patches: applied, log,
-      preview: files[EDITABLE[0]] === undefined ? '' : ''
-    });
+  /* 5. 版本、更新日志、README */
+  const out = applied.files;
+  out[VERSION_FILE] = '/* 当前版本。从更新日志首条推导，避免两处不一致。 */\n' +
+    'window.XN_VERSION = (window.XN_CHANGELOG && window.XN_CHANGELOG[0] && window.XN_CHANGELOG[0].version) || ' +
+    JSON.stringify(next) + ';\n';
+
+  const recentList = [entry].concat(recent.filter((x) => x.version !== next));
+  const archiveText = files[ARCHIVE_FILE] || 'window.XN_CHANGELOG_ARCHIVE = [];\n';
+  let archive = [];
+  try { archive = parseArrayFile(archiveText, 'changelog.archive.js'); } catch (e) { archive = []; }
+  const overflow = recentList.slice(12);
+  out[CHANGELOG_FILE] = writeArrayFile('XN_CHANGELOG', recentList.slice(0, 12), '版本记录（最近 12 条）。');
+  if (overflow.length) {
+    out[ARCHIVE_FILE] = writeArrayFile('XN_CHANGELOG_ARCHIVE', overflow.concat(archive).slice(0, 300), '旧版本记录（只读归档）。');
   }
 
-  /* 6. 提交 */
-  const message = `feat: ${entry.title} (v${entry.version})\n\n` +
-    `云端自迭代 · 反馈 ${feedback.length} 条\n` +
-    `改动：${[...new Set(applied)].join(', ')}\n` +
-    `验证：补丁逐处唯一命中；未跑真机回归`;
-  // README：版本号 + 最近更新
-  const readme = await readFile(owner, repo, README_FILE, token);
-  files[README_FILE] = patchReadme(readme.content, entry);
+  out[README_FILE] = patchReadme(files[README_FILE] || '', entry);
+  say('版本：' + cur + ' → ' + next + '（' + bump + '）');
   say('README 已更新（版本块 + 最近更新）');
 
-  const commits = {};
-  for (const file of [...new Set([...applied, VERSION_FILE, CHANGELOG_FILE, README_FILE])]) {
-    const cur2 = await readFile(owner, repo, file, token);
-    commits[file] = await writeFile(owner, repo, file, files[file], cur2.sha, message, token);
-    say(`提交 ${file} → ${commits[file]}`);
+  const check = verifyFiles(out, Object.keys(out));
+  say(check.detail);
+  if (!check.ok) {
+    return jsonBody({
+      ok: false,
+      error: '自检没通过：' + check.detail,
+      attempt: { title: entry.title, patches: (plan.patches || []).map((p) => ({ file: p.file })) },
+      log
+    }, 422);
   }
 
-  // 发版：创建 tag + release，GitHub Actions 会自动打 exe 挂上去
-  const rel = await makeRelease(owner, repo, token, entry);
-  if (rel.ok) say(rel.reused ? `tag v${entry.version} 已有 release，复用` : `已发版：${rel.url}（Actions 正在打 exe）`);
-  else say(`发版失败（HTTP ${rel.status}）：${rel.error}`);
+  const changedFiles = [...new Set(applied.touched.concat([VERSION_FILE, CHANGELOG_FILE, ARCHIVE_FILE, README_FILE]))]
+    .filter((p) => typeof out[p] === 'string');
 
-  return jsonBody({
+  const result = {
     ok: true,
-    version: entry.version,
+    dryRun,
+    version: next,
     title: entry.title,
-    patches: applied,
-    commits,
-    release: rel,
-    url: `https://github.com/${owner}/${repo}/commits/main`,
+    fixes: entry.fixes,
+    features: entry.features,
+    verify: check.detail,
+    notTried: entry.notes,
+    files: changedFiles,
+    patches: applied.touched,
     log
+  };
+
+  if (dryRun) {
+    if (env.XN_KV) {
+      try {
+        await env.XN_KV.put(cacheKey, JSON.stringify({ at: Date.now(), result }), { expirationTtl: 900 });
+      } catch (e) { /* 缓存写不进不影响结果 */ }
+    }
+    say('试运行结束，没有写入仓库。');
+    return jsonBody(result, 200);
+  }
+
+  /* 6. 一次性提交 */
+  const ref = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`, token);
+  if (ref.status !== 200) return jsonBody({ ok: false, error: '读分支失败：' + ((ref.data && ref.data.message) || ref.status), log }, 502);
+  const headSha = ref.data.object.sha;
+  const head = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/commits/${headSha}`, token);
+  if (head.status !== 200) return jsonBody({ ok: false, error: '读提交失败', log }, 502);
+
+  say('上传 ' + changedFiles.length + ' 个 blob…');
+  const blobs = await Promise.all(changedFiles.map(async (p) => {
+    const b = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/blobs`, token, {
+      method: 'POST',
+      body: JSON.stringify({ content: b64encode(out[p]), encoding: 'base64' })
+    });
+    if (b.status !== 201) throw new Error('创建 blob 失败：' + p + '（' + b.status + '）');
+    return { path: p, mode: '100644', type: 'blob', sha: b.data.sha };
+  }));
+
+  const tree = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/trees`, token, {
+    method: 'POST',
+    body: JSON.stringify({ base_tree: head.data.tree.sha, tree: blobs })
   });
+  if (tree.status !== 201) return jsonBody({ ok: false, error: '建 tree 失败：' + ((tree.data && tree.data.message) || tree.status), log }, 502);
+
+  const message = [
+    `feat: ${entry.title} (v${next})`,
+    '',
+    `云端自迭代 · 反馈 ${feedback.length} 条`,
+    `改到：${changedFiles.join('、')}`,
+    `验证：${check.detail}`,
+    `没验证：${entry.notes || '真机、多浏览器、真实服务商'}`
+  ].join('\n');
+
+  const commit = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/commits`, token, {
+    method: 'POST',
+    body: JSON.stringify({ message, tree: tree.data.sha, parents: [headSha] })
+  });
+  if (commit.status !== 201) return jsonBody({ ok: false, error: '建提交失败：' + ((commit.data && commit.data.message) || commit.status), log }, 502);
+
+  const upd = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ sha: commit.data.sha, force: false })
+  });
+  if (upd.status !== 200) {
+    return jsonBody({ ok: false, error: '更新分支失败（可能有并发提交），提交已生成但没进分支：' + commit.data.sha.slice(0, 7), log }, 409);
+  }
+  say('已提交 ' + commit.data.sha.slice(0, 7) + ' 到 ' + branch);
+
+  /* 7. 打 tag：由 release.yml 在 tag 上打 exe 并创建 release */
+  const tag = 'v' + next;
+  let tagState = 'created';
+  const tagRes = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/refs`, token, {
+    method: 'POST',
+    body: JSON.stringify({ ref: 'refs/tags/' + tag, sha: commit.data.sha })
+  });
+  if (tagRes.status === 422) tagState = 'exists';
+  else if (tagRes.status !== 201) {
+    tagState = 'failed';
+    say('打 tag 失败：' + ((tagRes.data && tagRes.data.message) || tagRes.status));
+  } else {
+    say('已打 tag ' + tag + '，Actions 会开始打 exe');
+  }
+
+  say('完成，用时 ' + ((Date.now() - started) / 1000).toFixed(1) + ' 秒');
+  return jsonBody(Object.assign({}, result, {
+    tag: tagState === 'created' ? tag : '',
+    tagState,
+    commit: commit.data.sha.slice(0, 7),
+    branch,
+    url: `https://github.com/${owner}/${repo}/commit/${commit.data.sha}`,
+    releaseUrl: `https://github.com/${owner}/${repo}/releases/tag/${tag}`
+  }), 200);
 }
 
-export { patchReadme };
+export { patchReadme, pickJson, verifyFiles };

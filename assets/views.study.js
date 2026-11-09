@@ -1,0 +1,253 @@
+/* 小暖 · 学习台：目标 / 专注 / 笔记 */
+(function (root) {
+  'use strict';
+
+  var XN = root.XN;
+  var $ = XN.$, $$ = XN.$$, t = XN.t;
+  var state = XN.state, S = XN.store;
+  var PAGE = 20;
+
+  var study = {
+    noteLimit: PAGE,
+
+    init() {
+      $('#goalForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.addGoal();
+      });
+
+      $('#noteNew').addEventListener('click', () => this.openNote(null));
+      $('#noteCancel').addEventListener('click', () => { $('#noteForm').hidden = true; });
+      $('#noteForm').addEventListener('submit', (e) => { e.preventDefault(); this.commitNote(); });
+      $('#noteSearch').addEventListener('input', XN.util.debounce(() => {
+        this.noteLimit = PAGE;
+        this.renderNotes();
+      }, 150));
+      $('#noteMore').addEventListener('click', () => {
+        this.noteLimit += PAGE;
+        this.renderNotes();
+      });
+
+      $$('#timerPreset button').forEach((b) => b.addEventListener('click', () => {
+        if (state.timer.running) { XN.toast('先暂停再换时长'); return; }
+        state.timer.min = Number(b.dataset.min);
+        state.timer.left = state.timer.min * 60;
+        this.saveTimer();
+        this.renderTimer();
+      }));
+
+      $('#timerStart').addEventListener('click', () => this.toggleTimer());
+      $('#timerReset').addEventListener('click', () => {
+        state.timer.running = false;
+        state.timer.endsAt = 0;
+        state.timer.left = state.timer.min * 60;
+        this.saveTimer();
+        this.renderTimer();
+      });
+
+      /* 页面休眠/切后台后 endsAt 仍然有效；回来时立刻校时，避免跳数 */
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') this.tick();
+      });
+      setInterval(() => this.tick(), 500);
+      this.renderTimer();
+    },
+
+    onShow() {
+      this.renderGoals();
+      this.renderNotes();
+      this.renderTimer();
+    },
+
+    saveTimer() { S.set(S.KEYS.timer, state.timer); },
+    saveGoals() { S.set(S.KEYS.goals, state.goals); },
+    saveNotes() { S.set(S.KEYS.notes, state.notes); },
+
+    addGoal() {
+      var input = $('#goalInput');
+      var text = input.value.trim();
+      if (!text) return;
+      if (state.goals.items.some((g) => g.text === text)) { XN.toast('这条已经在了'); return; }
+      if (state.goals.items.length >= 12) { XN.toast('今天的目标已经够多了，先做完一条'); return; }
+      state.goals.date = XN.util.todayStr();
+      state.goals.items.push({ id: XN.uid('g'), text: text.slice(0, 80), done: false, ts: Date.now() });
+      input.value = '';
+      this.saveGoals();
+      this.renderGoals();
+    },
+
+    renderGoals() {
+      var list = $('#goalList');
+      if (!list) return;
+      var items = state.goals.items;
+      if (!items.length) {
+        list.innerHTML = '<p class="goal-empty">今天还没写目标。一条就够，写「必须做完」的那条。</p>';
+      } else {
+        list.innerHTML = items.map((g) => (
+          '<label class="goal' + (g.done ? ' done' : '') + '" data-id="' + XN.esc(g.id) + '">' +
+          '<input type="checkbox"' + (g.done ? ' checked' : '') + '>' +
+          '<span>' + XN.esc(g.text) + '</span>' +
+          '<button type="button" class="del" title="删掉" aria-label="删掉目标">×</button>' +
+          '</label>'
+        )).join('');
+      }
+      $('#goalMeta').textContent = items.filter((g) => g.done).length + ' / ' + items.length;
+
+      $$('.goal', list).forEach((row) => {
+        var id = row.dataset.id;
+        var box = row.querySelector('input');
+        box.addEventListener('change', () => {
+          var item = state.goals.items.filter((g) => g.id === id)[0];
+          if (!item) return;
+          item.done = box.checked;
+          this.saveGoals();
+          this.renderGoals();
+        });
+        row.querySelector('.del').addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          state.goals.items = state.goals.items.filter((g) => g.id !== id);
+          this.saveGoals();
+          this.renderGoals();
+        });
+      });
+    },
+
+    openNote(note) {
+      var form = $('#noteForm');
+      form.hidden = false;
+      form.dataset.id = note ? note.id : '';
+      $('#noteTitle').value = note ? note.title : '';
+      $('#noteBody').value = note ? note.body : '';
+      $('#noteTag').value = note ? note.tag || '' : '';
+      $('#noteTitle').focus();
+    },
+
+    commitNote() {
+      var form = $('#noteForm');
+      var title = $('#noteTitle').value.trim();
+      var body = $('#noteBody').value.trim();
+      var tag = $('#noteTag').value.trim();
+      if (!title && !body) { XN.toast('标题或正文至少写一个'); return; }
+      var id = form.dataset.id;
+      if (id) {
+        var note = state.notes.filter((n) => n.id === id)[0];
+        if (note) {
+          note.title = (title || '无标题').slice(0, 60);
+          note.body = body.slice(0, 20000);
+          note.tag = tag.slice(0, 16);
+          note.updated = Date.now();
+        }
+        XN.toast('改好了');
+      } else {
+        state.notes.unshift({
+          id: XN.uid('n'), title: (title || '无标题').slice(0, 60),
+          body: body.slice(0, 20000), tag: tag.slice(0, 16),
+          ts: Date.now(), updated: Date.now()
+        });
+        XN.toast('存下了');
+      }
+      this.saveNotes();
+      form.hidden = true;
+      this.noteLimit = Math.max(this.noteLimit, PAGE);
+      this.renderNotes();
+    },
+
+    filtered() {
+      var q = ($('#noteSearch').value || '').trim().toLowerCase();
+      if (!q) return state.notes;
+      return state.notes.filter((n) => {
+        return (n.title + ' ' + n.body + ' ' + (n.tag || '')).toLowerCase().indexOf(q) >= 0;
+      });
+    },
+
+    renderNotes() {
+      var list = $('#noteList');
+      if (!list) return;
+      var all = this.filtered();
+      var items = all.slice(0, this.noteLimit);
+
+      if (!all.length) {
+        list.innerHTML = '<p class="note-empty">' + (($('#noteSearch').value || '').trim()
+          ? '没搜到。' : '还没有笔记。把今天错的题、想通的点，用自己的话写一条。') + '</p>';
+        $('#noteMoreWrap').hidden = true;
+        return;
+      }
+
+      list.innerHTML = items.map((n) => (
+        '<article class="note" data-id="' + XN.esc(n.id) + '" tabindex="0" role="button">' +
+        '<h3>' + XN.esc(n.title) + '</h3>' +
+        '<p>' + XN.esc(String(n.body || '（空）').slice(0, 180)) + '</p>' +
+        '<div class="meta"><span>' + XN.fmtDate(n.updated || n.ts) + '</span>' +
+        (n.tag ? '<span class="tag">' + XN.esc(n.tag) + '</span>' : '') +
+        '</div></article>'
+      )).join('');
+
+      $('#noteMoreWrap').hidden = all.length <= this.noteLimit;
+      $('#noteMore').textContent = t('study.more') + '（还剩 ' + Math.max(0, all.length - this.noteLimit) + '）';
+
+      $$('.note', list).forEach((el) => {
+        var open = () => {
+          var note = state.notes.filter((n) => n.id === el.dataset.id)[0];
+          if (note) this.openNote(note);
+        };
+        el.addEventListener('click', open);
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        });
+      });
+    },
+
+    toggleTimer() {
+      var tm = state.timer;
+      if (tm.running) {
+        tm.running = false;
+        tm.left = Math.max(0, Math.round((tm.endsAt - Date.now()) / 1000));
+        tm.endsAt = 0;
+        this.saveTimer();
+        this.renderTimer();
+        return;
+      }
+      if (tm.left <= 0 || tm.left > tm.min * 60) tm.left = tm.min * 60;
+      tm.running = true;
+      tm.endsAt = Date.now() + tm.left * 1000;
+      this.saveTimer();
+      this.renderTimer();
+    },
+
+    tick() {
+      if (!state.timer.running) return;
+      var left = Math.round((state.timer.endsAt - Date.now()) / 1000);
+      if (left <= 0) {
+        state.timer.running = false;
+        state.timer.left = 0;
+        state.timer.endsAt = 0;
+        state.timer.done = (state.timer.done || 0) + 1;
+        this.saveTimer();
+        this.renderTimer();
+        XN.toast('一轮走完了。起来动两分钟。');
+        return;
+      }
+      state.timer.left = left;
+      this.renderTimer();
+      if (left % 30 === 0) this.saveTimer();
+    },
+
+    renderTimer() {
+      var num = $('#timerNum'), phase = $('#timerPhase'), btn = $('#timerStart');
+      if (!num) return;
+      var tm = state.timer;
+      num.textContent = String(Math.floor(tm.left / 60)).padStart(2, '0') + ':' + String(tm.left % 60).padStart(2, '0');
+      num.className = 'timer-num' + (tm.running ? ' running' : (tm.left === 0 ? ' done' : ''));
+      if (tm.running) phase.textContent = t('study.focusing');
+      else if (tm.left === 0) phase.textContent = t('study.done');
+      else if (tm.left < tm.min * 60) phase.textContent = t('study.paused');
+      else phase.textContent = t('study.notStarted');
+      btn.textContent = tm.running ? t('study.pause') : (tm.left === 0 ? t('study.again') : t('study.start'));
+      $$('#timerPreset button').forEach((b) => b.classList.toggle('on', Number(b.dataset.min) === tm.min));
+    }
+  };
+
+  XN.views = XN.views || {};
+  XN.views.study = study;
+})(window);

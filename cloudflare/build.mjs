@@ -1,5 +1,6 @@
 /* 把根目录的页面拷进 cloudflare/public，供 Worker 的 ASSETS 用 */
 import { cp, mkdir, rm, copyFile, readdir, stat } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,5 +23,7 @@ async function walk(dir, prefix = '') {
   }
 }
 await walk(out);
+const stamp = spawnSync(process.execPath, [join(root, 'scripts', 'stamp.mjs'), out], { stdio: 'inherit' });
+if (stamp.status !== 0) process.exit(1);
 console.log('public →', files.length, '个文件');
 for (const f of files) console.log('  ' + f);

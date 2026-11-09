@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "checkJs": false,
+    "allowJs": true,
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": false,
+    "baseUrl": ".",
+    "paths": {
+      "@xn/*": ["assets/lib/*"]
+    }
+  },
+  "include": ["assets/**/*.js", "cloudflare/**/*.js", "types/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "build", "data", ".pages"]
+}

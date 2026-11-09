@@ -1,0 +1,331 @@
+/* 小暖 · 文案层
+ * 中文是默认语言；新增文案一律走 t()，不要再把中文字符串散落在逻辑里。
+ * 静态节点用 data-i18n / data-i18n-placeholder / data-i18n-title 标注。 */
+(function (root) {
+  'use strict';
+
+  var XN = root.XN = root.XN || {};
+  var LOCALE_KEY = 'xn.' + 'v2.' + 'locale';
+  var current = 'zh-CN';
+
+  var DICT = {
+    'zh-CN': {
+      'app.name': '小暖',
+      'app.tagline': '一个可以对话、记笔记、收反馈的学习台。',
+      'nav.chat': '新对话',
+      'nav.study': '学习台',
+      'nav.feedback': '反馈箱',
+      'nav.changelog': '更新日志',
+      'nav.iterate': '迭代',
+      'nav.settings': '设置',
+      'nav.newChat': '新对话',
+      'nav.recent': '最近',
+      'nav.empty': '还没有对话。上面那行就能开一个。',
+      'nav.connected': '已连接',
+      'nav.disconnected': '未连接',
+      'nav.noKey': '未配置 Key',
+      'nav.busy': '生成中…',
+      'nav.connError': '连接有问题',
+      'chat.placeholder': '说点什么…',
+      'chat.send': '发送',
+      'chat.stop': '停止',
+      'chat.web': '联网',
+      'chat.webOn': '联网已开：需要时会先查资料',
+      'chat.webOff': '联网已关',
+      'chat.thinking': '正在想…',
+      'chat.emptyTitle': '今天想动哪一块？',
+      'chat.emptyBody': '小暖不替你写完作业，但会陪你把卡住的拆开。',
+      'chat.disclaimer': '小暖会犯错。重要的结论，自己再核一遍。',
+      'chat.copy': '复制',
+      'chat.retry': '重新生成',
+      'chat.copied': '复制好了',
+      'chat.copyFailed': '复制失败',
+      'chat.stopped': '（已停止）',
+      'chat.emptyReply': '模型返回了空内容。可能被安全策略拦了，或者模型名不对。',
+      'chat.incomplete': '（这条没写完：连接中断了）',
+      'chat.newSession': '新对话',
+      'chat.alreadyNew': '已经是新对话了，直接说吧',
+      'chat.deleted': '删掉了',
+      'chat.deleteAsk': '删掉这个对话？删了就找不回来。',
+      'chat.hint': 'Enter 发送 · Shift+Enter 换行',
+      'chat.selectModel': '选模型',
+      'chat.ownApi': '自己的 API',
+      'chat.cloud': '云端自带（唯一，不用 Key）',
+      'chat.noProvider': '还没配服务商，去设置里填一次 Key',
+      'study.goalTitle': '今日目标',
+      'study.goalPlaceholder': '今天必须做完的一件事…',
+      'study.add': '加上',
+      'study.goalNote': '跨天自动清掉完成状态。',
+      'study.focus': '专注',
+      'study.notStarted': '未开始',
+      'study.focusing': '专注中',
+      'study.done': '完成',
+      'study.paused': '已暂停',
+      'study.start': '开始',
+      'study.pause': '暂停',
+      'study.again': '再来一轮',
+      'study.reset': '归零',
+      'study.timerNote': '走神就归零，不用跟自己较劲。',
+      'study.notes': '笔记',
+      'study.noteSearch': '搜标题或正文…',
+      'study.noteNew': '写一条',
+      'study.noteTitle': '标题',
+      'study.noteBody': '要点、错因、用自己的话复述一遍…',
+      'study.noteTag': '标签（可选）',
+      'study.cancel': '取消',
+      'study.save': '存下',
+      'study.more': '再看 20 条',
+      'study.noMore': '没有更多了',
+      'fb.title': '投一条',
+      'fb.localOnly': '只存在你这里',
+      'fb.placeholder': '哪里别扭、哪里断了、你想它变成什么样…写得越具体越有用。',
+      'fb.contact': '联系方式（可选，方便回你）',
+      'fb.submit': '投进反馈箱',
+      'fb.collected': '已收录',
+      'fb.pull': '拉取云端',
+      'fb.export': '导出',
+      'fb.clear': '清空',
+      'fb.empty': '还没有反馈。第一条可以写「我打开后第一件事想干什么」。',
+      'fb.sinkLocal': '只存在这台设备的浏览器里。部署到云端后会自动投到服务器。',
+      'fb.sent': '投到了服务器，本地也留了一份',
+      'fb.savedLocal': '收进去了（只在本机）',
+      'fb.cleared': '清空了',
+      'fb.clearAsk': '清空这台设备上的全部反馈？导出过再删比较稳。',
+      'settings.title': '设置',
+      'settings.cloudIterate': '云端自迭代',
+      'settings.appearance': '外观与布局',
+      'settings.nav': '导航',
+      'settings.theme': '外观',
+      'settings.persona': '小暖的设定',
+      'settings.config': '配置',
+      'settings.model': '模型',
+      'settings.admin': '管理模式',
+      'settings.data': '本机数据',
+      'settings.about': '关于',
+      'settings.saveTest': '保存并测试',
+      'settings.testOnly': '只测试',
+      'settings.exportConfig': '导出 config.json',
+      'settings.import': '导入',
+      'settings.reset': '恢复默认',
+      'settings.unlock': '解锁',
+      'settings.lock': '锁定',
+      'settings.language': '语言',
+      'settings.accent': '主色',
+      'settings.radius': '圆角',
+      'settings.fontSize': '字号',
+      'settings.themeMode': '明暗',
+      'settings.density': '密度',
+      'settings.exportAll': '导出全部',
+      'settings.clearData': '清空对话与笔记',
+      'settings.storage': '本机占用',
+      'common.save': '保存',
+      'common.cancel': '取消',
+      'common.confirm': '确定',
+      'common.yes': '是',
+      'common.no': '否',
+      'common.loading': '加载中…',
+      'common.failed': '没成功',
+      'common.retry': '重试',
+      'error.network': '请求没发出去。可能是断网、代理拦截，或者这个服务商不允许浏览器直连。',
+      'error.key': 'Key 无效或没有权限。检查一下是不是没复制完整。',
+      'error.balance': '余额不足。去服务商后台充点再试。',
+      'error.notFound': '接口路径或模型名不对（404）。确认 Base URL 带 /v1，模型名存在。',
+      'error.rate': '请求太频繁（429）。等十几秒再试。',
+      'error.server': '服务商那边出错了。不是你写错了，过一会儿再试。',
+      'error.timeout': '等太久没回应，先停下了。可以重试，或换个模型。',
+      'error.noKey': '还没有填 API Key。',
+      'error.noBase': '还没有填 Base URL。',
+      'error.adminOff': '服务器没有配置管理密码，解锁功能不可用。',
+      'error.adminBad': '密码不对。',
+      'error.adminNet': '问不到服务器，没法确认密码。',
+      'error.localOnly': '这个功能要部署在云端才能用。'
+    },
+    'en': {
+      'app.name': 'XiaoNuan',
+      'app.tagline': 'A study desk for talking, notes and feedback.',
+      'nav.chat': 'New chat',
+      'nav.study': 'Study',
+      'nav.feedback': 'Feedback',
+      'nav.changelog': 'Changelog',
+      'nav.iterate': 'Iterate',
+      'nav.settings': 'Settings',
+      'nav.newChat': 'New chat',
+      'nav.recent': 'Recent',
+      'nav.empty': 'No conversations yet. Start one above.',
+      'nav.connected': 'Connected',
+      'nav.disconnected': 'Disconnected',
+      'nav.noKey': 'No key',
+      'nav.busy': 'Generating…',
+      'nav.connError': 'Connection problem',
+      'chat.placeholder': 'Say something…',
+      'chat.send': 'Send',
+      'chat.stop': 'Stop',
+      'chat.web': 'Web',
+      'chat.webOn': 'Web search is on',
+      'chat.webOff': 'Web search is off',
+      'chat.thinking': 'Thinking…',
+      'chat.emptyTitle': 'What are we working on?',
+      'chat.emptyBody': 'XiaoNuan will not do your homework, but will help you untangle it.',
+      'chat.disclaimer': 'XiaoNuan can be wrong. Check anything important.',
+      'chat.copy': 'Copy',
+      'chat.retry': 'Regenerate',
+      'chat.copied': 'Copied',
+      'chat.copyFailed': 'Copy failed',
+      'chat.stopped': '(stopped)',
+      'chat.emptyReply': 'The model returned nothing. It may have been blocked, or the model name is wrong.',
+      'chat.incomplete': '(incomplete: the stream was interrupted)',
+      'chat.newSession': 'New chat',
+      'chat.alreadyNew': 'This is already a new chat',
+      'chat.deleted': 'Deleted',
+      'chat.deleteAsk': 'Delete this conversation? This cannot be undone.',
+      'chat.hint': 'Enter to send · Shift+Enter for a new line',
+      'chat.selectModel': 'Choose model',
+      'chat.ownApi': 'Your API',
+      'chat.cloud': 'Built in (no key needed)',
+      'chat.noProvider': 'No provider yet. Add a key in Settings.',
+      'study.goalTitle': 'Today',
+      'study.goalPlaceholder': 'One thing that must get done today…',
+      'study.add': 'Add',
+      'study.goalNote': 'Completion resets when the day changes.',
+      'study.focus': 'Focus',
+      'study.notStarted': 'Not started',
+      'study.focusing': 'Focusing',
+      'study.done': 'Done',
+      'study.paused': 'Paused',
+      'study.start': 'Start',
+      'study.pause': 'Pause',
+      'study.again': 'Again',
+      'study.reset': 'Reset',
+      'study.timerNote': 'Lost focus? Reset. No guilt.',
+      'study.notes': 'Notes',
+      'study.noteSearch': 'Search title or body…',
+      'study.noteNew': 'New note',
+      'study.noteTitle': 'Title',
+      'study.noteBody': 'Key points, mistakes, explain it in your own words…',
+      'study.noteTag': 'Tag (optional)',
+      'study.cancel': 'Cancel',
+      'study.save': 'Save',
+      'study.more': 'Load 20 more',
+      'study.noMore': 'No more',
+      'fb.title': 'Send feedback',
+      'fb.localOnly': 'Stored only here',
+      'fb.placeholder': 'What feels off, broken, or what should it become?',
+      'fb.contact': 'Contact (optional)',
+      'fb.submit': 'Submit',
+      'fb.collected': 'Collected',
+      'fb.pull': 'Pull from cloud',
+      'fb.export': 'Export',
+      'fb.clear': 'Clear',
+      'fb.empty': 'No feedback yet.',
+      'fb.sinkLocal': 'Stored in this browser only.',
+      'fb.sent': 'Sent to the server, kept a local copy',
+      'fb.savedLocal': 'Saved locally',
+      'fb.cleared': 'Cleared',
+      'fb.clearAsk': 'Clear all feedback on this device?',
+      'settings.title': 'Settings',
+      'settings.cloudIterate': 'Cloud iteration',
+      'settings.appearance': 'Appearance',
+      'settings.nav': 'Navigation',
+      'settings.theme': 'Theme',
+      'settings.persona': 'Persona',
+      'settings.config': 'Config',
+      'settings.model': 'Model',
+      'settings.admin': 'Admin',
+      'settings.data': 'Local data',
+      'settings.about': 'About',
+      'settings.saveTest': 'Save and test',
+      'settings.testOnly': 'Test only',
+      'settings.exportConfig': 'Export config.json',
+      'settings.import': 'Import',
+      'settings.reset': 'Reset',
+      'settings.unlock': 'Unlock',
+      'settings.lock': 'Lock',
+      'settings.language': 'Language',
+      'settings.accent': 'Accent',
+      'settings.radius': 'Radius',
+      'settings.fontSize': 'Font size',
+      'settings.themeMode': 'Theme',
+      'settings.density': 'Density',
+      'settings.exportAll': 'Export all',
+      'settings.clearData': 'Clear conversations and notes',
+      'settings.storage': 'Storage used',
+      'common.save': 'Save',
+      'common.cancel': 'Cancel',
+      'common.confirm': 'Confirm',
+      'common.yes': 'Yes',
+      'common.no': 'No',
+      'common.loading': 'Loading…',
+      'common.failed': 'Failed',
+      'common.retry': 'Retry',
+      'error.network': 'Request did not go out. Check your network, proxy, or CORS.',
+      'error.key': 'Invalid key or no permission.',
+      'error.balance': 'Insufficient balance.',
+      'error.notFound': 'Wrong endpoint or model name (404).',
+      'error.rate': 'Too many requests (429). Wait a moment.',
+      'error.server': 'The provider had an error. Try again later.',
+      'error.timeout': 'No response for too long. Try again.',
+      'error.noKey': 'No API key yet.',
+      'error.noBase': 'No base URL yet.',
+      'error.adminOff': 'This server has no admin password configured.',
+      'error.adminBad': 'Wrong password.',
+      'error.adminNet': 'Could not reach the server.',
+      'error.localOnly': 'This needs the cloud deployment.'
+    }
+  };
+
+  function t(key, vars) {
+    var table = DICT[current] || DICT['zh-CN'];
+    var text = table[key];
+    if (text == null) text = DICT['zh-CN'][key];
+    if (text == null) return String(key);
+    if (vars) {
+      Object.keys(vars).forEach(function (k) {
+        text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), String(vars[k]));
+      });
+    }
+    return text;
+  }
+
+  function apply(scope) {
+    var nodes = (scope || document).querySelectorAll('[data-i18n]');
+    Array.prototype.forEach.call(nodes, function (el) {
+      el.textContent = t(el.getAttribute('data-i18n'));
+    });
+    Array.prototype.forEach.call((scope || document).querySelectorAll('[data-i18n-placeholder]'), function (el) {
+      el.setAttribute('placeholder', t(el.getAttribute('data-i18n-placeholder')));
+    });
+    Array.prototype.forEach.call((scope || document).querySelectorAll('[data-i18n-title]'), function (el) {
+      el.setAttribute('title', t(el.getAttribute('data-i18n-title')));
+      el.setAttribute('aria-label', t(el.getAttribute('data-i18n-title')));
+    });
+    if (!scope) {
+      document.documentElement.setAttribute('lang', current === 'en' ? 'en' : 'zh-CN');
+    }
+  }
+
+  function setLocale(locale) {
+    current = DICT[locale] ? locale : 'zh-CN';
+    try { root.localStorage.setItem(LOCALE_KEY, current); } catch (e) {}
+    apply();
+    if (XN.emit) XN.emit('locale:change', current);
+  }
+
+  function init() {
+    try {
+      var saved = root.localStorage.getItem(LOCALE_KEY);
+      if (saved && DICT[saved]) current = saved;
+    } catch (e) {}
+  }
+
+  init();
+
+  XN.i18n = {
+    t: t,
+    apply: apply,
+    setLocale: setLocale,
+    locale: function () { return current; },
+    locales: Object.keys(DICT),
+    dict: DICT
+  };
+  XN.t = t;
+})(typeof window !== 'undefined' ? window : globalThis);

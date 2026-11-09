@@ -1,2 +1,2 @@
-/* 当前版本。自动迭代发布时会改写这个文件。 */
-window.XN_VERSION = "1.4.8";
+/* 当前版本。从更新日志首条推导，避免两处不一致。 */
+window.XN_VERSION = (window.XN_CHANGELOG && window.XN_CHANGELOG[0] && window.XN_CHANGELOG[0].version) || "1.5.0";

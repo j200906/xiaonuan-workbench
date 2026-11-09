@@ -1,61 +1,83 @@
-name: 语法护栏
+name: 校验与护栏
 
-# 云端自迭代会直接往 main 提交代码。模型偶尔会写出语法坏掉的补丁，
-# 这里在推送后立刻 node --check 一遍；一旦坏了就自动 revert 上一个提交。
+# 自迭代会直接往 main 提交代码。这里在 push 和 PR 上都跑：
+# 语法 → 引用完整性 → 单元测试。失败时只回滚那一次提交，不 reset、不连环 revert。
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
 
 permissions:
   contents: write
 
 jobs:
-  guard:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: 检查 JS 语法
-        id: syntax
-        continue-on-error: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: JS 语法
         run: |
           fail=0
-          for f in assets/*.js; do
+          for f in assets/*.js assets/lib/*.js cloudflare/*.js scripts/*.mjs tests/*.mjs; do
+            [ -f "$f" ] || continue
             if ! node --check "$f"; then
               echo "::error file=$f::语法检查没通过"
               fail=1
             fi
           done
-
-          # 顺便确认页面引用的文件都还在
-          for f in $(grep -oE 'assets/[a-z.]+\.(js|css)' index.html | sort -u); do
-            [ -f "$f" ] || { echo "::error file=index.html::引用了不存在的 $f"; fail=1; }
-          done
-
           exit $fail
 
-      - name: 引用完整性
-        id: refs
-        continue-on-error: true
+      - name: 页面引用完整性
         run: |
-          for id in setProvider fbPull cloudIterCard navEditor ctlPrompt; do
-            grep -q "id=\"$id\"" index.html || { echo "::error::index.html 少了 #$id"; exit 1; }
+          fail=0
+          for id in setProvider setLocale fbPull cloudIterCard navEditor ctlPrompt noteMore keyRemember; do
+            grep -q "id=\"$id\"" index.html || { echo "::error::index.html 少了 #$id"; fail=1; }
           done
+          for f in $(grep -oE '(src|href)="assets/[^"?]+\.(js|css)' index.html | sed -E 's/^(src|href)="//' | sort -u); do
+            [ -f "$f" ] || { echo "::error file=index.html::引用了不存在的 $f"; fail=1; }
+          done
+          exit $fail
 
-      - name: 坏了就回滚
-        if: steps.syntax.outcome == 'failure' || steps.refs.outcome == 'failure'
+      - name: 单元测试
+        run: node --test tests/unit.test.mjs
+
+      - name: 后端冒烟
+        run: node tests/smoke.mjs
+
+      - name: Worker 路由
+        run: node cloudflare/test.mjs
+
+      - name: 失败时回滚（仅 push，且只回滚本次提交）
+        if: failure() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          author=$(git log -1 --format='%ae')
+          if [ "$author" = "guard@users.noreply.github.com" ]; then
+            echo "上一条已经是回滚提交，停止，避免连环回滚"
+            exit 0
+          fi
           git config user.name "xiaonuan-guard"
           git config user.email "guard@users.noreply.github.com"
-          git revert --no-edit HEAD || git reset --hard HEAD~1
+          git revert --no-edit HEAD
           git push
-          echo "::warning::这次提交没通过检查，已自动回滚"
+          echo "::warning::这次提交没通过检查，已生成回滚提交（未 reset 历史）"

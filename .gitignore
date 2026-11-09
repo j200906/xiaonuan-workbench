@@ -1,6 +1,8 @@
 # 运行时数据
 data/
+data-test*/
 *.jsonl
+*.bak
 
 # Python
 __pycache__/
@@ -11,6 +13,8 @@ venv/
 # 构建产物
 _site/
 node_modules/
+.pages/
+coverage/
 
 # 本地环境与编辑器
 .env

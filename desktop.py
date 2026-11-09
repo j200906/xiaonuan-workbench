@@ -43,11 +43,11 @@ from server.app import Handler  # noqa: E402
 
 def app_version():
     try:
-        text = (APP_ROOT / "assets" / "version.js").read_text(encoding="utf-8")
-        m = re.search(r"XN_VERSION\s*=\s*'([^']+)'", text)
-        return m.group(1) if m else "1.0.0"
+        text = (APP_ROOT / "assets" / "changelog.js").read_text(encoding="utf-8")
+        m = re.search(r'"version"\s*:\s*"([^"]+)"', text)
+        return m.group(1) if m else "1.5.0"
     except OSError:
-        return "1.0.0"
+        return "1.5.0"
 
 
 def free_port(start=8787):

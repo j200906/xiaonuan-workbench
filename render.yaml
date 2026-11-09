@@ -13,3 +13,9 @@ services:
         value: deepseek-chat
       - key: XN_ADMIN_PASSWORD
         sync: false
+      - key: XN_ADMIN_SECRET
+        generateValue: true
+      - key: XN_ALLOWED_MODELS
+        value: deepseek-chat
+      - key: XN_DATA_DIR
+        value: /data

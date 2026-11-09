@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import secrets
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -23,28 +24,64 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# 旧位置：仓库内明文。只读兼容，不再往这里写。
 TOKEN_FILE = HERE / "tunnel-token.txt"
+
+
+def _default_key_file() -> Path:
+    base = os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base) / "xiaonuan" / "tunnel-key.txt"
+    return Path.home() / ".config" / "xiaonuan" / "tunnel-key.txt"
+
+
+KEY_FILE = Path(os.environ.get("XN_TUNNEL_KEY_FILE") or _default_key_file())
 
 ALLOW = {
     ("POST", "/v1/chat/completions"),
     ("GET", "/v1/models"),
 }
 
-MAX_BODY = 64 * 1024          # 64KB，够一次对话
+MAX_BODY = 256 * 1024         # 256KB，长上下文也够
 WINDOW = 60                   # 限速窗口（秒）
-MAX_PER_WINDOW = 20           # 每个来源 IP 每窗口最多请求数
+MAX_PER_WINDOW = 60           # 每个来源 IP 每窗口最多请求数
+GLOBAL_PER_WINDOW = 240       # 全局保险丝，防止换 IP 绕过
 TARGET = "http://127.0.0.1:3425"
 
 _hits = {}                    # ip -> [timestamps]
+_global_hits = []             # 所有请求的时间戳
 
 
-def load_token() -> str:
-    if TOKEN_FILE.exists():
-        t = TOKEN_FILE.read_text(encoding="utf-8").strip()
-        if t:
-            return t
+def load_token(rotate: bool = False) -> str:
+    """优先环境变量；其次用户目录；最后兼容旧的仓库内文件。
+
+    仓库里的 tools/tunnel-token.txt 曾经是明文钥匙，任何人 clone 都能看到。
+    现在只读它做迁移，新钥匙写到用户目录，不再进版本库。
+    """
+    env_key = (os.environ.get("XN_TUNNEL_KEY") or "").strip()
+    if env_key and not rotate:
+        return env_key
+
+    if not rotate:
+        for path in (KEY_FILE, TOKEN_FILE):
+            try:
+                if path.exists():
+                    t = path.read_text(encoding="utf-8").strip()
+                    if t:
+                        return t
+            except OSError:
+                continue
+
     t = "xn_" + secrets.token_urlsafe(32)
-    TOKEN_FILE.write_text(t + "\n", encoding="utf-8")
+    try:
+        KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        KEY_FILE.write_text(t + "\n", encoding="utf-8")
+        try:
+            os.chmod(KEY_FILE, 0o600)
+        except OSError:
+            pass
+    except OSError as e:
+        say("写不进钥匙文件（%s），这次只用环境变量：%s" % (KEY_FILE, e))
     return t
 
 
@@ -69,6 +106,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
 
@@ -87,6 +127,16 @@ class Handler(BaseHTTPRequestHandler):
             return False
         arr.append(now)
         _hits[ip] = arr
+        if len(_hits) > 2000:
+            for k in list(_hits.keys()):
+                if not _hits[k] or now - _hits[k][-1] > WINDOW * 2:
+                    _hits.pop(k, None)
+
+        global _global_hits
+        _global_hits = [t for t in _global_hits if now - t < WINDOW]
+        if len(_global_hits) >= GLOBAL_PER_WINDOW:
+            return False
+        _global_hits.append(now)
         return True
 
     def _authorized(self) -> bool:
@@ -115,9 +165,20 @@ class Handler(BaseHTTPRequestHandler):
         if not self._rate_ok():
             return self._json(429, {"error": "太快了，歇一下"})
 
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._json(400, {"error": "Content-Length 不对"})
         if length > MAX_BODY:
+            # 读完再回 413，否则 keep-alive 下一条请求会错位
+            if length <= 4 * 1024 * 1024:
+                try:
+                    self.rfile.read(length)
+                except OSError:
+                    pass
             return self._json(413, {"error": "请求体太大"})
+        if not self.headers.get("Content-Type", "").lower().startswith("application/json"):
+            return self._json(415, {"error": "只接受 application/json"})
         self._proxy(self.rfile.read(length) if length else b"")
 
     def _proxy(self, body: bytes):
@@ -157,7 +218,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8790)
     ap.add_argument("--target", default=TARGET)
+    ap.add_argument("--rotate-key", action="store_true", help="重新生成钥匙并退出")
     args = ap.parse_args()
+
+    if args.rotate_key:
+        token = load_token(rotate=True)
+        say("新钥匙已写入：%s" % KEY_FILE)
+        say("指纹：%s…%s（完整值请自己打开文件复制）" % (token[:6], token[-4:]))
+        return 0
 
     TARGET = args.target.rstrip("/")
 
@@ -165,7 +233,8 @@ def main():
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     srv.token = token
     say("出口代理已启动：http://127.0.0.1:%d -> %s" % (args.port, TARGET))
-    say("钥匙（放 tools/tunnel-token.txt）：%s" % token[:6] + "…" + token[-4:])
+    say("钥匙位置：%s" % (KEY_FILE if KEY_FILE.exists() else "环境变量 XN_TUNNEL_KEY"))
+    say("指纹：%s…%s" % (token[:6], token[-4:]))
     srv.serve_forever()
 
 
