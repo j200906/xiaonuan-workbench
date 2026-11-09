@@ -153,4 +153,4 @@ npm run check            通过     37 个脚本语法、22 个资源引用、�
 | GitHub Pages | ✅ v1.5.0 | Actions「Deploy static site」成功 |
 | GitHub Release | ✅ v1.5.0 | `XiaoNuan.exe` 12.2 MB + `.sha256`，Actions 打包 |
 | GitHub Actions 校验 | ✅ | 「校验与护栏」成功（lint、语法、单测、冒烟、Worker） |
-| Cloudflare Pages | ⏳ 待重新部署 | `xiaonuan-app.pages.dev` 仍是 1.4.8；本机没有 `CLOUDFLARE_API_TOKEN`，需要补一次 `node cloudflare/deploy_pages.mjs` |
+| Cloudflare Pages | ✅ v1.5.0 | 已用 Direct Upload 推送；`/api/health` 返回 workers-ai，管理解锁与 SSRF 拦截线上验证通过 |
