@@ -70,7 +70,8 @@
     for (const path of READABLE) {
       const res = await fetch(path + '?v=' + Date.now(), { cache: 'no-store' });
       if (!res.ok) throw new Error('读不到 ' + path);
-      out[path] = await res.text();
+      // 统一成 LF：否则 Windows 工作区的 CRLF 会让整份文件在 diff 里全变
+      out[path] = (await res.text()).replace(/\r\n/g, '\n');
     }
     IT.sources = out;
     return out;
