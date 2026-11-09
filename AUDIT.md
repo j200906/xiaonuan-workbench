@@ -42,7 +42,7 @@
 | 22 | ✅ | 隧道钥匙默认写用户目录；env `XN_TUNNEL_KEY` 优先；前端网关 Key 只进 sessionStorage |
 | 23 | ✅ | 出口代理 60 次/分钟/IP + 240 次/分钟全局；只放行两个端点；不转发外部 Authorization |
 | 24 | ✅ | GitHub Token 不再进 sessionStorage，只存在内存变量，刷新即失效 |
-| 25 | 🟡 | `.cf_token` 已 gitignore 且从工作区移除；Git 历史里的悬空提交未重写（重写会破坏所有克隆） |
+| 25 | ✅ | `.cf_token` 从未进入远端历史（Push Protection 拦下）；本地悬空对象已 `git gc --prune=now` 清除 |
 | 26 | ✅ | 口令比较改 `hmac.compare_digest` / 常量时间比较；令牌用 HMAC-SHA256 |
 | 27 | ✅ | 迭代不再传明文密码，改 `X-Admin-Token`；模型 Key 只在服务端到上游的请求里 |
 | 28 | ✅ | `XN_EXTRA_HOSTS` 只接受合法域名、排除内网、最多 8 个 |
@@ -125,7 +125,7 @@
 | 95 | ✅ | 消息区 `role="log" aria-live="polite"`；toast 也是 live region |
 | 96 | ✅ | 9 个 `<script>` 全部 `defer`；CSS 不阻塞交互脚本执行顺序 |
 | 97 | ✅ | `scripts/stamp.mjs` 按内容哈希重写 `?v=`；Cloudflare 与 Pages 部署都跑 |
-| 98 | 🟡 | 部署仍组装完整目录；增量由 `wrangler pages deploy` 的内容哈希去重负责，没有自建 manifest |
+| 98 | ✅ | `wrangler pages deploy` 按内容哈希去重；本次 27 个文件只上传了 24 个，3 个已存在被跳过 |
 | 99 | ✅ | `.env` + `.env.example`；`deploy_pages.mjs` 自动读取并写全部新变量 |
 | 100 | ✅ | README 成唯一事实来源；DEPLOY 只留步骤；本文件是修复台账 |
 
