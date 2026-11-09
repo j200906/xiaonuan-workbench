@@ -462,7 +462,11 @@
       this.renderNavEditor();
       this.renderAppearance();
       const prompt = $('#ctlPrompt');
-      prompt.value = state.cfg.tutor.systemPrompt || '';
+      // 没自定义时，把动态拼出来的那份显示出来，方便用户看着改
+      prompt.value = state.cfg.tutor.systemPrompt || (window.XN_PERSONA && window.XN_PERSONA.build
+        ? window.XN_PERSONA.build({ memories: state.memory || [] })
+        : '');
+      prompt.placeholder = '留空 = 用原版人设动态拼（含时间、记忆、情绪）';
       $('#promptMeta').textContent = '字数 ' + prompt.value.length;
       $('#ctlTemp').value = state.cfg.tutor.temperature;
       $('#outTemp').textContent = Number(state.cfg.tutor.temperature).toFixed(1);

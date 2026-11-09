@@ -15,6 +15,7 @@
     admin: 'xn.admin',
     theme: 'xn.theme.local',
     timer: 'xn.timer.v1',
+    mem: 'xn.mem.v1',
     view: 'xn.view'
   };
 
@@ -120,7 +121,7 @@
         temperature: 0.8,
         stream: true,
         historyTurns: 14,
-        systemPrompt: (window.XN_PERSONA && window.XN_PERSONA.system) || '你叫小暖。'
+        systemPrompt: ''   // 空 = 用 persona.js 动态拼；填了就用你填的
       },
       feedback: { endpoint: '' }
     };
@@ -475,8 +476,30 @@
   function isProxy() { return apiBase().charAt(0) === '/'; }
   function chatUrl() { return isProxy() ? apiBase() + '/chat' : apiBase() + '/chat/completions'; }
 
+  function lastUserText(session) {
+    var list = (session ? session.messages : []) || [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (list[i].role === 'user' && list[i].content) return list[i].content;
+    }
+    return '';
+  }
+
+  function systemPromptFor(session) {
+    var custom = String(state.cfg.tutor.systemPrompt || '').trim();
+    if (custom) return custom;
+    if (!window.XN_PERSONA || !window.XN_PERSONA.build) return '你叫小暖。';
+    var q = lastUserText(session);
+    return window.XN_PERSONA.build({
+      query: q,
+      emo: window.XN_PERSONA.detectEmotion(q),
+      memories: state.memory || [],
+      notes: state.notes || [],
+      goals: ((state.goals && state.goals.items) || []).filter(function (g) { return !g.done; }).map(function (g) { return g.text; })
+    });
+  }
+
   function buildMessages(extraSystem) {
-    var sys = state.cfg.tutor.systemPrompt || '你叫小暖。';
+    var sys = systemPromptFor(currentSession());
     if (extraSystem) sys += '\n\n' + extraSystem;
     var msgs = [{ role: 'system', content: sys }];
     var turns = clamp(state.cfg.tutor.historyTurns, 2, 40);
@@ -1056,6 +1079,22 @@
     if (!state.key && !isProxy()) {
       showKeyBar(text);
       return;
+    }
+
+    // 「记住 / 忘了」两条最简单的长期记忆指令，对应原程序的 explicit memory
+    var mRemember = text.match(/^记住[，,：:\s]*(.+)$/);
+    var mForget = text.match(/^忘(?:了|掉)[，,：:\s]*(.+)$/);
+    if (mRemember) {
+      var item = mRemember[1].trim();
+      if (item && (state.memory || []).indexOf(item) < 0) {
+        state.memory = state.memory || [];
+        state.memory.push(item);
+        writeJSON(KEYS.mem, state.memory);
+      }
+    } else if (mForget) {
+      var key = mForget[1].trim();
+      state.memory = (state.memory || []).filter(function (x) { return x.indexOf(key) < 0; });
+      writeJSON(KEYS.mem, state.memory);
     }
 
     var s = currentSession();
