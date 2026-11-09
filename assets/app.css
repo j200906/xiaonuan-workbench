@@ -953,22 +953,54 @@ textarea.prompt {
 }
 .fb-item.cloud { border-left: 2px solid var(--accent); }
 
-/* 输入区右下角的模型条 */
-.model-pick { display: inline-flex; align-items: center; }
-.model-pick select {
-  max-width: 190px;
-  padding: 4px 22px 4px 9px;
-  border: 1px solid var(--line);
-  border-radius: 99px;
-  background: var(--panel);
-  color: var(--ink-3);
-  font-size: .74em;
-  font-family: inherit;
-  cursor: pointer;
-  appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--ink-4) 50%), linear-gradient(135deg, var(--ink-4) 50%, transparent 50%);
-  background-position: calc(100% - 12px) 52%, calc(100% - 8px) 52%;
-  background-size: 4px 4px, 4px 4px;
-  background-repeat: no-repeat;
+/* ============ 输入区右下角：模型切换 ============ */
+.model-pick { position: relative; display: inline-flex; min-width: 0; max-width: 190px; font-size: 12.5px; line-height: 1; }
+.mp-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.mp-trigger {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-width: 0; max-width: 100%; height: 28px; padding: 0 6px 0 8px;
+  border: 1px solid transparent; border-radius: 9px;
+  background: transparent; color: var(--ink-3); font: inherit; cursor: pointer;
+  transition: background-color .12s ease, color .12s ease, border-color .12s ease;
 }
-.model-pick select:hover { color: var(--ink); border-color: var(--accent-line); }
+.mp-trigger:hover { background: var(--sunk); color: var(--ink); }
+.mp-trigger[aria-expanded="true"] { background: var(--sunk); border-color: var(--line-soft); color: var(--ink); }
+.mp-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mp-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-chev { flex: none; width: 12px; height: 12px; color: var(--ink-4); transition: transform .16s ease; }
+.mp-trigger[aria-expanded="true"] .mp-chev { transform: rotate(180deg); }
+
+.mp-menu {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 60;
+  min-width: 196px; max-width: min(250px, calc(100vw - 24px));
+  max-height: min(320px, 55vh); overflow-y: auto; padding: 4px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 18px 40px -16px rgba(0,0,0,.35), 0 4px 12px -6px rgba(0,0,0,.18);
+  opacity: 0; visibility: hidden; transform: translateY(6px) scale(.98);
+  transform-origin: bottom right;
+  transition: opacity .12s ease, transform .12s ease, visibility 0s linear .12s;
+}
+.model-pick.is-open .mp-menu { opacity: 1; visibility: visible; transform: none; transition: opacity .12s ease, transform .12s ease, visibility 0s; }
+.mp-group + .mp-group { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+.mp-group-label { padding: 6px 8px 4px; color: var(--ink-4); font-size: 11px; user-select: none; }
+.mp-opt {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 6px;
+  height: 30px; padding: 0 8px; border-radius: 7px; color: var(--ink-2);
+  cursor: pointer; user-select: none; transition: background-color .1s ease, color .1s ease;
+}
+.mp-opt[aria-selected="true"] { background: var(--accent-soft); color: var(--ink); }
+.mp-opt:hover { background: var(--sunk); color: var(--ink); }
+.mp-opt[aria-selected="true"]:hover { background: var(--accent-soft); }
+.mp-check { width: 14px; height: 14px; color: var(--accent); opacity: 0; }
+.mp-opt[aria-selected="true"] .mp-check { opacity: 1; }
+.mp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-tag { flex: none; padding: 1px 5px; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--panel-2); color: var(--ink-4); font-size: 10px; }
+.mp-tag:empty { display: none; }
+@media (max-width: 640px) { .model-pick { max-width: 120px; } }
+
+.web-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}

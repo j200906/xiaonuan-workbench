@@ -380,9 +380,14 @@
     openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
     zhipu: ['glm-4-flash', 'glm-4-plus'],
     siliconflow: ['deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct'],
-    custom: [],
-    cloud: ['云端自带']
+    custom: []
   };
+
+  var CLOUD_MODELS = [
+    { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '默认 · 快' },
+    { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3-30B', note: '会先思考' },
+    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama-3.3-70B', note: '' }
+  ];
 
   function currentProvider() {
     var p = state.cfg.tutor.provider;
@@ -390,22 +395,81 @@
     return isProxy() ? 'cloud' : 'custom';
   }
 
-  function renderModelPick() {
-    var sel = $('#modelPick');
-    if (!sel) return;
-    var prov = currentProvider();
-    var list = (MODEL_BY_PROVIDER[prov] || []).slice();
-    var cur = state.cfg.tutor.model || '';
-    if (cur && list.indexOf(cur) < 0) list.unshift(cur);
-    if (!list.length) list = [cur || '默认'];
+  function modelLabel(id) {
+    var hit = CLOUD_MODELS.filter(function (m) { return m.id === id; })[0];
+    return hit ? hit.name : id;
+  }
 
-    sel.innerHTML = list.map(function (m) {
-      return '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>';
+  function isCloudModel(id) {
+    return String(id || '').indexOf('@cf/') === 0;
+  }
+
+  function buildGroups() {
+    var prov = currentProvider();
+    var groups = [];
+    var own = (MODEL_BY_PROVIDER[prov] || []).slice();
+    var cur = state.cfg.tutor.model || '';
+    if (cur && !isCloudModel(cur) && own.indexOf(cur) < 0) own.unshift(cur);
+    if (own.length) {
+      groups.push({
+        label: '自己的 API',
+        items: own.map(function (m) { return { id: m, name: m, note: '' }; })
+      });
+    }
+    groups.push({ label: '云端自带（不用 Key）', items: CLOUD_MODELS });
+    return groups;
+  }
+
+  function renderModelPick() {
+    var trigger = $('#modelPickTrigger');
+    var menu = $('#modelMenu');
+    if (!trigger || !menu) return;
+
+    var cur = state.cfg.tutor.model || '';
+    var groups = buildGroups();
+
+    // 隐藏的原生 select：状态同步 + 无障碍
+    var sel = $('#modelPick');
+    sel.innerHTML = groups.reduce(function (acc, g) {
+      return acc.concat(g.items.map(function (m) {
+        return '<option value="' + esc(m.id) + '">' + esc(m.name) + '</option>';
+      }));
+    }, []).join('');
+    sel.value = cur;
+
+    menu.innerHTML = groups.map(function (g) {
+      return '<div class="mp-group"><div class="mp-group-label">' + esc(g.label) + '</div>' +
+        g.items.map(function (m) {
+          var on = m.id === cur;
+          return '<div class="mp-opt" role="option" data-id="' + esc(m.id) + '" aria-selected="' + on + '">' +
+            '<svg class="mp-check" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.4 5 9l4.5-5.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+            '<span class="mp-name">' + esc(m.name) + '</span>' +
+            '<span class="mp-tag">' + esc(m.note || '') + '</span>' +
+            '</div>';
+        }).join('') + '</div>';
     }).join('');
-    sel.disabled = prov === 'cloud';
-    sel.title = prov === 'cloud' ? '现在用的是云端自带模型，去设置里填自己的 Key 就能换' : '换模型';
+
+    $('#modelPickText').textContent = cur ? modelLabel(cur) : '选模型';
+    trigger.title = cur || '';
+    trigger.disabled = false;
+  }
+
+  function selectModel(id) {
+    state.cfg.tutor.model = id;
+    if (isCloudModel(id)) {
+      state.cfg.tutor.provider = { id: 'cloud', base: '' };
+      state.cfg.tutor.baseUrl = '/api';
+    } else if (!state.cfg.tutor.provider || state.cfg.tutor.provider.id === 'cloud') {
+      // 从云端模型切回自己的模型，但没有存过服务商：回设置里挑一个
+      toast('换成 ' + modelLabel(id) + ' 后，去设置里填一次 Key');
+    }
+    saveConfig();
+    updateHeader();
+    renderModelPick();
+    toast('换成 ' + modelLabel(id));
   }
   N.renderModelPick = renderModelPick;
+  N.selectModel = selectModel;
 
   function apiBase() { return String(state.cfg.tutor.baseUrl || '').trim().replace(/\/+$/, ''); }
   function isProxy() { return apiBase().charAt(0) === '/'; }
@@ -738,6 +802,16 @@
   }
   N.updateConn = updateConn;
 
+  async function webSearchFor(q) {
+    try {
+      var res = await fetch('api/search?q=' + encodeURIComponent(q), { cache: 'no-store' });
+      var j = await res.json();
+      return (j && j.items) || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   async function runAssistant() {
     var s = currentSession();
     if (!s) s = newSession();
@@ -764,7 +838,31 @@
     }
 
     try {
-      var res = await apiChat(buildMessages(), {
+      var msgs = buildMessages();
+      if (state.web && isProxy()) {
+        var lastUser = null;
+        for (var i = s.messages.length - 1; i >= 0; i--) {
+          if (s.messages[i].role === 'user' && s.messages[i].content) { lastUser = s.messages[i].content; break; }
+        }
+        if (lastUser) {
+          toast('先上网查一下…');
+          var hits = await webSearchFor(lastUser);
+          if (hits.length) {
+            msgs.unshift({
+              role: 'system',
+              content: '下面是我刚从网上查到的资料（' + new Date().toLocaleString() + '）。' +
+                '回答时参考它，并在末尾用「来源」列出你真正用到的链接：\n\n' +
+                hits.map(function (h, k) {
+                  return (k + 1) + '. ' + h.title + '\n   ' + h.url + '\n   ' + (h.snippet || '');
+                }).join('\n')
+            });
+          } else {
+            toast('没搜到，先按已知回答');
+          }
+        }
+      }
+
+      var res = await apiChat(msgs, {
         stream: !!state.cfg.tutor.stream,
         signal: ctrl.signal,
         onDelta: function (d) {
@@ -1007,11 +1105,46 @@
 
     $('#modelPill').addEventListener('click', function () { switchView('settings'); });
 
+    var pickWrap = $('#modelPickWrap');
+    var pickTrigger = $('#modelPickTrigger');
+    function closePick() {
+      if (!pickWrap) return;
+      pickWrap.classList.remove('is-open');
+      if (pickTrigger) pickTrigger.setAttribute('aria-expanded', 'false');
+    }
+    if (pickTrigger) {
+      pickTrigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = pickWrap.classList.toggle('is-open');
+        pickTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      $('#modelMenu').addEventListener('click', function (e) {
+        var opt = e.target.closest('.mp-opt');
+        if (!opt) return;
+        selectModel(opt.dataset.id);
+        closePick();
+      });
+      document.addEventListener('click', function (e) {
+        if (pickWrap && !pickWrap.contains(e.target)) closePick();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closePick();
+      });
+    }
+    var webBtn = $('#btnWeb');
+    if (webBtn) {
+      var paintWeb = function () { webBtn.setAttribute('aria-pressed', state.web ? 'true' : 'false'); };
+      paintWeb();
+      webBtn.addEventListener('click', function () {
+        state.web = !state.web;
+        paintWeb();
+        toast(state.web ? '联网已开：每次发消息前先查一遍' : '联网已关');
+      });
+    }
+
+    // 隐藏的原生 select 仍然可能被外部改（无障碍/脚本），保持同步
     $('#modelPick').addEventListener('change', function () {
-      state.cfg.tutor.model = this.value;
-      saveConfig();
-      updateHeader();
-      toast('换成 ' + this.value);
+      if (this.value) selectModel(this.value);
     });
 
     var input = $('#input');

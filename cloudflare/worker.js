@@ -39,6 +39,19 @@ function safeBase(raw, fallback) {
   }
 }
 
+const AI_CHOICES = [
+  { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM-4.7-Flash', note: '默认 · 快' },
+  { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3-30B', note: '会先思考' },
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama-3.3-70B', note: '' }
+];
+
+function pickAiModel(raw, env) {
+  const want = String(raw || '');
+  if (AI_CHOICES.some((m) => m.id === want)) return want;
+  if (env.XN_AI_MODEL && want === env.XN_AI_MODEL) return want;
+  return env.XN_AI_MODEL || AI_MODEL;
+}
+
 const AI_MODEL = '@cf/zai-org/glm-4.7-flash';
 const AI_FALLBACK = '@cf/qwen/qwen3-30b-a3b-fp8';
 
@@ -85,7 +98,8 @@ export default {
       return json({
         proxy: hasUpstream(env) || hasAI(env),
         backend: hasUpstream(env) ? 'upstream' : (hasAI(env) ? 'workers-ai' : 'none'),
-        model: hasUpstream(env) ? (env.XN_MODEL || 'deepseek-chat') : (env.XN_AI_MODEL || AI_MODEL)
+        model: hasUpstream(env) ? (env.XN_MODEL || 'deepseek-chat') : (env.XN_AI_MODEL || AI_MODEL),
+        models: hasAI(env) ? AI_CHOICES : []
       });
     }
 
@@ -115,6 +129,17 @@ export default {
       }
     }
 
+    if (path === '/api/search') {
+      const q = url.searchParams.get('q') || '';
+      if (!q.trim()) return json({ ok: false, error: '缺 q' }, 400);
+      return cors(await webSearch(q));
+    }
+
+    if (path === '/api/fetch') {
+      const target = url.searchParams.get('url') || '';
+      return cors(await fetchPage(target));
+    }
+
     if (path === '/api/feedback') {
       if (request.method === 'POST') return cors(await saveFeedback(request, env));
       if (request.method === 'GET') return cors(await listFeedback(request, env));
@@ -126,6 +151,101 @@ export default {
     return env.ASSETS.fetch(request);
   }
 };
+
+/* ---------- 联网 ---------- */
+
+function stripTags(html) {
+  return String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function webSearch(q) {
+  const endpoint = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q);
+  let html = '';
+  try {
+    const res = await fetch(endpoint, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; xiaonuan/1.0)', 'Accept-Language': 'zh-CN,zh;q=0.9' }
+    });
+    html = await res.text();
+  } catch (e) {
+    return json({ ok: false, error: '搜索没连上：' + e.message }, 502);
+  }
+
+  const items = [];
+  const re = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(html)) && items.length < 6) {
+    let link = m[1];
+    const mm = link.match(/uddg=([^&]+)/);
+    if (mm) link = decodeURIComponent(mm[1]);
+    const title = stripTags(m[2]);
+    if (!title) continue;
+    items.push({ title, url: link, snippet: '' });
+  }
+
+  // 摘要：抓 result__snippet，和标题按顺序配对
+  const snips = [];
+  const re2 = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+  let s2;
+  while ((s2 = re2.exec(html)) && snips.length < 6) snips.push(stripTags(s2[1]));
+  items.forEach((it, i) => { it.snippet = snips[i] || ''; });
+
+  if (!items.length) {
+    const wiki = await wikiSearch(q);
+    if (wiki.length) return json({ ok: true, q, count: wiki.length, items: wiki, source: 'wikipedia' });
+  }
+
+  return json({ ok: true, q, count: items.length, items, source: 'duckduckgo' });
+}
+
+async function wikiSearch(q) {
+  const api = 'https://zh.wikipedia.org/w/api.php?action=query&list=search&format=json&utf8=1&srlimit=5&srsearch='
+    + encodeURIComponent(q);
+  try {
+    const res = await fetch(api, { headers: { 'User-Agent': 'xiaonuan/1.0 (study helper)' } });
+    const j = await res.json();
+    const hits = (j.query && j.query.search) || [];
+    return hits.map((h) => ({
+      title: h.title,
+      url: 'https://zh.wikipedia.org/wiki/' + encodeURIComponent(h.title),
+      snippet: stripTags(h.snippet || '')
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+async function fetchPage(target) {
+  let u;
+  try { u = new URL(target); } catch (e) { return json({ ok: false, error: 'url 不对' }, 400); }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return json({ ok: false, error: '只支持 http(s)' }, 400);
+  const host = u.hostname;
+  if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|\[::1\])/.test(host) || host.endsWith('.local')) {
+    return json({ ok: false, error: '不给内网地址' }, 403);
+  }
+  try {
+    const res = await fetch(u.toString(), {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; xiaonuan/1.0)' },
+      redirect: 'follow'
+    });
+    const type = res.headers.get('Content-Type') || '';
+    const raw = await res.text();
+    const text = type.indexOf('html') >= 0 ? stripTags(raw) : raw;
+    return json({ ok: true, url: u.toString(), title: u.hostname, text: text.slice(0, 6000) });
+  } catch (e) {
+    return json({ ok: false, error: '打不开：' + e.message }, 502);
+  }
+}
 
 /* ---------- 上游转发（DeepSeek 等） ---------- */
 
@@ -186,7 +306,7 @@ async function aiChat(request, env) {
     return json({ ok: false, error: 'messages 不对' }, 400);
   }
 
-  const model = env.XN_AI_MODEL || AI_MODEL;
+  const model = pickAiModel(payload.model, env);
   const messages = payload.messages.map((m) => ({
     role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
     content: String(m.content || '')

@@ -764,9 +764,10 @@
         return;
       }
 
-      const cycles = Number($('#itCycles').value) || 1;
+      // 不限轮数：一直做到队列里没有 todo，或者你点了「停止」
+      const MAX_SAFETY = 60;   // 只是防死循环的保险丝，不是对你的限制
       let done = 0;
-      for (let i = 0; i < cycles; i++) {
+      for (let i = 0; i < MAX_SAFETY; i++) {
         if (IT.stopped) break;
         const next = IT.queue.filter((t) => t.status === 'todo').sort((a, b) => b.severity - a.severity)[0];
         if (!next) break;
