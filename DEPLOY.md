@@ -1,9 +1,101 @@
 # 部署
 
-三种放法，按需要挑。**静态页面只需要方案 A 或 B；要藏 Key、要集中收反馈才需要 C。**
+四条路，按你要的东西挑：
 
-| 方案 | 放什么 | 免费额度（2026-11 查） | 代价 |
-| --- | --- | --- | --- |
+| 你想要 | 走哪条 | 代价 |
+| --- | --- | --- |
+| 只给人看、给人用 | GitHub Pages（已在跑） | 纯静态，Key 在访客浏览器里 |
+| 服务器替你保管 Key、集中收反馈 | Render / Hugging Face / 自己的 VPS | 需要一个账号或一台机器 |
+| 自己电脑上用 | 下载 `XiaoNuan.exe` | 只有本机能访问 |
+| 局域网内多人用 | `python server/app.py --port 8080` | 同一网络才能访问 |
+
+---
+
+## A. 桌面版（已经做好，公开可下载）
+
+- 下载：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
+- 双击打开一个小窗口，点「打开小暖」会用 Edge/Chrome 的 app 模式起一个独立窗口（没有地址栏）。
+- 数据在 `%APPDATA%\xiaonuan\data`；换机器拷这个目录就行。
+- 没签名，Windows 会提示「未知发布者」→ 更多信息 → 仍要运行。
+- 重新打包：`python build_exe.py`（需要 `pip install pyinstaller`）。
+
+## B. Render（免费档，能托管 Key）
+
+1. Render → New → **Blueprint** → 选这个仓库（`render.yaml` 已写好）
+2. 填三个环境变量：`XN_API_KEY`、`XN_BASE`、`XN_ADMIN_PASSWORD`
+3. 部署完把前端「设置 → 接口 → Base URL」改成 `/api`，Key 留空
+
+免费档会睡：15 分钟没请求就停机，下一次打开等约 1 分钟；磁盘是临时的，反馈可能丢。
+
+## C. Hugging Face Spaces（免费、公开、Docker）
+
+需要一个 HF 账号 + 一个 write token：
+
+```bash
+# 1. 在 huggingface.co 建一个 Docker Space，名字随便
+# 2. 把这个仓库推上去（HF 用 README 的 front matter 识别 SDK）
+git remote add hf https://<用户名>:<token>@huggingface.co/spaces/<用户名>/xiaonuan
+git push hf main
+```
+
+Space 的 `README.md` 开头需要：
+
+```yaml
+---
+title: Xiaonuan
+sdk: docker
+app_port: 8080
+---
+```
+
+容器里跑 `server/app.py`，环境变量同上（`XN_API_KEY` 等）。免费 Space 闲置一段时间会休眠，唤醒要几十秒。
+
+## D. 自己的 VPS（最稳，不睡）
+
+一台 1 核 1G 的机器就够。
+
+```bash
+# 机器上
+git clone https://github.com/j200906/xiaonuan-workbench.git
+cd xiaonuan-workbench
+XN_API_KEY=sk-xxx XN_ADMIN_PASSWORD=换成你的 python3 server/app.py --port 8080
+```
+
+systemd（开机自启、挂了自动拉起来）：
+
+```ini
+# /etc/systemd/system/xiaonuan.service
+[Unit]
+Description=xiaonuan
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/xiaonuan-workbench
+Environment=XN_API_KEY=sk-xxx
+Environment=XN_ADMIN_PASSWORD=换成你的
+Environment=XN_DATA_DIR=/var/lib/xiaonuan
+ExecStart=/usr/bin/python3 server/app.py --port 8080
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl enable --now xiaonuan
+```
+
+再用 Caddy 挂个域名（自动 HTTPS）：
+
+```
+xiaonuan.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+---
+
+ | --- | --- | --- |
 | A. GitHub Pages | 整站静态 | 公开仓库免费 | 国内访问时快时慢 |
 | B. Cloudflare Pages | 整站静态 | 静态请求与带宽免费，500 次构建/月 | 需要 Cloudflare 账号 |
 | C. Render Web Service | 静态 + `server/app.py` | 免费实例 750 小时/月 | 15 分钟无请求休眠，冷启动约 1 分钟；磁盘是临时的 |
