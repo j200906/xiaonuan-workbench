@@ -1,4 +1,7 @@
-/* 把根目录的页面拷进 cloudflare/public，供 Worker 的 ASSETS 用 */
+/* 把根目录的页面拷进 cloudflare/public，供 Worker 的 ASSETS 用（legacy 路径）。
+ * 主路径是 scripts/build-pages.mjs → cloudflare/.pages（Pages Direct Upload）。
+ * 真源永远是根目录的 index.html + assets/ 和 cloudflare/*.js；public/ 是产物，已 gitignore。
+ */
 import { cp, mkdir, rm, copyFile, readdir, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';

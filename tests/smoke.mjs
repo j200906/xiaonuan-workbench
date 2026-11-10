@@ -43,7 +43,10 @@ const realMock = spawn('python', ['tests/mock_llm.py'], {
   cwd: root,
   stdio: 'ignore',
   windowsHide: true,
-  env: Object.assign({}, process.env, { MOCK_PORT: String(mockPort), MOCK_KEY: MODEL_KEY })
+  env: Object.assign({}, process.env, {
+    MOCK_PORT: String(mockPort), MOCK_KEY: MODEL_KEY,
+    PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1'
+  })
 });
 
 const app = spawn('python', ['server/app.py', '--port', String(appPort)], {
@@ -56,7 +59,8 @@ const app = spawn('python', ['server/app.py', '--port', String(appPort)], {
     XN_ADMIN_SECRET: 'smoke-secret',
     XN_DATA_DIR: dataDir,
     XN_GATEWAY_BASE: 'http://127.0.0.1:8790/v1',
-    XN_GATEWAY_MODEL: 'smoke-model'
+    XN_GATEWAY_MODEL: 'smoke-model',
+    PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1'
   })
 });
 
@@ -159,6 +163,24 @@ try {
     assert.equal(res.status, 200);
     const j = await res.json();
     assert.ok(j.items.some((x) => x.body === '冒烟测试反馈'));
+  });
+
+  await check('反馈删除：没令牌 401', async () => {
+    const res = await fetch(base + '/api/feedback?all=1', { method: 'DELETE' });
+    assert.equal(res.status, 401);
+  });
+
+  await check('反馈删除：管理员可以清空', async () => {
+    const del = await fetch(base + '/api/feedback?all=1', {
+      method: 'DELETE', headers: { 'X-Admin-Token': token }
+    });
+    assert.equal(del.status, 200);
+    const dj = await del.json();
+    assert.equal(dj.ok, true);
+    assert.ok(dj.deleted >= 1, '至少删掉刚才那条');
+    const res = await fetch(base + '/api/feedback', { headers: { 'X-Admin-Token': token } });
+    const j = await res.json();
+    assert.equal(j.items.filter((x) => x.body === '冒烟测试反馈').length, 0, '删完不该再读出来');
   });
 
   await check('SSRF：127.0.0.1 被拒', async () => {

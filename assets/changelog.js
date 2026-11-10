@@ -1,6 +1,31 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.4",
+    "date": "2026-11-10",
+    "title": "Q61–Q100：发布链路、自迭代与安全收口",
+    "fixes": [
+      "自迭代看不到的代码段落不许再下补丁：find 落在省略区直接拒，重试会回喂具体失败条目",
+      "小文件重写不再被 1500 字固定下限误杀；README 版本块标记缺失会显式告警",
+      "试运行缓存按分支/版本/模型/强度/反馈分键，TTL 读写统一 900 秒",
+      "提交遇 409 换新 head 重试一次；同名 tag 核对指向，指别处标 conflict 不覆盖",
+      "版本号取 changelog/version.js/package.json 的最大 semver；写版本数组文件保留原格式与注释",
+      "补丁校验补上动态 import、字面量外链 fetch；return /re/ 的斜杠不再被当除号",
+      "GitHub Token 不再进浏览器：删掉设置页旧「云端自迭代」卡片与 #ciToken 输入框",
+      "反馈保留期默认 180 天可配（XN_FEEDBACK_TTL_DAYS）；新增 DELETE /api/feedback，反馈箱可单条删除/清空",
+      "管理令牌加 ver（XN_ADMIN_TOKEN_VERSION）可一次吊销全部会话；新增 XN_REQUIRE_ORIGIN 严格同源",
+      "发布链路：npm run build 生成 .pages（不再手工拷贝）、删 .dry、部署脚本默认 dry-run、drift 覆盖边缘模块",
+      "CI：guard 双 Node 矩阵 + 端到端 UI，Pages 部署改到 guard 成功后；pyinstaller 固定版本；check 加四处版本一致性"
+    ],
+    "features": [
+      "SECURITY.md / PRIVACY.md：钥匙轮换、数据保留与删除说明",
+      "scripts/protect-main.sh：一键开 main 分支保护（含 required checks）",
+      "tests/pipeline.test.mjs / tests/security.test.mjs / tests/security-adversarial.test.mjs：Q61–Q100 的可执行回归"
+    ],
+    "source": "manual",
+    "notes": "真机多浏览器、Cloudflare 线上部署与 GitHub tag 发版仍需人工验；本地后端也补了 DELETE /api/feedback 与令牌版本。"
+  },
+  {
     "version": "1.5.3",
     "date": "2026-11-10",
     "title": "修更新日志对比漏版本",

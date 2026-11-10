@@ -24,6 +24,10 @@ const AI_FALLBACK = '@cf/zai-org/glm-4.7-flash';
 const MAX_CHAT_BYTES = 262144;
 const MAX_FEEDBACK_BYTES = 16384;
 
+/* 同一 isolate 里同一 IP 的迭代同一时刻只放一个：KV 计数是读-改-写，
+   并发点两下会绕过 4 次/小时的额度（Q94 复核 F3）。 */
+const iterateInFlight = new Set();
+
 function baseHeaders(request, env, extra) {
   return Object.assign({}, SECURITY_HEADERS, corsHeaders(request, env), extra || {});
 }
@@ -135,6 +139,9 @@ export default {
       }
 
       if (path === '/api/admin/check') {
+        if (!sameOrigin(request, env)) return json({ ok: false, error: '来源不允许' }, 403, request, env);
+        const rl = await rateLimit(env, 'admin-check', clientIp(request), 30, 60, false);
+        if (!rl.ok) return json({ ok: false, error: '太频繁' }, 429, request, env);
         const ok = await verifyToken(env, bearer(request));
         return json({ ok }, ok ? 200 : 401, request, env);
       }
@@ -155,6 +162,15 @@ export default {
           return json({ ok: false, error: e.message }, e.status || 400, request, env);
         }
 
+        /* 管理令牌只用于管理接口（X-Admin-Token），不能当模型 Key 转发给上游（Q94 复核 F2）。 */
+        const asKey = authOnly(request);
+        if (asKey && await verifyToken(env, asKey)) {
+          return json({
+            ok: false,
+            error: '管理令牌不能当模型 Key 用：模型 Key 放 Authorization，管理令牌放 X-Admin-Token'
+          }, 400, request, env);
+        }
+
         if (authOnly(request) && !env.XN_API_KEY) {
           /* 客户端带了自己的 Key，走代理 */
           return withHeaders(await proxyChat(request, env), request, env);
@@ -171,13 +187,24 @@ export default {
            没解锁的请求一律落到试跑分支，人是最后那道 merge 关。 */
         const admin = await verifyToken(env, bearer(request));
         const publicBranch = String(env.XN_PUBLIC_ITERATE_BRANCH || 'iterate/public').trim();
-        const rlKey = admin ? 'iterate' : 'iterate-pub';
-        const rlMax = admin ? 10 : 4;
-        const rl = await rateLimit(env, rlKey, clientIp(request), rlMax, 3600, true);
-        if (!rl.ok) return json({ ok: false, error: `迭代太频繁（${rlMax} 次/小时）` }, 429, request, env);
         let payload;
         try { payload = await readJson(request, 524288); }
         catch (e) { return json({ ok: false, error: e.message }, e.status || 400, request, env); }
+        /* 试运行单独记账：它只烧模型 token、不写仓库，不该和真跑抢同一份 10 次/小时。
+           分开以后，试运行即使打满也不会把真跑额度吃掉。 */
+        const dry = !!(payload && payload.dryRun);
+        const rlKey = (admin ? 'iterate' : 'iterate-pub') + (dry ? '-dry' : '');
+        const rlMax = admin ? (dry ? 20 : 10) : (dry ? 8 : 4);
+        const rl = await rateLimit(env, rlKey, clientIp(request), rlMax, 3600, true);
+        if (!rl.ok) {
+          return json({ ok: false, error: `迭代太频繁（${rlMax} 次/小时，${dry ? '试运行' : '真跑'}）` }, 429, request, env);
+        }
+        /* 同一 IP 的迭代串行：KV 计数是读-改-写，并发点击会绕过每小时额度。 */
+        const flightKey = rlKey + ':' + clientIp(request);
+        if (iterateInFlight.has(flightKey)) {
+          return json({ ok: false, error: '同一次迭代还没跑完，等它结束再点' }, 429, request, env);
+        }
+        iterateInFlight.add(flightKey);
         try {
           const opts = Object.assign({}, payload, {
             authorized: true,
@@ -191,6 +218,8 @@ export default {
           return withHeaders(tagged ? Response.json(tagged, { status: res.status }) : res, request, env);
         } catch (e) {
           return json({ ok: false, error: '迭代失败：' + (e.message || String(e)) }, 500, request, env);
+        } finally {
+          iterateInFlight.delete(flightKey);
         }
       }
 
@@ -218,7 +247,8 @@ export default {
           if (!sameOrigin(request, env)) return json({ ok: false, error: '来源不允许' }, 403, request, env);
           const rl = await rateLimit(env, 'feedback', clientIp(request), 5, 60, false);
           if (!rl.ok) return json({ ok: false, error: '提交太频繁' }, 429, request, env);
-          return json(await saveFeedback(request, env), 200, request, env);
+          const saved = await saveFeedback(request, env);
+          return json(saved, saved && saved.ok ? 200 : (saved.status || 400), request, env);
         }
         if (method === 'GET') {
           if (!(await verifyToken(env, bearer(request)))) {
@@ -226,7 +256,15 @@ export default {
           }
           return json(await listFeedback(request, env), 200, request, env);
         }
-        return json({ ok: false, error: '只接受 GET / POST' }, 405, request, env);
+        if (method === 'DELETE') {
+          /* 删除是管理动作：必须带管理员令牌，且默认要求同源（浏览器管理页）。 */
+          if (!sameOrigin(request, env)) return json({ ok: false, error: '来源不允许' }, 403, request, env);
+          if (!(await verifyToken(env, bearer(request)))) {
+            return json({ ok: false, error: '管理员会话无效' }, 401, request, env);
+          }
+          return json(await deleteFeedback(request, env), 200, request, env);
+        }
+        return json({ ok: false, error: '只接受 GET / POST / DELETE' }, 405, request, env);
       }
 
       if (path.startsWith('/api/')) return json({ ok: false, error: '没有这个接口' }, 404, request, env);
@@ -564,15 +602,24 @@ async function ipHash(request) {
   }
 }
 
+/* 反馈保留期：默认 180 天，环境变量 XN_FEEDBACK_TTL_DAYS 可调（1–365）。
+   审计里问「存一年有没有删除接口/隐私说明」——现在两者都有。 */
+function feedbackTtlDays(env) {
+  const n = Number((env && env.XN_FEEDBACK_TTL_DAYS) || 180);
+  if (!isFinite(n)) return 180;
+  return Math.max(1, Math.min(365, Math.round(n)));
+}
+
 async function saveFeedback(request, env) {
   let item;
   try { item = await readJson(request, MAX_FEEDBACK_BYTES); }
-  catch (e) { return { ok: false, error: e.message }; }
+  catch (e) { return { ok: false, error: e.message, status: e.status || 400 }; }
 
   const body = String((item && item.body) || '').trim();
   if (!body) return { ok: false, error: '内容为空' };
   if (body.length > 2000) return { ok: false, error: '内容太长' };
 
+  const ttlDays = feedbackTtlDays(env);
   const record = {
     id: String(item.id || '').replace(/[^\w.-]/g, '').slice(0, 40) || ('srv-' + Date.now().toString(36)),
     ts: new Date().toISOString(),
@@ -581,14 +628,15 @@ async function saveFeedback(request, env) {
     contact: String(item.contact || '').replace(/[<>&"']/g, '').slice(0, 80),
     ua: (request.headers.get('User-Agent') || '').slice(0, 120),
     ipHash: await ipHash(request),
+    retentionDays: ttlDays,
     status: 'new'
   };
 
   if (!env.XN_KV) return { ok: true, saved: 'none' };
   try {
     const key = 'fb:' + record.ts + ':' + Math.random().toString(36).slice(2, 7);
-    await env.XN_KV.put(key, JSON.stringify(record), { expirationTtl: 60 * 60 * 24 * 365 });
-    return { ok: true, saved: 'kv' };
+    await env.XN_KV.put(key, JSON.stringify(record), { expirationTtl: ttlDays * 86400 });
+    return { ok: true, saved: 'kv', retentionDays: ttlDays };
   } catch (e) {
     return { ok: false, error: '存储写不进去' };
   }
@@ -607,4 +655,56 @@ async function listFeedback(request, env) {
   }
   items.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
   return { ok: true, count: items.length, items };
+}
+
+/* 删除反馈：管理员令牌 + 同源（见路由）。支持 ?all=1 全删、?id=xxx 单条、
+   ?before=YYYY-MM-DD 删更早的。KV 只能按 prefix 列，删除前逐条读出来比对；
+   记录量很小（个人工作台），一次列全量即可。 */
+async function deleteFeedback(request, env) {
+  if (!env.XN_KV) return { ok: false, error: '这台服务器没配存储（KV）' };
+  const url = new URL(request.url);
+  const all = url.searchParams.get('all') === '1';
+  const id = String(url.searchParams.get('id') || '').trim();
+  const before = String(url.searchParams.get('before') || '').trim();
+  if (!all && !id && !before) {
+    return { ok: false, error: '要指定 ?all=1、?id=（记录 id）或 ?before=YYYY-MM-DD，避免误删' };
+  }
+  if (before) {
+    /* 不是格式对就算数：2026-13-45 / 9999-99-99 这种「格式像日期」的会被 Date 纠正，
+       真正的日期必须 ISO 回写完全一致，而且不能是未来（全删要显式 ?all=1）。 */
+    const d = new Date(before + 'T00:00:00Z');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(before) ||
+        !isFinite(d.getTime()) ||
+        d.toISOString().slice(0, 10) !== before) {
+      return { ok: false, error: 'before 要是真实日期 YYYY-MM-DD' };
+    }
+    if (before > new Date().toISOString().slice(0, 10)) {
+      return { ok: false, error: 'before 不能是未来日期；要全删请用 ?all=1' };
+    }
+  }
+
+  const names = [];
+  let cursor;
+  do {
+    const page = await env.XN_KV.list(Object.assign({ prefix: 'fb:', limit: 1000 }, cursor ? { cursor } : {}));
+    page.keys.forEach((k) => names.push(k.name));
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+
+  const doomed = [];
+  if (all) {
+    names.forEach((n) => doomed.push(n));
+  } else {
+    for (const name of names) {
+      const raw = await env.XN_KV.get(name);
+      if (!raw) { doomed.push(name); continue; }
+      let rec = null;
+      try { rec = JSON.parse(raw); } catch (e) { rec = null; }
+      if (id && rec && String(rec.id || '') === id) { doomed.push(name); continue; }
+      if (before && rec && String(rec.ts || '').slice(0, 10) < before) doomed.push(name);
+    }
+  }
+
+  await Promise.all(doomed.map((name) => env.XN_KV.delete(name)));
+  return { ok: true, deleted: doomed.length, scanned: names.length };
 }

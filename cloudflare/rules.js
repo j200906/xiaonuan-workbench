@@ -12,7 +12,26 @@ const FORBIDDEN = [
   /* 只在真的会被当 URL 用的位置拦 javascript:。
      原来是无脑匹配，模型在注释里写一句「禁止 javascript:」也会被判违规。 */
   { re: /(?:href|src|action)\s*=\s*["']?\s*javascript\s*:/i, label: 'javascript: 伪协议' },
-  { re: /\.(?:href|src)\s*=\s*["']\s*javascript\s*:/i, label: 'javascript: 伪协议' }
+  { re: /\.(?:href|src)\s*=\s*["']\s*javascript\s*:/i, label: 'javascript: 伪协议' },
+  /* 绕过 href/src 赋值的两个常见写法，一并堵上。 */
+  { re: /\blocation(?:\.href)?\s*=\s*["']?\s*javascript\s*:/i, label: 'javascript: 伪协议' },
+  { re: /setAttribute\s*\(\s*["'](?:href|src)["']\s*,\s*["']\s*javascript\s*:/i, label: 'javascript: 伪协议' },
+  /* 动态 import 只允许字面量路径：变量/拼接等于把「加载什么代码」交给运行时数据。 */
+  { re: /(?:^|[^.\w$])import\s*\(\s*[^'"`\s)]/, label: '动态 import 非字面量' },
+  /* 字面量绝对 URL 直接 fetch/XHR = 写死一个外传地址。
+     项目里所有接口地址都走变量（白名单在 shared.js），所以这条不会误伤。 */
+  { re: /\bfetch\s*\(\s*['"`]https?:\/\//i, label: '字面量外链 fetch' },
+  { re: /\.open\s*\(\s*['"](?:GET|POST|PUT|DELETE)['"]\s*,\s*['"`]https?:\/\//i, label: '字面量外链 XHR' }
+];
+
+/* 只提醒、不拦：innerHTML 这类写法项目里大量在用（app.core.js 等 50+ 处），
+   一刀切禁用会把正常改动全部判死；但它确实是 XSS 入口，所以每次出现都记账，
+   让日志和 review 时能看见「这一版动了 innerHTML」。 */
+const WARNINGS = [
+  { re: /\b(?:inner|outer)HTML\s*\+?\s*=/, label: 'innerHTML 赋值（确认插入内容已转义）' },
+  { re: /insertAdjacentHTML\s*\(/, label: 'insertAdjacentHTML（确认插入内容已转义）' },
+  { re: /document\.cookie\s*=/, label: '写 document.cookie（确认不是敏感信息）' },
+  { re: /localStorage\.setItem\s*\([^)]*\b(?:token|apiKey|secret|password)\b/i, label: 'localStorage 存密钥类字段（确认要落盘）' }
 ];
 
 const CONTROL = ['if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'constructor'];
@@ -21,6 +40,24 @@ export function forbidden(text) {
   const s = String(text || '');
   for (const f of FORBIDDEN) if (f.re.test(s)) return f.label;
   return '';
+}
+
+export function warnings(text) {
+  const s = String(text || '');
+  const out = [];
+  for (const w of WARNINGS) if (w.re.test(s) && out.indexOf(w.label) < 0) out.push(w.label);
+  return out;
+}
+
+/* 这些关键字后面出现的 `/` 是正则字面量的开头，不是除号：
+   `return /re/.test(x)` 靠「前一个字符」猜会当成除法，正则里的 `{`、`}`、引号
+   就会被当成代码里的括号，整份文件被误判成不配平。 */
+const REGEX_AFTER = ['return', 'typeof', 'instanceof', 'in', 'of', 'case', 'delete', 'void',
+  'new', 'throw', 'else', 'do', 'yield', 'await', 'default'];
+
+function wordBefore(s, i) {
+  const m = s.slice(Math.max(0, i - 16), i).match(/([A-Za-z_$][\w$]*)\s*$/);
+  return m ? m[1] : '';
 }
 
 export function balance(src) {
@@ -75,8 +112,10 @@ export function balance(src) {
 
     if (ch === '/' && next === '/') { mode = 'line'; i += 2; continue; }
     if (ch === '/' && next === '*') { mode = 'block'; i += 2; continue; }
-    /* 正则字面量：出现在 = ( [ { , : ; ! & | ? + - * % < > ~ ^ 之后 */
-    if (ch === '/' && (last === '' || '([{=,:;!&|?+-*%<>~^'.indexOf(last) >= 0)) {
+    /* 正则字面量：出现在 = ( [ { , : ; ! & | ? + - * % < > ~ ^ 之后，
+       或者出现在 return / typeof / case 等关键字之后。 */
+    if (ch === '/' && (last === '' || '([{=,:;!&|?+-*%<>~^'.indexOf(last) >= 0 ||
+      REGEX_AFTER.indexOf(wordBefore(s, i)) >= 0)) {
       mode = 'regex';
       inClass = false;
       i++;
@@ -200,10 +239,15 @@ export function validatePlan(files, plan, editable, opts = {}) {
       const label = '第 ' + (idx + 1) + ' 份';
       if (editable && editable.indexOf(file) < 0) throw new Error('不允许重写 ' + file);
       const content = String((r && r.content) || '');
-      if (content.length < 1500) throw new Error(label + ' 太短，像是被截断');
+      const orig = String(files[file] || '');
+      /* 绝对下限只对大文件成立：合法的 300 行小工具本来就不到 1500 字，
+         一刀切会把「短小但完整」的重写判成截断（Q61）。小文件仍由下面的
+         0.55 比例闸兜底，截断的大文件一样过不去。 */
+      const floor = Math.min(1500, Math.max(300, Math.floor(orig.length * 0.55)));
+      if (content.length < floor) throw new Error(label + ' 太短，像是被截断');
       if (content.length > 90000) throw new Error(label + ' 超过 90KB');
       if (/(…省略|\.\.\.\s*省略|truncated|其余不变)/i.test(content)) throw new Error(label + ' 含省略标记');
-      const ratio = content.length / Math.max(1, String(files[file] || '').length);
+      const ratio = content.length / Math.max(1, orig.length);
       if (ratio < 0.55) throw new Error(label + ' 比原文短太多（' + Math.round(ratio * 100) + '%），可能漏功能');
       const bad = forbidden(content);
       if (bad) throw new Error(label + ' 含被禁止的写法：' + bad);
@@ -256,7 +300,11 @@ export function validatePlan(files, plan, editable, opts = {}) {
 
   if (!touched.length) {
     const why = skipped.length ? '（' + skipped[0].reason + '）' : '';
-    throw new Error('这一版没有任何可应用的改动' + why);
+    const err = new Error('这一版没有任何可应用的改动' + why);
+    /* 把明细挂在错误上：调用方要能把「哪一处、为什么」回喂给模型或写进响应，
+       只给一句概括等于让人（和模型）瞎猜（Q65/Q66）。 */
+    err.skipped = skipped;
+    throw err;
   }
   return { files: out, touched, mode, skipped };
 }

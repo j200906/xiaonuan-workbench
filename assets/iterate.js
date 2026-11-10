@@ -8,7 +8,7 @@
   var $ = XN.$;
   var state = XN.state, API = XN.api, S = XN.store;
 
-  var GH_TOKEN = '';   /* 只存在内存：刷新即失效，绝不进 sessionStorage/localStorage */
+  /* GitHub Token 只在服务端（XN_GH_TOKEN），浏览器不再持有、也不落 DOM/存储。 */
 
   var IT = {
     running: false,
@@ -93,12 +93,6 @@
     return ['low', 'medium', 'high', 'max'].indexOf(v) >= 0 ? v : 'max';
   }
 
-  function currentToken() {
-    var raw = $('#ciToken') ? $('#ciToken').value.trim() : '';
-    if (raw) GH_TOKEN = raw;
-    return GH_TOKEN;
-  }
-
   function lockGuard() {
     /* 迭代界面不再要求先输密码：没解锁时服务端会把它落到试跑分支，不碰 main。 */
     if (!API.isProxy()) { XN.toast('自迭代需要云端或本地后端'); return false; }
@@ -115,9 +109,9 @@
     var args = modelArgs(pick);
     if (args.error) { XN.toast(args.error); return; }
 
-    var token = currentToken();
-    if (!token && !dryRun && !(state.cloudRepo || {}).serverToken) {
-      XN.toast('要真的提交，得填 GitHub Token（只存在内存）');
+    var serverToken = !!(state.cloudRepo || {}).serverToken;
+    if (!dryRun && !serverToken) {
+      XN.toast('服务器没配 GitHub Token（XN_GH_TOKEN），真跑提交不了。先用「试运行」看方案，或让管理员把 Token 配到服务器环境变量。');
       return;
     }
 
@@ -147,8 +141,7 @@
         body: JSON.stringify(Object.assign({
           dryRun: !!dryRun,
           triageOnly: !!triageOnly,
-          reasoningEffort: effortArg(),
-          token: token
+          reasoningEffort: effortArg()
         }, args)),
         signal: ctrl.signal,
         credentials: 'same-origin'

@@ -14,7 +14,27 @@
     { re: /new\s+Function\s*\(/, label: 'new Function' },
     { re: /document\.write\s*\(/, label: 'document.write' },
     { re: /<script[^>]+src\s*=\s*["']https?:/i, label: '外链脚本' },
-    { re: /javascript\s*:/i, label: 'javascript: 伪协议' }
+    /* 只在真的会被当 URL 用的位置拦 javascript:（与服务端 rules.js 完全一致）。
+       原来是无脑匹配，注释里写一句「禁止 javascript:」也会被判违规。 */
+    { re: /(?:href|src|action)\s*=\s*["']?\s*javascript\s*:/i, label: 'javascript: 伪协议' },
+    { re: /\.(?:href|src)\s*=\s*["']\s*javascript\s*:/i, label: 'javascript: 伪协议' },
+    /* 绕过 href/src 赋值的两个常见写法，一并堵上。 */
+    { re: /\blocation(?:\.href)?\s*=\s*["']?\s*javascript\s*:/i, label: 'javascript: 伪协议' },
+    { re: /setAttribute\s*\(\s*["'](?:href|src)["']\s*,\s*["']\s*javascript\s*:/i, label: 'javascript: 伪协议' },
+    /* 动态 import 只允许字面量路径：变量/拼接等于把「加载什么代码」交给运行时数据。 */
+    { re: /(?:^|[^.\w$])import\s*\(\s*[^'"`\s)]/, label: '动态 import 非字面量' },
+    /* 字面量绝对 URL 直接 fetch/XHR = 写死一个外传地址（项目里接口地址都走变量）。 */
+    { re: /\bfetch\s*\(\s*['"`]https?:\/\//i, label: '字面量外链 fetch' },
+    { re: /\.open\s*\(\s*['"](?:GET|POST|PUT|DELETE)['"]\s*,\s*['"`]https?:\/\//i, label: '字面量外链 XHR' }
+  ];
+
+  /* 只提醒、不拦：innerHTML 项目里大量在用，一刀切会把正常改动全判死；
+     但它是 XSS 入口，出现就记账，review 时重点看转义。 */
+  var WARNINGS = [
+    { re: /\b(?:inner|outer)HTML\s*\+?\s*=/, label: 'innerHTML 赋值（确认插入内容已转义）' },
+    { re: /insertAdjacentHTML\s*\(/, label: 'insertAdjacentHTML（确认插入内容已转义）' },
+    { re: /document\.cookie\s*=/, label: '写 document.cookie（确认不是敏感信息）' },
+    { re: /localStorage\.setItem\s*\([^)]*\b(?:token|apiKey|secret|password)\b/i, label: 'localStorage 存密钥类字段（确认要落盘）' }
   ];
 
   var CONTROL = ['if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'constructor'];
@@ -25,6 +45,25 @@
       if (FORBIDDEN[i].re.test(s)) return FORBIDDEN[i].label;
     }
     return '';
+  }
+
+  function warnings(text) {
+    var s = String(text || '');
+    var out = [];
+    for (var i = 0; i < WARNINGS.length; i++) {
+      if (WARNINGS[i].re.test(s) && out.indexOf(WARNINGS[i].label) < 0) out.push(WARNINGS[i].label);
+    }
+    return out;
+  }
+
+  /* 这些关键字后面的 `/` 是正则字面量，不是除号（`return /re/.test(x)`）。
+     只靠「前一个字符」猜会把正则里的括号当代码括号，误判整份文件不配平。 */
+  var REGEX_AFTER = ['return', 'typeof', 'instanceof', 'in', 'of', 'case', 'delete', 'void',
+    'new', 'throw', 'else', 'do', 'yield', 'await', 'default'];
+
+  function wordBefore(s, i) {
+    var m = s.slice(Math.max(0, i - 16), i).match(/([A-Za-z_$][\w$]*)\s*$/);
+    return m ? m[1] : '';
   }
 
   /* 括号配平扫描：忽略字符串、模板字符串、注释、正则字面量。
@@ -90,8 +129,10 @@
       /* code */
       if (ch === '/' && next === '/') { mode = 'line'; i += 2; continue; }
       if (ch === '/' && next === '*') { mode = 'block'; i += 2; continue; }
-      /* 正则字面量：只有出现在 = ( [ { , : ; ! & | ? + - * % < > ~ ^ 之后才是正则 */
-      if (ch === '/' && (last === '' || '([{=,:;!&|?+-*%<>~^'.indexOf(last) >= 0)) {
+      /* 正则字面量：只有出现在 = ( [ { , : ; ! & | ? + - * % < > ~ ^ 之后，
+         或者 return / typeof / case 等关键字之后才是正则 */
+      if (ch === '/' && (last === '' || '([{=,:;!&|?+-*%<>~^'.indexOf(last) >= 0 ||
+        REGEX_AFTER.indexOf(wordBefore(s, i)) >= 0)) {
         mode = 'regex';
         inClass = false;
         i++;
@@ -172,6 +213,41 @@
     return pats.some(function (re) { return re.test(source); });
   }
 
+  /* 单条补丁：所有检查都过了才写回 files，抛错时不动它。
+     拆出来是为了「部分应用」——一条补丁编错不该拖垮整轮自迭代（与服务端一致）。 */
+  function applyOnePatch(files, p, ordinal, editable) {
+    var label = '第 ' + ordinal + ' 处';
+    var file = String((p && p.file) || '');
+    if (editable && editable.indexOf(file) < 0) throw new Error('不允许改 ' + file);
+
+    var find = String((p && p.find) || '');
+    var replace = String((p && p.replace) || '');
+    if (find.length < 8) throw new Error(label + ' find 太短，容易误伤');
+    if (find.length > 8000) throw new Error(label + ' find 太长');
+    if (replace.length > 24000) throw new Error(label + ' 改动过大');
+
+    var bad = forbidden(replace);
+    if (bad) throw new Error(label + ' 含被禁止的写法：' + bad);
+
+    var source = files[file];
+    if (typeof source !== 'string') throw new Error('读不到 ' + file);
+    var first = source.indexOf(find);
+    if (first < 0) throw new Error(label + ' 在 ' + file + ' 里找不到原文');
+    if (source.indexOf(find, first + 1) >= 0) throw new Error(label + ' 原文不唯一');
+
+    var after = source.slice(0, first) + replace + source.slice(first + find.length);
+    var bal = /\.js$/.test(file) ? balance(after) : { ok: true };
+    if (!bal.ok) throw new Error(label + ' 会让 ' + file + ' 括号不配平：' + bal.reason);
+
+    var dupes = defsIn(replace).filter(function (name) {
+      return hasDef(source, name) && !hasDef(find, name);
+    });
+    if (dupes.length) throw new Error(label + ' 重复定义：' + dupes.join('、'));
+
+    files[file] = after;
+    return file;
+  }
+
   function applyPatches(files, patches, editable, opts) {
     opts = opts || {};
     var max = opts.maxPatches || 8;
@@ -180,35 +256,7 @@
 
     var touched = [];
     patches.forEach(function (p, idx) {
-      var label = '第 ' + (idx + 1) + ' 处';
-      var file = String((p && p.file) || '');
-      if (editable && editable.indexOf(file) < 0) throw new Error('不允许改 ' + file);
-
-      var find = String((p && p.find) || '');
-      var replace = String((p && p.replace) || '');
-      if (find.length < 8) throw new Error(label + ' find 太短，容易误伤');
-      if (find.length > 8000) throw new Error(label + ' find 太长');
-      if (replace.length > 24000) throw new Error(label + ' 改动过大');
-
-      var bad = forbidden(replace);
-      if (bad) throw new Error(label + ' 含被禁止的写法：' + bad);
-
-      var source = files[file];
-      if (typeof source !== 'string') throw new Error('读不到 ' + file);
-      var first = source.indexOf(find);
-      if (first < 0) throw new Error(label + ' 在 ' + file + ' 里找不到原文');
-      if (source.indexOf(find, first + 1) >= 0) throw new Error(label + ' 原文不唯一');
-
-      var after = source.slice(0, first) + replace + source.slice(first + find.length);
-      var bal = /\.js$/.test(file) ? balance(after) : { ok: true };
-      if (!bal.ok) throw new Error(label + ' 会让 ' + file + ' 括号不配平：' + bal.reason);
-
-      var dupes = defsIn(replace).filter(function (name) {
-        return hasDef(source, name) && !hasDef(find, name);
-      });
-      if (dupes.length) throw new Error(label + ' 重复定义：' + dupes.join('、'));
-
-      files[file] = after;
+      var file = applyOnePatch(files, p, idx + 1, editable);
       if (touched.indexOf(file) < 0) touched.push(file);
     });
     return touched;
@@ -229,10 +277,13 @@
         var label = '第 ' + (idx + 1) + ' 份';
         if (editable && editable.indexOf(file) < 0) throw new Error('不允许重写 ' + file);
         var content = String((r && r.content) || '');
-        if (content.length < 1500) throw new Error(label + ' 太短，像是被截断');
+        var orig = String(files[file] || '');
+        /* 与服务端一致：绝对下限只对大文件成立，小工具由 0.55 比例闸兜底。 */
+        var floor = Math.min(1500, Math.max(300, Math.floor(orig.length * 0.55)));
+        if (content.length < floor) throw new Error(label + ' 太短，像是被截断');
         if (content.length > 90000) throw new Error(label + ' 超过 90KB');
         if (/(…省略|\.\.\.\s*省略|truncated|其余不变)/i.test(content)) throw new Error(label + ' 含省略标记');
-        var ratio = content.length / Math.max(1, String(files[file] || '').length);
+        var ratio = content.length / Math.max(1, orig.length);
         if (ratio < 0.55) throw new Error(label + ' 比原文短太多（' + Math.round(ratio * 100) + '%），可能漏功能');
         var bad = forbidden(content);
         if (bad) throw new Error(label + ' 含被禁止的写法：' + bad);
@@ -263,14 +314,32 @@
       });
     }
 
+    var skipped = [];
     if (Array.isArray(plan.patches) && plan.patches.length) {
-      applyPatches(out, plan.patches, editable, opts).forEach(function (f) {
-        if (touched.indexOf(f) < 0) touched.push(f);
-      });
+      if (opts.partial) {
+        /* 部分应用：编错的补丁跳过并记账，能用的照用（与服务端一致）。 */
+        plan.patches.slice(0, opts.maxPatches || 8).forEach(function (p, idx) {
+          try {
+            var f = applyOnePatch(out, p, idx + 1, editable);
+            if (touched.indexOf(f) < 0) touched.push(f);
+          } catch (e) {
+            skipped.push({ index: idx + 1, file: String((p && p.file) || ''), reason: e.message });
+          }
+        });
+      } else {
+        applyPatches(out, plan.patches, editable, opts).forEach(function (f) {
+          if (touched.indexOf(f) < 0) touched.push(f);
+        });
+      }
     }
 
-    if (!touched.length) throw new Error('这一版没有任何改动');
-    return { files: out, touched: touched, mode: mode };
+    if (!touched.length) {
+      var why = skipped.length ? '（' + skipped[0].reason + '）' : '';
+      var err = new Error('这一版没有任何可应用的改动' + why);
+      err.skipped = skipped;
+      throw err;
+    }
+    return { files: out, touched: touched, mode: mode, skipped: skipped };
   }
 
   function parseVersion(v) {
@@ -310,8 +379,10 @@
   return {
     balance: balance,
     forbidden: forbidden,
+    warnings: warnings,
     defsIn: defsIn,
     hasDef: hasDef,
+    applyOnePatch: applyOnePatch,
     applyPatches: applyPatches,
     validatePlan: validatePlan,
     parseVersion: parseVersion,
