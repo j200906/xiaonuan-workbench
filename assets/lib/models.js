@@ -48,10 +48,8 @@
     Object.keys(next || {}).forEach(function (k) { runtime[k] = next[k]; });
     runtime.gatewayReady = !!runtime.gatewayBase;
     if (next && next.cloudEnabled != null) runtime.cloudEnabled = !!next.cloudEnabled;
-    if (runtime.gatewayReady && !PROVIDERS.gateway.base) {
-      PROVIDERS.gateway.base = runtime.gatewayBase;
-      PROVIDERS.gateway.model = runtime.gatewayModel || '';
-    }
+    PROVIDERS.gateway.base = runtime.gatewayReady ? runtime.gatewayBase : '';
+    PROVIDERS.gateway.model = runtime.gatewayReady ? (runtime.gatewayModel || '') : '';
   }
 
   function provider(id) {

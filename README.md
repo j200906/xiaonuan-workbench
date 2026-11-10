@@ -8,10 +8,11 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.5.1**
+当前版本 **v1.5.2**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
+- **v1.5.2** 网关地址每次下发都生效
 - **v1.5.1** 本地版能用了：人格可见、网关直连、迭代写本地
 - **v1.5.0** 100 条体检全部处理
 <!-- /XN:RECENT -->

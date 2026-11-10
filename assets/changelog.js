@@ -1,5 +1,17 @@
-/* 版本记录（最近 9 条）。自动迭代会写回这里，超过 12 条自动移入 changelog.archive.js。 */
+/* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
+  {
+    "version": "1.5.2",
+    "date": "2026-11-10",
+    "title": "网关地址每次下发都生效",
+    "fixes": [
+      "/api/config 再次下发网关地址时，模型清单里的 gateway 地址会跟着更新，不再只认第一次"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没有真实 /api/config 下发流程和 Cloudflare Pages 部署环境可验证；也没有在真机多浏览器上点模型下拉。"
+  },
   {
     "version": "1.5.1",
     "date": "2026-11-09",
