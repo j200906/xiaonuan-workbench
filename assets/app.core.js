@@ -369,6 +369,194 @@
   }
   XN.renderSessions = renderSessions;
 
+  /* ---------- 跨会话搜索 ----------
+   * 侧栏顶部用 JS 注入一个搜索框（index.html 不动），输入即扫所有会话的正文与标题。
+   * 结果最多 30 条，片段前后各留 30 字；点一条就切到那个会话并把那条消息闪一下。
+   * 语言文案走本地小表：i18n.js 这次不在改动范围内，新增 key 会破坏键一致断言。 */
+  var SEARCH_LIMIT = 30;
+  var SEARCH_PAD = 30;
+  var SEARCH_LABELS = {
+    'zh-CN': { placeholder: '搜索全部对话…', empty: '没有匹配的对话', aria: '搜索全部对话' },
+    'zh-TW': { placeholder: '搜尋全部對話…', empty: '沒有符合的對話', aria: '搜尋全部對話' },
+    en: { placeholder: 'Search all chats…', empty: 'No matches', aria: 'Search all chats' }
+  };
+
+  function searchLabel(key) {
+    var loc = XN.i18n && XN.i18n.locale ? XN.i18n.locale() : 'zh-CN';
+    var row = SEARCH_LABELS[loc] || SEARCH_LABELS['zh-CN'];
+    return row[key] || SEARCH_LABELS['zh-CN'][key];
+  }
+
+  function injectSearchStyle() {
+    if (document.getElementById('xnSearchStyle')) return;
+    var style = document.createElement('style');
+    style.id = 'xnSearchStyle';
+    style.textContent = [
+      '.xn-search { position: relative; margin: 0 0 8px; }',
+      '.xn-search-box { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink-4); }',
+      '.xn-search-box:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px rgba(180, 85, 58, .12); }',
+      '.xn-search-box svg { flex: none; }',
+      '.xn-search-box input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 12.5px; }',
+      '.xn-search-box input::-webkit-search-cancel-button { display: none; }',
+      '.xn-search-box kbd { flex: none; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; font: 500 .7em/1 var(--font); color: var(--ink-4); }',
+      '.xn-search-results { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 40; max-height: 60vh; overflow-y: auto; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-1); }',
+      '.xn-hit { display: block; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }',
+      '.xn-hit:hover, .xn-hit:focus-visible { background: var(--sunk); }',
+      '.xn-hit-title { display: block; font-size: 12px; color: var(--ink-2); }',
+      '.xn-hit-body { display: block; margin-top: 2px; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); }',
+      '.xn-hit mark { padding: 0 1px; border-radius: 3px; background: var(--accent-soft); color: inherit; }',
+      '.xn-hit-empty { margin: 0; padding: 8px 10px; font-size: 12px; color: var(--ink-4); }',
+      '.msg.xn-flash { animation: xnFlash 1.6s ease; }',
+      '@keyframes xnFlash { from { background: var(--accent-soft); } to { background: transparent; } }'
+    ].join('\n');
+    document.head.appendChild(style);
+  }
+
+  /* 片段：命中处前后各留 30 字，只对命中的那截加 <mark>，其余照常转义 */
+  function snippetHtml(text, at, len) {
+    var start = Math.max(0, at - SEARCH_PAD);
+    var end = Math.min(text.length, at + len + SEARCH_PAD);
+    var tidy = function (s) { return U.esc(s.replace(/\s+/g, ' ')); };
+    return (start > 0 ? '…' : '') +
+      tidy(text.slice(start, at)) +
+      '<mark>' + tidy(text.slice(at, at + len)) + '</mark>' +
+      tidy(text.slice(at + len, end)) +
+      (end < text.length ? '…' : '');
+  }
+
+  function searchSessions(raw) {
+    var q = String(raw == null ? '' : raw).trim();
+    if (!q) return [];
+    var needle = q.toLowerCase();
+    var hits = [];
+    state.sessions.forEach(function (s) {
+      if (hits.length >= SEARCH_LIMIT) return;
+      var title = sessionTitle(s);
+      var storedTitle = String(s.title || '');
+      var titleHit = title.toLowerCase().indexOf(needle) >= 0 || storedTitle.toLowerCase().indexOf(needle) >= 0;
+      var bodyHit = false;
+      (s.messages || []).forEach(function (m) {
+        if (hits.length >= SEARCH_LIMIT) return;
+        var text = String(m.content || '');
+        var at = text.toLowerCase().indexOf(needle);
+        if (at < 0) return;
+        bodyHit = true;
+        hits.push({ sid: s.id, mid: m.id || '', title: title, html: snippetHtml(text, at, q.length) });
+      });
+      /* 只命中标题的会话也给一条，片段取第一条有内容的正文 */
+      if (titleHit && !bodyHit && hits.length < SEARCH_LIMIT) {
+        var first = (s.messages || []).filter(function (m) { return m.content; })[0];
+        var body = first ? String(first.content) : '';
+        hits.push({
+          sid: s.id, mid: (first && first.id) || '', title: title,
+          html: U.esc(body.slice(0, 60)) + (body.length > 60 ? '…' : '')
+        });
+      }
+    });
+    return hits.slice(0, SEARCH_LIMIT);
+  }
+  XN.searchSessions = searchSessions;
+
+  function renderSearch(raw) {
+    var panel = $('#xnSearchResults');
+    if (!panel) return;
+    var q = String(raw == null ? '' : raw).trim();
+    if (!q) { panel.hidden = true; panel.innerHTML = ''; return; }
+    var hits = searchSessions(q);
+    panel.hidden = false;
+    if (!hits.length) {
+      panel.innerHTML = '<p class="xn-hit-empty">' + U.esc(searchLabel('empty')) + '</p>';
+      return;
+    }
+    panel.innerHTML = hits.map(function (h) {
+      return '<button class="xn-hit" type="button" role="option" data-sid="' + U.esc(h.sid) + '" data-mid="' + U.esc(h.mid) + '">' +
+        '<span class="xn-hit-title">' + U.esc(h.title) + '</span>' +
+        '<span class="xn-hit-body">' + h.html + '</span>' +
+        '</button>';
+    }).join('');
+  }
+
+  function closeSearch(clear) {
+    var panel = $('#xnSearchResults');
+    if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+    if (clear) {
+      var input = $('#xnSearchInput');
+      if (input) { input.value = ''; if (document.activeElement === input) input.blur(); }
+    }
+  }
+
+  function flashMessage(mid) {
+    var box = $('#messages');
+    if (!box || !mid) return;
+    var id = String(mid);
+    var sel = (root.CSS && root.CSS.escape) ? '[data-mid="' + root.CSS.escape(id) + '"]' : '[data-mid="' + id.replace(/["\\]/g, '') + '"]';
+    var node = box.querySelector(sel);
+    if (!node) { box.scrollTop = 0; return; }
+    if (node.scrollIntoView) node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    node.classList.remove('xn-flash');
+    void node.offsetWidth;
+    node.classList.add('xn-flash');
+    setTimeout(function () { node.classList.remove('xn-flash'); }, 1700);
+  }
+
+  function openSearchHit(sid, mid) {
+    if (!sid) return;
+    closeSearch(true);
+    openSession(sid);
+    if (mid) setTimeout(function () { flashMessage(mid); }, 60);
+  }
+
+  function mountSearch() {
+    var side = $('#side');
+    if (!side || $('#xnSearch')) return;
+    injectSearchStyle();
+    var wrap = document.createElement('div');
+    wrap.className = 'xn-search';
+    wrap.id = 'xnSearch';
+    wrap.innerHTML = '<label class="xn-search-box">' +
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6.4"/><path d="M16 16l4.6 4.6" stroke-linecap="round"/></svg>' +
+      '<input id="xnSearchInput" type="search" autocomplete="off" spellcheck="false" aria-label="' + U.esc(searchLabel('aria')) + '" placeholder="' + U.esc(searchLabel('placeholder')) + '">' +
+      '<kbd>⌘K</kbd>' +
+      '</label>' +
+      '<div class="xn-search-results" id="xnSearchResults" role="listbox" aria-label="搜索结果" hidden></div>';
+    var head = side.querySelector('.side-head');
+    if (head && head.nextSibling) side.insertBefore(wrap, head.nextSibling);
+    else side.appendChild(wrap);
+
+    /* ⌘K 从「新对话」改绑到搜索，按钮上那枚提示别留着误导人 */
+    var staleKbd = document.querySelector('#btnNew kbd');
+    if (staleKbd) staleKbd.hidden = true;
+
+    var input = $('#xnSearchInput');
+    var panel = $('#xnSearchResults');
+    if (!input || !panel) return;
+
+    input.addEventListener('input', function () { renderSearch(input.value); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeSearch(true); }
+      else if (e.key === 'Enter') {
+        var first = panel.querySelector('.xn-hit');
+        if (first) { e.preventDefault(); first.click(); }
+      }
+    });
+    panel.addEventListener('click', function (e) {
+      var hit = e.target && e.target.closest ? e.target.closest('.xn-hit') : null;
+      if (!hit) return;
+      openSearchHit(hit.dataset.sid, hit.dataset.mid);
+    });
+    /* 切语言后占位符跟着换 */
+    if (XN.on) {
+      XN.on('locale:change', function () {
+        var box = $('#xnSearchInput');
+        if (!box) return;
+        box.setAttribute('placeholder', searchLabel('placeholder'));
+        box.setAttribute('aria-label', searchLabel('aria'));
+        if (panel && !panel.hidden) renderSearch(box.value);
+      });
+    }
+  }
+  XN.mountSearch = mountSearch;
+
   /* ---------- 对话渲染 ---------- */
   function scrollBottom(force) {
     var box = $('#messages');
@@ -388,6 +576,7 @@
     var div = document.createElement('div');
     div.className = 'msg ' + (m.role === 'user' ? 'user' : 'bot');
     div.dataset.id = m.id || '';
+    div.dataset.mid = m.id || '';
 
     if (m.role === 'user') {
       div.innerHTML = '<div class="body"><div class="content"></div></div>';
@@ -981,6 +1170,7 @@
   /* ---------- 绑定 ---------- */
   function bind() {
     $('#btnNew').addEventListener('click', function () { newSession(); });
+    mountSearch();
 
     /* 侧栏用事件委托：以后动态加视图也不会漏绑 */
     document.addEventListener('click', function (e) {
@@ -1087,10 +1277,13 @@
         if (state.sending && state.abort) state.abort.abort();
         closeSide();
         closePick();
+        closeSearch(false);
       }
       if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'k') {
         e.preventDefault();
-        newSession();
+        openSide();
+        var box = $('#xnSearchInput');
+        if (box) { box.focus(); box.select(); }
       }
     });
 
