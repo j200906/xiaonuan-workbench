@@ -282,7 +282,7 @@ textarea { resize: vertical; line-height: 1.65; }
 .model-pill:hover { color: var(--ink); border-color: var(--ink-4); }
 
 .pane { flex: 1; min-height: 0; overflow-y: auto; }
-.pane-chat { display: flex; flex-direction: column; overflow: hidden; }
+.pane-chat { display: flex; flex-direction: column; overflow: hidden; position: relative; isolation: isolate; }
 
 /* ============ 对话 ============ */
 .scroll { flex: 1; overflow-y: auto; padding: 10px 20px 4px; }
@@ -290,6 +290,40 @@ textarea { resize: vertical; line-height: 1.65; }
   max-width: 720px;
   margin: 0 auto;
   padding-bottom: 8px;
+}
+
+/* ============ 聊天区水印 ============ */
+/* 单张内联 SVG：居中偏上、极淡，只做纸面气氛；不接事件、不被选中、不进打印。
+ * 基准是整个 .pane-chat（见上面那条的 position/isolation），所以即便塞进 #messages
+ * 也不会被滚动带走或重复出现；z-index:-1 让它垫在消息文字与输入框面板之下。 */
+.xn-watermark {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(22vw, 220px);
+  max-width: min(22vw, 220px);
+  height: auto;
+  max-height: min(44%, 300px);
+  opacity: .05;
+  color: var(--ink);
+  fill: currentColor;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: -1;
+}
+[data-theme="dark"] .xn-watermark { opacity: .035; }
+
+@media (max-width: 640px) {
+  .xn-watermark {
+    width: min(30vw, 140px);
+    max-width: min(30vw, 140px);
+  }
+}
+
+@media print {
+  .xn-watermark { display: none !important; }
 }
 
 .empty {
