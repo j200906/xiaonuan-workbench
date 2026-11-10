@@ -37,7 +37,9 @@ const EDITABLE = [
   'assets/lib/md.js',
   'assets/lib/models.js',
   'assets/lib/api.js',
-  'assets/lib/patch.js'
+  'assets/lib/patch.js',
+  'assets/lib/plugin.js',
+  'assets/plugins/export-session.js'
 ];
 
 const VERSION_FILE = 'assets/version.js';

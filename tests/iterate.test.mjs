@@ -58,6 +58,8 @@ const FILES = [
   'assets/lib/models.js',
   'assets/lib/api.js',
   'assets/lib/patch.js',
+  'assets/lib/plugin.js',
+  'assets/plugins/export-session.js',
   'README.md',
   'assets/changelog.js',
   'assets/changelog.archive.js',

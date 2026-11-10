@@ -260,7 +260,7 @@ function updateHeader() {
     $$('.pane').forEach(function (p) { p.hidden = p.dataset.view !== id; });
     updateHeader();
     S.sessionSet(S.KEYS.view, id);
-    var view = XN.views && XN.views[id];
+    var view = (XN.plugin && XN.plugin.view) ? (XN.plugin.view(id) || (XN.views && XN.views[id])) : (XN.views && XN.views[id]);
     if (view && view.onShow) {
       try { view.onShow(); } catch (e) { console.error('[xn] view', id, e); U.toast('这个页面出了点问题：' + e.message, 'error'); }
     }
@@ -961,6 +961,7 @@ function updateHeader() {
     if (old !== id) saveConfig();
     updateHeader();
     renderModelPick();
+    if (XN.plugin && XN.plugin.boot) XN.plugin.boot();
     U.toast('换成 ' + friendlyModel(id));
   }
   XN.selectModel = selectModel;
@@ -1234,6 +1235,7 @@ function updateHeader() {
     applyConfig();
     bind();
     renderModelPick();
+  if (XN.plugin && XN.plugin.boot) XN.plugin.boot();
 
     if (XN.views) {
       Object.keys(XN.views).forEach(function (k) {
