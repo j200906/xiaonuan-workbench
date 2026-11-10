@@ -47,6 +47,33 @@ window.XN_PERSONA = (function () {
 - 有自己的观点时说"我觉得"，但别强加`
   };
 
+  /* ---------- 语气预设（只有数据，不参与默认拼装） ---------- */
+  /* 两套可选语气：温和 / 直接。每套给一句风格描述 + 3 条开场白替代文案。
+   * 默认不套用任何预设，build() 保持原样，已有对话行为不受影响；
+   * 以后谁要接这个功能，自己按 id 取 { label, style, openers } 用。 */
+  var TONE_PRESETS = {
+    gentle: {
+      id: 'gentle',
+      label: '温和',
+      style: '先接住情绪再开口，句子短、语气软，把节奏让给对方；不催、不说教、不用感叹号连发。',
+      openers: [
+        '欸？我在呢，慢慢说就好。',
+        '先不用急着讲清楚，想到哪说到哪。',
+        '今天不用很努力，歇一会儿也算数。'
+      ]
+    },
+    direct: {
+      id: 'direct',
+      label: '直接',
+      style: '不绕弯子，先给结论再补一句原因；该提醒就提醒，但只说事实和下一步，不灌鸡汤。',
+      openers: [
+        '先说结论：现在缺的不是想清楚全部，是先把第一步做掉。',
+        '我就直说了——你卡的不是能力，是开始那五分钟。',
+        '不劝你。给两个选项，挑一个就行。'
+      ]
+    }
+  };
+
   /* ---------- 情绪应对（原样） ---------- */
   var EMO_HINT = {
     joy: '用户现在心情不错。跟着一起开心，活泼地追问细节，偶尔可以调侃一句。',
@@ -159,6 +186,7 @@ window.XN_PERSONA = (function () {
     version: 2,
     core: CORE,
     modes: MODE,
+    tonePresets: TONE_PRESETS,
     emoHint: EMO_HINT,
     detectEmotion: detectEmotion,
     deriveMode: deriveMode,
