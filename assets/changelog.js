@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.7.3",
+    "date": "2026-11-10",
+    "title": "文档：海马体全盘照搬 + 迭代前先查原话",
+    "fixes": ["docs/HIPPOCAMPUS.md 改为全盘照搬上游 README（含边界与许可），补小暖接入说明；lessons 生成器带上 recall/trace 用法，自迭代重建时不再丢"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.7.2",
     "date": "2026-11-10",
     "title": "文档：长期记忆（海马体）落地",

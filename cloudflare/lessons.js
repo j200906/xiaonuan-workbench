@@ -99,7 +99,15 @@ export function renderLessons(lessons, reviewedThrough) {
     return '- （seen ' + (Number(l.seen) || 1) + '）' + hard + l.rule +
       (l.why ? '\n  为什么：' + l.why : '');
   }).join('\n\n');
-  return head + '\n' + (body || '（还没有教训）') + '\n';
+  /* 这段是补充说明，不是教训条目：每次重建文件都要带上，否则会丢 */
+  const tail = '\n---\n\n' +
+    '## 改代码前先查原话（海马体）\n\n' +
+    '上面的规则回答不了「上次为什么这么定」。那种问题去查原话：\n\n' +
+    '- recall：给一句话、日期或编号，返回那一段的原话。分「想起来了」和「有点像是」两档，后者不当证据用。\n' +
+    '- trace：一字不差查某句在不在库里，给出会话号 + 行号，并区分「你说的 / 你转发的 / 我说的 / 只是手上的操作」。\n\n' +
+    '硬线：trace 说没有，就是这条线的库里没有——别拿 recall 里「很像的一段」顶替。\n' +
+    '不装插件也能查：node cli.mjs recall "<工作区>" "<线索>"。详见 docs/HIPPOCAMPUS.md。\n';
+  return head + '\n' + (body || '（还没有教训）') + '\n' + tail;
 }
 
 async function readKv(env) {
