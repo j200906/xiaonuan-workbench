@@ -1,6 +1,22 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.7",
+    "date": "2026-11-10",
+    "title": "旧键迁移从未执行，现自动跑",
+    "fixes": [
+      "store.js 的 KEYS 补上 locale，让迁移表能引用到 xn.v2.locale",
+      "LEGACY.sessions 增加 xn.chat.v1，和 app.core.js 里读的旧会话键对齐",
+      "LEGACY 增加 locale 一栏（旧键 xn.locale），迁移覆盖到语言设置",
+      "store.js 末尾真正调用一次 migrate()：以前只定义和导出、从没被调用，老用户的 xn.* 旧键永远搬不过来",
+      "迁移成功日志从 XN.console 改成全局 console，否则永远打不出来"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没在真浏览器、隐私模式、配额接近满的情况下验证迁移；'xn.locale' 这个旧键是按命名推断补的，没找到历史写入证据；没验证多标签页同时打开时两个页面同时迁移的竞态。"
+  },
+  {
     "version": "1.5.6",
     "date": "2026-11-10",
     "title": "六项体检问题一起修",
@@ -165,30 +181,6 @@ window.XN_CHANGELOG = [
     "features": [
       "自迭代现在用模型条里选的那个模型，并带上对应的服务商地址",
       "选云端模型时自动走服务器自带推理，不传你的 Key"
-    ],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.4",
-    "date": "2026-11-09",
-    "title": "GLM 关掉思考，25 秒变 14 秒",
-    "fixes": [
-      "GLM 默认先想一大段（25 秒），中间界面全白，看着像调用失败",
-      "关掉思考（enable_thinking:false）后 14 秒出首字、16 秒完成，且不再输出大段思考",
-      "等待期间显示「正在想…」，不再一片空白"
-    ],
-    "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
     ],
     "source": "manual"
   }
