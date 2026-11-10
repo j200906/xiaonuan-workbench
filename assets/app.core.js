@@ -961,6 +961,7 @@ function updateHeader() {
     if (old !== id) saveConfig();
     updateHeader();
     renderModelPick();
+    if (XN.plugin && XN.plugin.boot) XN.plugin.boot();
     U.toast('换成 ' + friendlyModel(id));
   }
   XN.selectModel = selectModel;
@@ -1234,6 +1235,7 @@ function updateHeader() {
     applyConfig();
     bind();
     renderModelPick();
+  if (XN.plugin && XN.plugin.boot) XN.plugin.boot();
 
     if (XN.views) {
       Object.keys(XN.views).forEach(function (k) {

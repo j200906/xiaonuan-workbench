@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.10.0",
+    "date": "2026-11-10",
+    "title": "插件化第一步：能力可以一行挂上去",
+    "fixes": ["新增 assets/lib/plugin.js 插件运行时（register/boot/setEnabled/list）、assets/plugins/export-session.js 示例插件、设置页插件开关卡、docs/ARCHITECTURE.md 架构对照与路线图"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.9.2",
     "date": "2026-11-10",
     "title": "迭代页守卫补进 switchView",

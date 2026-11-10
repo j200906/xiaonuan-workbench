@@ -8,7 +8,7 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.9.2**
+当前版本 **v1.10.0**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
