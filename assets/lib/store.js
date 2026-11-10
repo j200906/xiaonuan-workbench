@@ -164,21 +164,54 @@
     return moved;
   }
 
+  /* 内存里的一份 UTF-8 编码器：localStorage 存的是 UTF-16 字符串，但配额一般按字节算，
+     所以用量统计统一折成 UTF-8 字节数；拿不到 TextEncoder 就退回 Blob，再不行按 2 字节/字符估。 */
+  var QUOTA_BYTES = 5 * 1024 * 1024;
+  var encoder = null;
+
+  function byteLength(str) {
+    var s = String(str == null ? '' : str);
+    try {
+      if (!encoder && root.TextEncoder) encoder = new root.TextEncoder();
+      if (encoder) return encoder.encode(s).length;
+      if (root.Blob) return new root.Blob([s]).size;
+    } catch (e) { /* 落到下面的估算 */ }
+    return s.length * 2;
+  }
+
+  /* 只是估算：浏览器没有同步的配额查询接口（navigator.storage.estimate 是异步的），
+     常见上限按 5MB 算，给出「够用 / 偏紧 / 快满」三档供 UI 提示。 */
+  function quotaHint(totalBytes) {
+    var ratio = QUOTA_BYTES > 0 ? Math.min(1, totalBytes / QUOTA_BYTES) : 0;
+    return {
+      assumedQuotaBytes: QUOTA_BYTES,
+      usedRatio: Math.round(ratio * 1000) / 1000,
+      level: ratio >= 0.9 ? 'full' : (ratio >= 0.7 ? 'warn' : 'ok')
+    };
+  }
+
+  /* 存储用量统计：只统计当前格式的 xn.v2.* 键（旧 xn.* 键迁移后就该消失）。 */
   function usage() {
-    var total = 0;
-    var rows = [];
+    var totalBytes = 0;
+    var keys = [];
     try {
       for (var i = 0; i < root.localStorage.length; i++) {
         var k = root.localStorage.key(i);
-        if (!k || k.indexOf('xn.') !== 0) continue;
-        var len = (root.localStorage.getItem(k) || '').length;
-        var cost = len * 2;
-        total += cost;
-        rows.push({ key: k, bytes: cost });
+        if (!k || k.indexOf('xn.v2.') !== 0) continue;
+        var bytes = byteLength(root.localStorage.getItem(k));
+        totalBytes += bytes;
+        keys.push({ key: k, bytes: bytes });
       }
     } catch (e) { /* 隐私模式下拿不到 */ }
-    rows.sort(function (a, b) { return b.bytes - a.bytes; });
-    return { bytes: total, rows: rows };
+    keys.sort(function (a, b) { return b.bytes - a.bytes; });
+    return {
+      keys: keys,
+      totalBytes: totalBytes,
+      quotaHint: quotaHint(totalBytes),
+      /* 兼容旧调用方（设置页数据卡读 usage().bytes） */
+      bytes: totalBytes,
+      rows: keys
+    };
   }
 
   function onPrune(fn) { pruneHook = fn; }
