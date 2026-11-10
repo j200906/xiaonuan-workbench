@@ -164,37 +164,6 @@
     pwd.focus();
   },
 
-  /* 插件：DSH 那种「一行挂一个能力」的最小版 */
-  renderPlugins() {
-    var board = document.querySelector('#view-settings .board');
-    if (!board || board.querySelector('#pluginCard')) return;
-    var list = (XN.plugin && XN.plugin.list) ? XN.plugin.list() : [];
-    var card = document.createElement('article');
-    card.className = 'card wide';
-    card.id = 'pluginCard';
-    var html = '<header class="card-head"><h2>插件</h2><span class="card-meta">' + list.length + ' 个</span></header>';
-    if (!list.length) {
-      html += '<p class="hint">还没有插件。把 assets/plugins/*.js 加进 index.html 就会出现在这里。</p>';
-    } else {
-      html += '<div class="kv">';
-      list.forEach(function (p) {
-        html += '<div class="kv-row"><span>' + XN.esc(p.name) + (p.version ? ' <em>v' + XN.esc(p.version) + '</em>' : '') +
-          (p.description ? '<br><small class="hint">' + XN.esc(p.description) + '</small>' : '') +
-          '</span><label class="switch"><input type="checkbox" data-plugin="' + XN.esc(p.id) + '"' + (p.enabled ? ' checked' : '') + '><i></i></label></div>';
-      });
-      html += '</div>';
-    }
-    card.innerHTML = html;
-    board.appendChild(card);
-    card.querySelectorAll('input[data-plugin]').forEach(function (el) {
-      el.addEventListener('change', function () {
-        XN.plugin.setEnabled(el.getAttribute('data-plugin'), el.checked);
-        card.remove();
-        this.renderPlugins();
-      }, false);
-    });
-  },
-
   /* 反馈箱与迭代收进设置：给两个入口按钮 */
   renderQuickLinks() {
     var board = document.querySelector('#view-settings .board');
@@ -243,7 +212,6 @@
       this.renderPreview();
       this.renderStorage();
       this.renderQuickLinks();
-      this.renderPlugins();
 
       var locale = $('#setLocale');
       if (locale) locale.value = XN.i18n.locale();
