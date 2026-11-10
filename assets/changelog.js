@@ -9,7 +9,8 @@ window.XN_CHANGELOG = [
       "LEGACY.sessions 增加 xn.chat.v1，和 app.core.js 里读的旧会话键对齐",
       "LEGACY 增加 locale 一栏（旧键 xn.locale），迁移覆盖到语言设置",
       "store.js 末尾真正调用一次 migrate()：以前只定义和导出、从没被调用，老用户的 xn.* 旧键永远搬不过来",
-      "迁移成功日志从 XN.console 改成全局 console，否则永远打不出来"
+      "迁移成功日志从 XN.console 改成全局 console，否则永远打不出来",
+      "修：迁移不许把旧版 xn.admin 搬成 xn.v2.adminToken（令牌只留 sessionStorage，Q94 复核 L6），并补了一条回归测试"
     ],
     "features": [],
     "source": "cloud",

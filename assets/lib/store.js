@@ -132,6 +132,19 @@
     Object.keys(LEGACY).forEach(function (name) {
       var key = KEYS[name];
       if (!key) return;
+      /* 管理令牌只认 sessionStorage：旧版留在本机存储里的 xn.admin 直接删掉，
+         绝不搬进 xn.v2.adminToken —— 那等于让令牌永久落盘（Q94 复核 L6）。 */
+      if (name === 'admin') {
+        LEGACY.admin.forEach(function (old) {
+          if (rawGet(old) != null) {
+            try {
+              root.localStorage.removeItem(old);
+              moved.push(old + ' -> 丢弃（管理令牌只放 sessionStorage）');
+            } catch (e) { /* 隐私模式删不掉也不影响使用 */ }
+          }
+        });
+        return;
+      }
       if (rawGet(key) != null) return;
       for (var i = 0; i < LEGACY[name].length; i++) {
         var old = LEGACY[name][i];

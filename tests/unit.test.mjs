@@ -11,7 +11,7 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), 'utf8');
 }
 
-function loadClassic(files) {
+function loadClassic(files, seed = {}) {
   const sandbox = {
     console,
     setTimeout,
@@ -50,6 +50,7 @@ function loadClassic(files) {
   sandbox.XN = {};
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
+  for (const [k, v] of Object.entries(seed)) sandbox.localStorage._data[k] = String(v);
   vm.createContext(sandbox);
   for (const f of files) vm.runInContext(read(f), sandbox, { filename: f });
   return sandbox;
@@ -169,4 +170,19 @@ test('存储键统一到 xn.v2 且带迁移表', () => {
   const keys = Object.values(w.XN.store.KEYS);
   assert.ok(keys.every((k) => k.startsWith('xn.v2.')), '所有键都应是 xn.v2.*');
   assert.ok(Object.keys(w.XN.store.LEGACY).length >= 10, '旧键迁移表不能为空');
+});
+
+test('迁移不会把旧管理令牌搬进 localStorage', () => {
+  /* store.js 装载时会自动跑一次 migrate()。旧版把管理令牌放在 xn.admin（localStorage），
+     v1.5.5 起令牌只认 sessionStorage，所以迁移必须「删旧键」而不是「搬新键」——
+     否则令牌会以 xn.v2.adminToken 永久落盘（Q94 复核 L6）。 */
+  const w = loadClassic(['assets/lib/util.js', 'assets/lib/store.js'], {
+    'xn.admin': 'LEGACY-TOKEN-ABCD',
+    'xn.cfg.v1': '{"a":1}'
+  });
+  const data = w.localStorage._data;
+  assert.equal(data['xn.v2.adminToken'], undefined, '旧管理令牌不许写进 localStorage');
+  assert.equal(data['xn.admin'], undefined, '旧管理令牌要删掉，不能留在本机存储');
+  assert.equal(data['xn.v2.cfg'], '{"a":1}', '普通旧键照常迁移');
+  assert.equal(data['xn.cfg.v1'], undefined, '普通旧键迁移后要删掉');
 });
