@@ -129,7 +129,27 @@
       return cfg;
     },
 
-    render() {
+    /* 反馈箱与迭代收进设置：给两个入口按钮 */
+  renderQuickLinks() {
+    var board = document.querySelector('#view-settings .board');
+    if (!board || board.querySelector('#quickLinksCard')) return;
+    var card = document.createElement('article');
+    card.className = 'card wide';
+    card.id = 'quickLinksCard';
+    card.innerHTML = '<header class="card-head"><h2>工具</h2><span class="card-meta">从设置进入</span></header>' +
+      '<div class="arch-btns">' +
+      '<button class="btn sm" id="openFeedbackBtn" type="button">打开反馈箱</button>' +
+      '<button class="btn ghost sm" id="openIterateBtn" type="button">迭代（管理员）</button>' +
+      '</div>' +
+      '<p class="hint">反馈箱不再占侧栏；迭代页也不再挂在主界面，只有从这里的入口才会打开。</p>';
+    board.appendChild(card);
+    var fb = card.querySelector('#openFeedbackBtn');
+    if (fb) fb.addEventListener('click', function () { XN.switchView('feedback'); });
+    var it = card.querySelector('#openIterateBtn');
+    if (it) it.addEventListener('click', function () { XN.switchView('iterate'); });
+  },
+
+  render() {
       var keyEl = $('#setKey');
       keyEl.value = '';
       keyEl.placeholder = state.key ? '已保存（留空表示不改）' : 'sk-…';

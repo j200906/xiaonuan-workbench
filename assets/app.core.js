@@ -172,7 +172,8 @@
     var side = $('.side-foot');
     if (side) {
       var conn = side.querySelector('.conn');
-      var order = ['chat'].concat((state.cfg.nav || []).map(function (n) { return n.id; })).concat(['iterate', 'settings']);
+      /* 反馈箱和迭代已经收进设置页，不再出现在侧栏 */
+    var order = ['chat'].concat((state.cfg.nav || []).filter(function (n) { return n.id !== 'feedback' && n.id !== 'iterate'; }).map(function (n) { return n.id; })).concat(['settings']);
       order.forEach(function (id) {
         var btn = side.querySelector('.side-link[data-view="' + id + '"]');
         if (btn) side.insertBefore(btn, conn || null);
@@ -1167,6 +1168,9 @@ function updateHeader() {
     state.cfg.nav = (state.cfg.nav || []).filter(function (n) { return n.id !== 'chat'; });
     if (!state.cfg.nav.length) state.cfg.nav = defaultConfig().nav;
     state.cfg.labels = mergeConfig(defaultConfig().labels, state.cfg.labels || {});
+    if (Array.isArray(state.cfg.nav)) {
+      state.cfg.nav = state.cfg.nav.filter(function (n) { return n && n.id !== 'feedback' && n.id !== 'iterate'; });
+    }
 
     state.key = storedKey();
     state.gatewayKey = S.sessionGet('xn.v2.gatewayKey', '');
