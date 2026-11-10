@@ -487,57 +487,72 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
 
   await cdp.evaluate(`window.XN.switchView('chat')`);
 
-  /* 主页改造：模型条从页头挪进了输入框底栏（.composer-foot），文案要跟着当前模型走。 */
-  const pill = await cdp.evaluate(`(() => {
-    const el = document.querySelector('#modelPill');
-    if (!el) return { exists: false };
-    const parent = el.parentElement;
-    const cfg = (window.XN.state && window.XN.state.cfg) || {};
-    const trigger = document.querySelector('#modelPickText');
+  /* 主页改造⑤：输入框右下角那个模型名整块删掉了 —— 底栏只剩「提示语 / 联网 / 模型下拉 / 发送」，
+     模型名只在模型下拉里出现，且要是友好名。 */
+  const composerFoot = await cdp.evaluate(`(() => {
+    const foot = document.querySelector('#view-chat .composer-foot');
+    const composer = document.querySelector('.composer');
+    const whole = composer ? (composer.textContent || '') : '';
+    /* 去掉模型下拉本身再看文本：模型名只该出现在下拉里，别处不许重复。 */
+    const clone = composer ? composer.cloneNode(true) : null;
+    if (clone) {
+      const wrap = clone.querySelector('#modelPickWrap');
+      if (wrap) wrap.remove();
+    }
+    const rest = clone ? (clone.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+    const buttons = foot ? [...foot.querySelectorAll('button')].map((b) => b.id || b.className) : [];
     return {
-      exists: true,
-      parent: parent ? String(parent.className || parent.tagName) : '',
-      inFoot: !!el.closest('.composer-foot'),
-      text: (el.textContent || '').trim(),
-      model: String((cfg.tutor && cfg.tutor.model) || '').trim(),
-      trigger: trigger ? (trigger.textContent || '').trim() : ''
+      footExists: !!foot,
+      pillAnywhere: document.querySelectorAll('#modelPill, .model-pill').length,
+      pillInFoot: foot ? foot.querySelectorAll('.model-pill, #modelPill').length : -1,
+      hasCfRest: rest.includes('@cf/'),
+      hasGlmRest: rest.includes('GLM-4.7-Flash'),
+      hasCfWhole: whole.includes('@cf/'),
+      buttons,
+      text: rest.slice(0, 90)
     };
   })()`);
-  check('模型条在输入框底栏', pill.exists === true && pill.inFoot === true && /(^|\s)composer-foot(\s|$)/.test(pill.parent),
-    JSON.stringify(pill).slice(0, 160));
-  check('模型条显示当前模型名',
-    pill.exists === true && pill.text.length > 0 && (pill.text === pill.model || (!!pill.trigger && pill.text === pill.trigger)),
-    JSON.stringify(pill).slice(0, 160));
-  /* 云端模型的原始 id 长成 @cf/zai-org/glm-4.7-flash 这样，界面上要给友好名。 */
-  check('模型条不显示原始云端 id',
-    pill.exists === true && pill.text.length > 0 && !pill.text.includes('@cf/'),
-    JSON.stringify(pill).slice(0, 160));
+  check('输入框底栏不再有模型名',
+    composerFoot.footExists === true && composerFoot.pillInFoot === 0 && composerFoot.pillAnywhere === 0,
+    JSON.stringify(composerFoot).slice(0, 240));
+  check('输入框区域不出现模型名文本',
+    composerFoot.footExists === true && composerFoot.hasCfRest === false && composerFoot.hasGlmRest === false &&
+    composerFoot.hasCfWhole === false,
+    JSON.stringify(composerFoot).slice(0, 240));
 
-  /* 本地假上游不是云端模式，模型条一直是 deepseek-chat，光看它测不出「云端 id 泄漏」。
-     这里临时把当前模型改成云端原始 id 逼一次真实渲染，断言完立刻还原，不改任何配置。 */
-  const cloudPill = await cdp.evaluate(`(() => {
+  /* 模型名现在只在「模型下拉」里：临时把当前模型换成云端原始 id 逼一次真实渲染，
+     确认下拉文案是友好名（不是 @cf/...），且输入框区域仍然看不到原始 id。 */
+  const cloudPick = await cdp.evaluate(`(() => {
     const raw = '@cf/zai-org/glm-4.7-flash';
     const prev = window.XN.state.cfg.tutor.model;
-    let text = '';
+    let trigger = '';
+    let composerText = '';
     let threw = '';
     try {
       window.XN.state.cfg.tutor.model = raw;
-      if (typeof window.XN.refreshModelPill === 'function') window.XN.refreshModelPill();
-      else window.XN.switchView('chat');
-      const el = document.querySelector('#modelPill');
-      text = el ? (el.textContent || '').trim() : '';
+      if (typeof window.XN.renderModelPick === 'function') window.XN.renderModelPick();
+      const t = document.querySelector('#modelPickText');
+      trigger = t ? (t.textContent || '').trim() : '';
+      const c = document.querySelector('.composer');
+      composerText = c ? (c.textContent || '') : '';
     } catch (e) {
       threw = String((e && e.message) || e);
     } finally {
       window.XN.state.cfg.tutor.model = prev;
-      try { if (typeof window.XN.refreshModelPill === 'function') window.XN.refreshModelPill(); } catch (e) {}
+      try { if (typeof window.XN.renderModelPick === 'function') window.XN.renderModelPick(); } catch (e) {}
     }
-    return { raw, text, threw, restored: window.XN.state.cfg.tutor.model === prev };
+    return {
+      raw,
+      trigger,
+      threw,
+      restored: window.XN.state.cfg.tutor.model === prev,
+      hasCfInComposer: composerText.includes('@cf/')
+    };
   })()`);
-  check('云端原始 id 渲染成友好名',
-    cloudPill.threw === '' && cloudPill.restored === true &&
-    cloudPill.text.length > 0 && !cloudPill.text.includes('@cf/'),
-    JSON.stringify(cloudPill).slice(0, 180));
+  check('云端原始 id 在模型下拉里显示为友好名',
+    cloudPick.threw === '' && cloudPick.restored === true &&
+    cloudPick.trigger.length > 0 && !cloudPick.trigger.includes('@cf/') && cloudPick.hasCfInComposer === false,
+    JSON.stringify(cloudPick).slice(0, 200));
 
   /* 模型下拉：原生 select 的显示文本、自定义菜单的项名都要是友好名；value/data-id 保留原始 id 没关系。 */
   const modelOptions = await cdp.evaluate(`(() => {

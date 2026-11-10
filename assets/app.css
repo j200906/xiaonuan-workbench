@@ -267,19 +267,6 @@ textarea { resize: vertical; line-height: 1.65; }
   white-space: nowrap;
 }
 .head-right { display: flex; align-items: center; gap: 6px; }
-.model-pill {
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 99px;
-  background: transparent;
-  color: var(--ink-3);
-  font-size: .76em;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.model-pill:hover { color: var(--ink); border-color: var(--ink-4); }
 
 .pane { flex: 1; min-height: 0; overflow-y: auto; }
 .pane-chat { display: flex; flex-direction: column; overflow: hidden; position: relative; isolation: isolate; }
@@ -478,31 +465,8 @@ textarea { resize: vertical; line-height: 1.65; }
   gap: 10px;
   padding: 4px 10px 8px 16px;
 }
-/* 底栏模型条（模型条移到输入框底部后用）：靠右、小号字、次要色；窄屏省略不溢出 */
+/* 底栏只放「提示语 / 联网 / 模型下拉 / 发送」；模型名不在这里重复显示 */
 .composer-foot .composer-btns { margin-left: auto; }
-.composer-foot .model-pill {
-  margin-left: 8px;
-  flex: 0 1 auto;
-  min-width: 0;
-  min-height: 24px;
-  max-width: min(40vw, 180px);
-  padding: 2px 8px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--ink-3);
-  font-size: .72em;
-  line-height: 1.6;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: color var(--t) var(--ease), border-color var(--t) var(--ease), background var(--t) var(--ease);
-}
-.composer-foot .model-pill:hover,
-.composer-foot .model-pill:focus-visible {
-  color: var(--ink);
-  border-color: var(--ink-4);
-  background: var(--sunk);
-}
 .composer-hint { font-size: .73em; color: var(--ink-4); }
 .composer-btns { display: flex; align-items: center; gap: 6px; }
 .send {
@@ -845,7 +809,6 @@ textarea.prompt {
 
 @media (max-width: 560px) {
   .composer-hint { display: none; }
-  .model-pill { max-width: 120px; }
   .search { width: 120px; }
   .timer-num { font-size: 36px; }
 }
