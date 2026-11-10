@@ -1,6 +1,19 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.7",
+    "date": "2026-11-10",
+    "title": "图片只认 http(s) 与站内路径",
+    "fixes": [
+      "Markdown 图片改用独立白名单：只允许 http(s) 和站内相对路径，挡掉 mailto 等其它协议",
+      "链接仍走原 safeHref，行为不变"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没在真实浏览器里验证 CSP 下的图片加载；没跑 npm run ui 的整页点击"
+  },
+  {
     "version": "1.5.6",
     "date": "2026-11-10",
     "title": "六项体检问题一起修",
@@ -165,30 +178,6 @@ window.XN_CHANGELOG = [
     "features": [
       "自迭代现在用模型条里选的那个模型，并带上对应的服务商地址",
       "选云端模型时自动走服务器自带推理，不传你的 Key"
-    ],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.4",
-    "date": "2026-11-09",
-    "title": "GLM 关掉思考，25 秒变 14 秒",
-    "fixes": [
-      "GLM 默认先想一大段（25 秒），中间界面全白，看着像调用失败",
-      "关掉思考（enable_thinking:false）后 14 秒出首字、16 秒完成，且不再输出大段思考",
-      "等待期间显示「正在想…」，不再一片空白"
-    ],
-    "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
     ],
     "source": "manual"
   }

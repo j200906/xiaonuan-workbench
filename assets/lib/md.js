@@ -18,6 +18,15 @@
     return '';
   }
 
+  /* 图片单独走白名单：只允许 http(s) 与站内相对路径，挡掉 mailto 等其它协议 */
+  function imgSrc(raw) {
+    var url = String(raw || '').trim();
+    if (!url) return '';
+    if (/^https?:\/\//i.test(url)) return url;
+    if (/^(\/|\.\/)/.test(url)) return url;
+    return '';
+  }
+
   function inline(src) {
     var codes = [];
     var text = String(src == null ? '' : src);
@@ -32,7 +41,7 @@
 
     /* 图片：只允许 http(s)，不加载 data: */
     text = text.replace(/!\[([^\]]{0,120})\]\(([^\s)]+)(?:\s+"([^"]*)")?\)/g, function (m, alt, url, title) {
-      var href = safeHref(url);
+      var href = imgSrc(url);
       if (!href) return m;
       return '<img src="' + U.esc(href) + '" alt="' + U.esc(alt) + '"' +
         (title ? ' title="' + U.esc(title) + '"' : '') +
