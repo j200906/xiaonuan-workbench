@@ -1,6 +1,20 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.7",
+    "date": "2026-11-10",
+    "title": "加深次要文字对比度",
+    "fixes": [
+      "浅色 --ink-3 由 #5b5449 调到 #555046（相对 --paper 约 7.4:1），--ink-4 由 #766f61 调到 #6b6456（约 5.4:1），原来是 4.6:1 刚踩线",
+      "暗色 --ink-3 由 #b6ae9f 提到 #c4bcad，--ink-4 由 #9a9284 提到 #a89f8e，保证在更暗的 --panel-2 背景上也留出余量（约 8.6:1 / 6.2:1）",
+      "只改颜色令牌的取值，两处 prefers-reduced-motion 规则（theme.css 与 app.css）原样保留"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没在真实低亮度屏幕、强光环境和不同面板上做主观可读性评估；也没跑 npm run check / npm run ui（本次不涉及脚本与版本文件，版本号未动）。"
+  },
+  {
     "version": "1.5.6",
     "date": "2026-11-10",
     "title": "六项体检问题一起修",
@@ -165,30 +179,6 @@ window.XN_CHANGELOG = [
     "features": [
       "自迭代现在用模型条里选的那个模型，并带上对应的服务商地址",
       "选云端模型时自动走服务器自带推理，不传你的 Key"
-    ],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.4",
-    "date": "2026-11-09",
-    "title": "GLM 关掉思考，25 秒变 14 秒",
-    "fixes": [
-      "GLM 默认先想一大段（25 秒），中间界面全白，看着像调用失败",
-      "关掉思考（enable_thinking:false）后 14 秒出首字、16 秒完成，且不再输出大段思考",
-      "等待期间显示「正在想…」，不再一片空白"
-    ],
-    "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
     ],
     "source": "manual"
   }
