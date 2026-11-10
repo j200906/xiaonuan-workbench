@@ -182,12 +182,17 @@ async function askModel(env, opts, system, user, maxTokens) {
   }
 
   /* 本机网关优先：它挂的是能写代码的模型，比 Workers AI 自带那个 flash 强得多。
-     没配网关才退回 AI 绑定。 */
+     但网关可能挂掉（隧道过期之类），挂了就退回 AI 绑定，别让整轮迭代陪葬。 */
   const gw = gatewayBase(env);
   if (gw) {
     const model = opts.model || env.XN_GATEWAY_MODEL || '';
-    if (!model) throw new Error('配了 XN_GATEWAY_BASE，但没给 XN_GATEWAY_MODEL');
-    return askUpstream(gw, env.XN_GATEWAY_KEY || '', model, messages, maxTokens);
+    if (model) {
+      try {
+        return await askUpstream(gw, env.XN_GATEWAY_KEY || '', model, messages, maxTokens);
+      } catch (e) {
+        if (!env.AI) throw new Error('本机网关不可用（' + e.message + '），也没有 AI 绑定可以退回');
+      }
+    }
   }
 
   if (!env.AI) throw new Error('服务器没有 AI 绑定，也没有提供模型 Key');
