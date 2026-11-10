@@ -1,6 +1,21 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.6",
+    "date": "2026-11-10",
+    "title": "情绪判定只在不确定时问模型",
+    "fixes": [
+      "emotion.js 新增 emoMode()：读 cfg.tutor.emoLLM，设为 off/keyword/none 时完全不调模型，默认 auto",
+      "auto 模式先跑关键词，只有判中性或强度低于 0.35 才补一次模型判定，明确情绪不再多花一次网络",
+      "新增 45 秒 / 6 次滑动窗口节流：超预算直接返回关键词结果，不会连续打模型",
+      "模型调用抛错仍回退关键词，analyze/hint/label/guard 输出结构保持不变"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没在真实浏览器里跑完整对话链路，没验证 app.core.js 里 detectEmotion 传进来的 chatFn 具体实现与超时行为；45 秒 / 6 次窗口只做了逻辑推演，没做长时间压测"
+  },
+  {
     "version": "1.5.5",
     "date": "2026-11-10",
     "title": "令牌只留内存，离开即清空",
@@ -161,18 +176,6 @@ window.XN_CHANGELOG = [
       "等待期间显示「正在想…」，不再一片空白"
     ],
     "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
-    ],
     "source": "manual"
   }
 ];

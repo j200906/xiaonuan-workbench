@@ -4,6 +4,9 @@
  *   1) 有模型可用时，让模型读一句话判情绪（和原程序 _EMO_LLM_PROMPT 一个思路）
  *   2) 模型不可用 / 失败时，退回关键词打分（persona.js 里那套词表）
  *
+ * emoLLM 默认 auto：先跑关键词，只有关键词判中性或强度很低才补一次模型，
+ * 并做 45 秒 / 6 次节流。设成 off / keyword 时完全不调模型。
+ *
  * 输出统一为 { emo, intensity, negative, source, tip }
  */
 window.XN_EMO = (function () {
@@ -32,6 +35,13 @@ window.XN_EMO = (function () {
     '- 只是陈述事实、问问题，判 neutral\n' +
     '- intensity 是情绪强度，随口一提给 0.2-0.4，明显难受给 0.6-0.8，崩溃给 0.9 以上';
 
+  /* auto 模式的预算：45 秒窗口内最多问 6 次模型 */
+  var EMO_WINDOW_MS = 45000;
+  var EMO_MAX_CALLS = 6;
+  /* 关键词已经够确定（非中性且强度达到这个值）就不问模型 */
+  var KEYWORD_ENOUGH = 0.35;
+  var callTimes = [];
+
   function fromKeyword(text) {
     if (window.XN_PERSONA && window.XN_PERSONA.detectEmotion) {
       var r = window.XN_PERSONA.detectEmotion(text);
@@ -54,10 +64,38 @@ window.XN_EMO = (function () {
     try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
   }
 
-  /* chatFn(messages) -> 文本。没有就纯关键词。 */
+  /* 读配置：默认 auto；off / keyword / none 一律按纯关键词处理 */
+  function emoMode() {
+    var st = window.XN && window.XN.state;
+    var cfg = (st && st.cfg) || {};
+    var tutor = cfg.tutor || {};
+    var v = tutor.emoLLM == null ? 'auto' : String(tutor.emoLLM).toLowerCase();
+    if (v === 'off' || v === 'keyword' || v === 'none') return 'keyword';
+    return 'auto';
+  }
+
+  /* 滑动窗口节流：拿不到名额就不调模型，直接用关键词结果 */
+  function takeSlot() {
+    var t = Date.now();
+    var kept = [];
+    var i;
+    for (i = 0; i < callTimes.length; i++) {
+      if (t - callTimes[i] < EMO_WINDOW_MS) kept.push(callTimes[i]);
+    }
+    callTimes = kept;
+    if (callTimes.length >= EMO_MAX_CALLS) return false;
+    callTimes.push(t);
+    return true;
+  }
+
+  /* chatFn(messages) -> 文本。没有就纯关键词。
+     auto：关键词判中性或强度很低时才问一次模型，明确情绪不浪费调用。 */
   async function analyze(text, chatFn) {
     var base = fromKeyword(text);
     if (!chatFn) return base;
+    if (emoMode() === 'keyword') return base;
+    if (base.emo !== 'neutral' && base.intensity >= KEYWORD_ENOUGH) return base;
+    if (!takeSlot()) return base;
 
     try {
       var raw = await chatFn([
