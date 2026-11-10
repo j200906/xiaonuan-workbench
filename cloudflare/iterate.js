@@ -334,11 +334,36 @@ async function askModel(env, opts, system, user, maxTokens) {
     { role: 'user', content: user }
   ];
 
+  /* Workers AI 兜底：用户自带的 Key 或本机网关挂了时，只要有 AI 绑定就继续跑，
+     别让整轮迭代陪葬。 */
+  const askAI = async () => {
+    const name = env.XN_ITER_MODEL || '@cf/zai-org/glm-4.7-flash';
+    const params = { messages, max_tokens: maxTokens || 3000 };
+    if (name.indexOf('glm') >= 0) params.chat_template_kwargs = { enable_thinking: false };
+    const out = await env.AI.run(name, params);
+    let text = '';
+    if (typeof out === 'string') text = out;
+    else if (out && typeof out.response === 'string') text = out.response;
+    else if (out && out.choices && out.choices[0] && out.choices[0].message) text = out.choices[0].message.content || '';
+    return { text, reasoning: '', fallback: 'workers-ai' };
+  };
+
   if (opts.apiKey) {
     const fallback = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
     const base = safeBase(opts.providerBase, fallback, env);
     const model = opts.model || env.XN_MODEL || 'deepseek-chat';
-    return askUpstream(base, opts.apiKey, model, messages, maxTokens, opts.reasoningEffort);
+    try {
+      return await askUpstream(base, opts.apiKey, model, messages, maxTokens, opts.reasoningEffort);
+    } catch (e) {
+      /* 用户的 Key 也可能失效／超额／上游抖动：有 AI 绑定就退回 Workers AI，
+         没有绑定才照原样报错。 */
+      if (!env.AI) throw e;
+      try {
+        return await askAI();
+      } catch (e2) {
+        throw new Error('自带 Key 的模型不可用（' + e.message + '），退回 Workers AI 也失败（' + e2.message + '）');
+      }
+    }
   }
 
   /* 本机网关优先：它挂的是能写代码的模型，比 Workers AI 自带那个 flash 强得多。
@@ -356,15 +381,7 @@ async function askModel(env, opts, system, user, maxTokens) {
   }
 
   if (!env.AI) throw new Error('服务器没有 AI 绑定，也没有提供模型 Key');
-  const name = env.XN_ITER_MODEL || '@cf/zai-org/glm-4.7-flash';
-  const params = { messages, max_tokens: maxTokens || 3000 };
-  if (name.indexOf('glm') >= 0) params.chat_template_kwargs = { enable_thinking: false };
-  const out = await env.AI.run(name, params);
-  let text = '';
-  if (typeof out === 'string') text = out;
-  else if (out && typeof out.response === 'string') text = out.response;
-  else if (out && out.choices && out.choices[0] && out.choices[0].message) text = out.choices[0].message.content || '';
-  return { text, reasoning: '' };
+  return askAI();
 }
 
 function pickJson(text) {
@@ -612,10 +629,12 @@ export async function runIteration(env, opts) {
     say('读反馈失败：' + e.message);
   }
 
-  if (triageOnly) {
+  /* 工单拆解：单独的「整理反馈」走一次；真跑也顺带跑一次，前端队列才有数据。 */
+  let tickets = [];
+  const triageFeedback = async () => {
     if (!feedback.length) {
       say('没有反馈，工单为空');
-      return jsonBody({ ok: true, triageOnly: true, tickets: [], log });
+      return [];
     }
     const triage = await askModel(
       env, opts,
@@ -624,15 +643,30 @@ export async function runIteration(env, opts) {
       1200
     );
     const data = pickJson(triage.text);
-    const tickets = Array.isArray(data && data.tickets) ? data.tickets.slice(0, 5) : [];
-    say('拆出 ' + tickets.length + ' 条工单');
+    const list = Array.isArray(data && data.tickets) ? data.tickets.slice(0, 5) : [];
+    say('拆出 ' + list.length + ' 条工单');
+    return list;
+  };
+
+  if (triageOnly) {
+    tickets = await triageFeedback();
     return jsonBody({ ok: true, triageOnly: true, tickets, log });
+  }
+
+  /* 真跑：把 triage 结果一并回传（前端队列要用）；拆不动只记一笔，不影响这次改动。 */
+  if (!dryRun) {
+    try {
+      tickets = await triageFeedback();
+    } catch (e) {
+      say('工单拆解失败（不影响这次改动）：' + e.message);
+      tickets = [];
+    }
   }
 
   /* 2. 仓库信息与文件（并行） */
   const info = await ghFetch(`https://api.github.com/repos/${owner}/${repo}`, token);
   if (info.status !== 200) {
-    return jsonBody({ ok: false, error: '读仓库失败：' + ((info.data && info.data.message) || info.status), log }, 502);
+    return jsonBody({ ok: false, error: '读仓库失败：' + ((info.data && info.data.message) || info.status), ...(dryRun ? {} : { tickets }), log }, 502);
   }
   const branch = String(opts.branch || env.XN_ITER_BRANCH || '').trim() || info.data.default_branch || 'main';
   const trialBranch = branch !== (info.data.default_branch || 'main');
@@ -655,7 +689,7 @@ export async function runIteration(env, opts) {
     else files[p] = f.content;
   });
   if (missing.length) {
-    return jsonBody({ ok: false, error: '读文件失败：' + missing.slice(0, 3).join('；'), log }, 502);
+    return jsonBody({ ok: false, error: '读文件失败：' + missing.slice(0, 3).join('；'), ...(dryRun ? {} : { tickets }), log }, 502);
   }
 
   const recent = parseArrayFile(files[CHANGELOG_FILE], 'changelog.js');
@@ -799,6 +833,7 @@ export async function runIteration(env, opts) {
       attempts,
       /* 失败时也要把 skipped 明细吐出来：以前只在成功路径打印，用户根本看不到（Q66）。 */
       skipped: last.skipped || [],
+      ...(dryRun ? {} : { tickets }),
       log
     }, 422);
   }
@@ -885,6 +920,7 @@ export async function runIteration(env, opts) {
       attempt: { title: entry.title, patches: (plan.patches || []).map((p) => ({ file: p.file })) },
       /* 自检失败时也把「哪些补丁被跳过」带出来（Q66）。 */
       skipped: applied.skipped || [],
+      tickets,
       log
     }, 422);
   }
@@ -911,6 +947,9 @@ export async function runIteration(env, opts) {
     patches: applied.touched,
     skipped,
     warnings,
+    /* 试运行没有提交，url 留空；真跑会在下面覆盖成 commit 链接。 */
+    url: '',
+    compareUrl: '',
     log
   };
 
@@ -923,6 +962,9 @@ export async function runIteration(env, opts) {
     say('试运行结束，没有写入仓库。');
     return jsonBody(result, 200);
   }
+
+  /* 真跑：工单一起回传，前端队列才有数据（没有就是空数组）。 */
+  result.tickets = tickets;
 
   /* 6. 一次性提交：blob 是先传的（内容寻址，409 重试时直接复用） */
   say('上传 ' + changedFiles.length + ' 个 blob…');
@@ -952,10 +994,16 @@ export async function runIteration(env, opts) {
         ? '；已换新 head 重试过一次仍冲突。这次没有进任何分支（孤儿 blob 会被 GitHub 回收），补丁还在，重跑一次即可。'
         : ''),
       commit: push.sha ? push.sha.slice(0, 7) : '',
+      tickets,
       log
     }, push.status);
   }
   const commitSha = push.sha;
+  const commitUrl = `https://github.com/${owner}/${repo}/commit/${commitSha}`;
+  /* compareUrl：试跑分支看「相对默认分支差了什么」，正式分支看「这一笔改了什么」。 */
+  const compareUrl = trialBranch
+    ? `https://github.com/${owner}/${repo}/compare/${info.data.default_branch || 'main'}...${branch}`
+    : `https://github.com/${owner}/${repo}/compare/${commitSha}~1...${commitSha}`;
   say('已提交 ' + commitSha.slice(0, 7) + ' 到 ' + branch);
 
   /* 7. 打 tag：由 release.yml 在 tag 上打 exe 并创建 release。
@@ -967,7 +1015,9 @@ export async function runIteration(env, opts) {
       tag: '',
       tagState: 'skipped',
       commit: commitSha.slice(0, 7),
-      branch
+      branch,
+      url: commitUrl,
+      compareUrl
     }), 200);
   }
   let tagState = 'created';
@@ -1012,7 +1062,8 @@ export async function runIteration(env, opts) {
     tagAt: tagAt ? tagAt.slice(0, 7) : '',
     commit: commitSha.slice(0, 7),
     branch,
-    url: `https://github.com/${owner}/${repo}/commit/${commitSha}`,
+    url: commitUrl,
+    compareUrl,
     releaseUrl: `https://github.com/${owner}/${repo}/releases/tag/${tag}`
   }), 200);
 }

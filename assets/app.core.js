@@ -234,7 +234,9 @@
 
   function switchView(id) {
     if (VIEW_IDS.indexOf(id) < 0) id = 'chat';
-    if (id === 'iterate' && !state.admin) id = 'settings';
+    /* 迭代页不再需要先解锁管理密码：界面上早已没有密码栏，state.admin 恒为 false，
+       旧门会把点「迭代」的人直接弹回设置页。未解锁时迭代接口自己只跑试运行/试跑分支，
+       兜底在服务端，前端不再拦。 */
     state.view = id;
     $$('.pane').forEach(function (p) { p.hidden = p.dataset.view !== id; });
     updateHeader();
@@ -1230,7 +1232,6 @@
     updateConn(state.key || API.isProxy() ? 'ok' : 'idle');
 
     var want = S.sessionGet(S.KEYS.view, 'chat');
-    if (want === 'iterate' && !state.admin) want = 'settings';
     switchView(VIEW_IDS.indexOf(want) >= 0 ? want : 'chat');
     XN.ready = true;
     if (XN.emit) XN.emit('ready');

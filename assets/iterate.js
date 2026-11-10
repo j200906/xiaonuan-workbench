@@ -17,6 +17,7 @@
     queue: [],
     log: [],
     result: null,
+    modelTouched: false,
     steps: [
       ['triage', '整理反馈'],
       ['plan', '出方案'],
@@ -62,17 +63,33 @@
     if (el) el.textContent = text;
   }
 
+  /* 网关到底能不能真用：服务器下发了地址，并且（本地回环 或 已经填过钥匙）。
+     线上 config 里可能下发一个早就失效的隧道地址，所以只看 gatewayReady 不够。 */
+  function gatewayStatus() {
+    var runtime = XN.models.runtime();
+    var base = String(runtime.gatewayBase || '');
+    var ready = !!runtime.gatewayReady && !!base;
+    /* 本机 3425 网关在同一台机器上不需要钥匙；只有公网隧道才必须带。 */
+    var local = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?/i.test(base);
+    var key = state.gatewayKey || S.sessionGet('xn.v2.gatewayKey', '') || '';
+    return {
+      ready: ready,
+      base: base,
+      local: local,
+      key: key,
+      usable: ready && (local || !!key)
+    };
+  }
+
   function modelArgs(mode) {
     var runtime = XN.models.runtime();
     if (mode === 'gateway') {
-      if (!runtime.gatewayReady) return { error: '服务器没有下发本机网关地址（XN_GATEWAY_BASE）。' };
-      var gk = state.gatewayKey || S.sessionGet('xn.v2.gatewayKey', '') || '';
-      /* 本机 3425 网关在同一台机器上不需要钥匙；只有公网隧道才必须带。 */
-      var localGateway = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?/i.test(runtime.gatewayBase);
-      if (!gk && !localGateway) return { error: '公网网关需要钥匙：先在设置里填一次。' };
+      var g = gatewayStatus();
+      if (!g.ready) return { error: '服务器没有下发本机网关地址（XN_GATEWAY_BASE）。' };
+      if (!g.local && !g.key) return { error: '公网网关需要钥匙：先在设置里填一次。' };
       return {
-        apiKey: gk,
-        providerBase: runtime.gatewayBase,
+        apiKey: g.key,
+        providerBase: g.base,
         model: runtime.gatewayModel || '',
         gateway: true
       };
@@ -85,6 +102,39 @@
       return { error: '你选的是本机地址，Cloudflare 访问不到你的电脑。请换公网 API，或在设置里选「自迭代模型（本机网关）」。' };
     }
     return { apiKey: state.key || '', providerBase: base, model: model };
+  }
+
+  /* GitHub 提交链接：真跑响应里有 commit 才给链接；试跑没有就不给。 */
+  function repoSlug() {
+    var r = state.cloudRepo || {};
+    return (r.owner && r.name) ? (r.owner + '/' + r.name) : '';
+  }
+
+  function commitUrl(sha) {
+    var slug = repoSlug();
+    if (!slug || !sha) return '';
+    return 'https://github.com/' + slug + '/commit/' + encodeURIComponent(sha);
+  }
+
+  /* 默认模型：网关确实可用才把 gateway 当默认，否则回落到「跟随模型条」。 */
+  function applyModelDefault(force) {
+    var sel = $('#itModel');
+    if (!sel) return;
+    var g = gatewayStatus();
+    var opt = sel.querySelector('option[value="gateway"]');
+    if (opt) {
+      opt.disabled = !g.usable;
+      opt.textContent = g.usable
+        ? '自迭代模型（本机网关）'
+        : (g.ready ? '自迭代模型（需要钥匙）' : '自迭代模型（服务器未配置）');
+    }
+    if (g.usable) {
+      if (force) sel.value = 'gateway';
+    } else {
+      sel.value = 'follow';
+    }
+    var meta = $('#itModelMeta');
+    if (meta) meta.textContent = sel.value === 'gateway' ? '自迭代模型' : '跟随模型条';
   }
 
   function effortArg() {
@@ -107,7 +157,8 @@
     if (IT.running) return;
     if (!lockGuard()) return;
 
-    var pick = ($('#itModel') && $('#itModel').value) || 'gateway';
+    /* 默认跟随模型条：网关不可用时不再默认选它（线上那台隧道早就失效了）。 */
+    var pick = ($('#itModel') && $('#itModel').value) || 'follow';
     var args = modelArgs(pick);
     if (args.error) { XN.toast(args.error); return; }
 
@@ -223,7 +274,14 @@
           ? { mode: 'local', backup: data.backup || '', commit: data.commit || '' }
           : (data.tag
             ? { mode: 'tag', tag: data.tag, url: data.releaseUrl || ('https://github.com/' + state.cloudRepo.owner + '/' + state.cloudRepo.name + '/releases/tag/' + data.tag) }
-            : { mode: 'commit', url: data.url || '', commit: data.commit || '', branch: data.branch || 'main' }),
+            : (data.commit || data.url)
+              ? {
+                mode: 'commit',
+                url: data.url || commitUrl(data.commit),
+                commit: data.commit || '',
+                branch: data.branch || 'main'
+              }
+              : { mode: 'dry' }),
         changed: data.files || [],
         attempt: data.attempt || null
       };
@@ -252,6 +310,7 @@
   function stop() {
     IT.stopped = true;
     if (IT.abort) IT.abort.abort();
+    setMeta('正在停止等待');
   }
 
   async function triageOnly() {
@@ -293,13 +352,19 @@
     var list = function (arr) {
       return (arr && arr.length ? arr.map(function (x) { return '<li>' + XN.esc(x) + '</li>'; }).join('') : '<li class="dim">无</li>');
     };
+    /* 真跑才有 commit：优先用服务端给的 url，否则按 owner/repo + sha 现拼一个。 */
+    var commitHref = r.publish.url || commitUrl(r.publish.commit);
     var pubText = r.publish.mode === 'tag'
-      ? '<a href="' + XN.esc(r.publish.url) + '" target="_blank" rel="noopener">tag ' + XN.esc(r.publish.tag) + '</a>（Actions 正在打 exe）'
+      ? '<a href="' + XN.esc(r.publish.url) + '" target="_blank" rel="noopener noreferrer">tag ' + XN.esc(r.publish.tag) + '</a>（Actions 正在打 exe）'
       : r.publish.mode === 'commit'
-        ? '<a href="' + XN.esc(r.publish.url) + '" target="_blank" rel="noopener">提交 ' + XN.esc(r.publish.commit || '') + '</a>（' + XN.esc(r.publish.branch || 'main') + '）'
+        ? (commitHref
+          ? '<a href="' + XN.esc(commitHref) + '" target="_blank" rel="noopener noreferrer">提交 ' + XN.esc(r.publish.commit || '') + '</a>（' + XN.esc(r.publish.branch || 'main') + '）'
+          : '已提交到 ' + XN.esc(r.publish.branch || 'main') + (r.publish.commit ? '（' + XN.esc(r.publish.commit) + '）' : ''))
         : r.publish.mode === 'local'
           ? '已写入本地' + (r.publish.backup ? '（备份：' + XN.esc(r.publish.backup) + '）' : '') + (r.publish.commit ? ' · ' + XN.esc(r.publish.commit) : '')
-          : '未提交（试运行或草稿）';
+          : r.publish.mode === 'draft'
+            ? '未提交（草稿）'
+            : '试运行，未提交';
 
     var transition = (r.from && r.version && r.from !== r.version)
       ? 'v' + XN.esc(r.from) + ' → v' + XN.esc(r.version)
@@ -325,9 +390,13 @@
       var vmeta = $('#itVersionMeta');
       if (vmeta) vmeta.textContent = r.version ? ('v' + r.version) : '—';
       var where = r.publish.mode === 'tag' ? ('tag v' + XN.esc(r.publish.tag) + '，Actions 会打包 exe')
-        : r.publish.mode === 'commit' ? ('已提交到 ' + XN.esc(r.publish.branch || 'main') + '（' + XN.esc(r.publish.commit || '') + '）')
+        : r.publish.mode === 'commit' ? ('已提交到 ' + XN.esc(r.publish.branch || 'main') + ' · ' +
+          (commitHref
+            ? '<a href="' + XN.esc(commitHref) + '" target="_blank" rel="noopener noreferrer">' + XN.esc(r.publish.commit || '打开提交') + '</a>'
+            : XN.esc(r.publish.commit || '')))
         : r.publish.mode === 'local' ? '已写入本地工作区'
-        : '试运行，没有写仓库';
+        : r.publish.mode === 'draft' ? '未提交（草稿）'
+        : '试运行，未提交';
       vbox.innerHTML = '<div class="kv"><span>版本</span><b>' + transition + '</b></div>' +
         '<div class="kv"><span>更新日志首条</span><b>' + XN.esc(r.title || '—') + '</b></div>' +
         '<div class="kv"><span>去向</span><b>' + where + '</b></div>';
@@ -363,6 +432,21 @@
       $('#itStop').addEventListener('click', stop);
       $('#itTriage').addEventListener('click', triageOnly);
       $('#itDownload').addEventListener('click', downloadPatch);
+      var sel = $('#itModel');
+      if (sel) {
+        sel.addEventListener('change', function () {
+          IT.modelTouched = true;
+          applyModelDefault(false);
+        });
+      }
+      /* 停止只是停止「等待」：请求已发出，服务端那一轮可能仍会跑完。 */
+      var stopBtn = $('#itStop');
+      if (stopBtn) {
+        stopBtn.textContent = '停止等待';
+        stopBtn.title = '只停止这里的等待：服务端那一轮可能仍会跑完。';
+        stopBtn.setAttribute('aria-label', '停止等待（服务端可能仍在跑完这一轮）');
+      }
+      applyModelDefault(true);
       IT.steps.forEach(function (s) { setStep(s[0], 'idle'); });
       renderQueue();
       renderResult();
@@ -373,12 +457,8 @@
       renderQueue();
       renderResult();
       renderLog();
-      var runtime = XN.models.runtime();
-      var opt = $('#itModel option[value="gateway"]');
-      if (opt) {
-        opt.disabled = !runtime.gatewayReady;
-        opt.textContent = runtime.gatewayReady ? '自迭代模型（本机网关）' : '自迭代模型（服务器未配置）';
-      }
+      /* 用户自己改过就不再覆盖；否则按「网关真能用才默认 gateway」重算一次。 */
+      applyModelDefault(!IT.modelTouched);
     }
   };
 

@@ -1,6 +1,24 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.11",
+    "date": "2026-11-10",
+    "title": "迭代页终于能用了",
+    "fixes": [
+      "点侧栏「迭代」不再被弹回设置页（删掉前端残留的 admin 门，刷新也能停在迭代页）",
+      "默认模型改为跟随模型条；网关不可用时自动回落，并标注「服务器未配置/需要钥匙」",
+      "/api/config 不再把失效的 trycloudflare 隧道当可用：空/坏地址不下发，临时隧道标 stale，只有 XN_GATEWAY_VERIFIED=1 才标 reachableHint",
+      "结果区补提交链接（真跑给 GitHub commit 链接，试跑显示「试运行，未提交」）",
+      "「停止」改为「停止等待」，说明服务端那一轮可能仍在跑",
+      "窄屏（≤335px）底栏不再溢出，模型条点击高度补到 24px",
+      "新增 tests/iterate.test.mjs（公开模式/网关回落/试跑分支），ui-check 与 Worker 测试各补断言"
+    ],
+    "features": [],
+    "source": "manual",
+    "feedbackCount": 0,
+    "notes": "服务端兜底不变：未解锁的迭代请求仍只落 iterate/public 试跑分支。"
+  },
+  {
     "version": "1.5.10",
     "date": "2026-11-10",
     "title": "背景小暖 + 模型名说人话",
