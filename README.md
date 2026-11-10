@@ -8,10 +8,11 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.5.7**
+当前版本 **v1.5.8**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
+- **v1.5.8** 并入自迭代批次（AUDIT #61–#100）
 - **v1.5.5** 令牌只留内存，离开即清空
 - **v1.5.4** 反馈输入加长度硬上限
 - **v1.5.3** 修更新日志对比漏版本

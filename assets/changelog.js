@@ -1,6 +1,26 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.8",
+    "date": "2026-11-10",
+    "title": "并入自迭代批次（AUDIT #61–#100）",
+    "fixes": [
+      "c60 · #61–#65：拉取云端按钮认本地后端——127.0.0.1/localhost 页面也显示并可用（assets/views.feedback.js）",
+      "c65 · #66–#70：Markdown 图片独立白名单，只放行 http(s) 与站内 /、./ 路径（assets/lib/md.js）",
+      "c70 · #71–#75：工具循环收尾请求透传 AbortSignal，停止后不再多发一次请求（assets/tools.js）",
+      "c75 · #76–#80：修迁移日志死条件（XN.console 不存在），迁移日志恢复输出（assets/lib/store.js）",
+      "c80 · #81–#85：旧键迁移补 locale 与 xn.chat.v1 并在模块末尾真正执行；旧管理令牌只丢弃、绝不搬进 localStorage，补回归单测（assets/lib/store.js、tests/unit.test.mjs）",
+      "c85 · #86–#90：笔记分页上限改读 cfg.limits.notesPage（5–200 夹取、坏值回落 20），「还剩 N 条」补单位（assets/views.study.js）",
+      "c90 · #91–#95：加深次要文字 --ink-3/--ink-4，浅色/暗色对比度都过 AA 4.5:1（assets/theme.css）",
+      "c95 · #96–#100：defer 脚本统一等 DOMContentLoaded 再 boot，index.html 标注脚本顺序即依赖（assets/app.core.js、index.html）",
+      "收口修复：删掉 assets/iterate.js 里指向已删除 dropToken 的悬空引用——930d0e1 移除浏览器 Token 时漏删，UI 检查的「页面无 JS 异常」会拦到 ReferenceError"
+    ],
+    "features": [],
+    "source": "batch",
+    "feedbackCount": 40,
+    "notes": "7 个并行成员跑 8 个 offset（b90 连跑 #91–#100），iterate/c60–c95 各自四项自测全绿后由合并官按批 3-way apply 到 930d0e1（v1.5.7）基线；版本统一收到 1.5.8，v1.5.7「并入 Q61–Q100 收口工作」记录保留。未发现与 AUDIT 原意相反、需要拒绝的改动。"
+  },
+  {
     "version": "1.5.7",
     "date": "2026-11-10",
     "title": "并入 Q61–Q100 收口工作",

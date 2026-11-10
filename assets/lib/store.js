@@ -22,13 +22,14 @@
     mem: PREFIX + 'mem',
     memBuffer: PREFIX + 'memBuffer',
     view: PREFIX + 'view',
-    gist: PREFIX + 'gist'
+    gist: PREFIX + 'gist',
+    locale: PREFIX + 'locale'
   };
 
   /* 旧版本用过的键。只读，不再写。 */
   var LEGACY = {
     cfg: ['xn.cfg.v1'],
-    sessions: ['xn.sessions.v1'],
+    sessions: ['xn.sessions.v1', 'xn.chat.v1'],
     current: ['xn.current.v1'],
     notes: ['xn.notes.v1'],
     goals: ['xn.goals.v1'],
@@ -38,7 +39,8 @@
     theme: ['xn.theme.local'],
     timer: ['xn.timer.v1'],
     mem: ['xn.mem.v2', 'xn.mem.v1'],
-    view: ['xn.view']
+    view: ['xn.view'],
+    locale: ['xn.locale']
   };
 
   var issues = [];
@@ -158,7 +160,7 @@
         break;
       }
     });
-    if (moved.length && XN.console) console.info('[xn] 已迁移本机数据', moved);
+    if (moved.length && root.console && root.console.info) root.console.info('[xn] 已迁移本机数据', moved);
     return moved;
   }
 
@@ -216,4 +218,13 @@
 
   XN.readJSON = get;
   XN.writeJSON = set;
+
+  /* migrate() 以前只导出、没人调用，老用户的 xn.* 旧键永远搬不过来；
+     这里在模块加载末尾跑一次，早于 app.core.js 的 loadState。 */
+  try {
+    var movedKeys = migrate();
+    if (movedKeys.length) noteIssue('migrate', '已迁移旧键：' + movedKeys.join('；'));
+  } catch (e) {
+    noteIssue('migrate', '启动迁移失败：' + ((e && e.message) || e));
+  }
 })(typeof window !== 'undefined' ? window : globalThis);

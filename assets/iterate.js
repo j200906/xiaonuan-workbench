@@ -383,5 +383,4 @@
   };
 
   XN.IT.cloudRun = cloudRun;
-  XN.IT.dropToken = dropToken;
 })(window);
