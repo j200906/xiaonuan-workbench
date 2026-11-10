@@ -138,6 +138,15 @@ tests/                     单元、冒烟、无头浏览器 UI 检查
 | Key | 默认只进 sessionStorage；勾「记住」才写 localStorage |
 | 隧道钥匙 | 默认写到用户目录（`%APPDATA%\xiaonuan\tunnel-key.txt`），不再进仓库 |
 
+## 网页抓取（`/api/fetch`）
+
+模型的「读网页」工具走 `GET /api/fetch?url=<URL 编码的地址>&offset=<从第几个字符开始>`：
+
+- 单次最多返回 12000 字（`assets/tools.js` 的 `FETCH_LIMIT`）；长文靠 `offset` 分段读，别一次拉整页
+- 响应里 `offset` 是本次起点、`nextOffset` 是下一段起点、`total` 是全文总长、`truncated` 表示后面还有没读完的部分
+- `offset` 超出总长时返回空 `text` 且 `truncated: false`，不报错
+- 边界：同源校验（Worker 还对浏览器请求加同站校验）、10 次/分钟/IP；只认 http(s)，内网地址一律拒绝
+
 ## 环境变量
 
 复制 `.env.example` 成 `.env`。本地后端和 `deploy_pages.mjs` 都会读。
