@@ -8,7 +8,7 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.7.1**
+当前版本 **v1.7.2**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
@@ -122,6 +122,16 @@ tests/                     单元、冒烟、无头浏览器 UI 检查
 - GitHub Token 只在服务端（`XN_GH_TOKEN`），浏览器不持有、也没有输入框
 - 自迭代模型优先用你在模型条里选的服务商；选「自迭代模型（本机网关）」时走服务器下发的网关地址，网关不可用会自动回落成「跟随模型条」
 - 网关下发：`/api/config` 只在地址有效时才带 `gateway`（空地址 / 解析不出 / 非 http(s) 就整块不带，前端按「服务器未配置」处理）；`gateway.stale` 标出临时隧道（`*.trycloudflare.com`），`gateway.reachableHint` 只有服务器设了 `XN_GATEWAY_VERIFIED=1` 才是 true——没标的地址前端不默认选它
+
+## 长期记忆（海马体）
+
+页面里的 `assets/memory.js` 记的是「小暖记得你说过什么」，存在你这台设备的浏览器里；
+开发侧另有 [海马体](docs/HIPPOCAMPUS.md)：把工作区里每一次对话和工具调用的**原话**落盘，
+按线索召回、要证据给原文。它让我们改小暖时不用从零回忆「上次为什么这么定」。
+
+安装与配置见 [docs/HIPPOCAMPUS.md](docs/HIPPOCAMPUS.md)。要点只有一个：
+`~/.dsh/hippocampus/config.json` 的 `workspaces` 必须写出本仓库所在工作区的**绝对路径**，
+否则插件装了也不生效（默认空数组 = 全关）。
 
 ## 安全模型
 

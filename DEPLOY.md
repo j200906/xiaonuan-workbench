@@ -50,6 +50,18 @@ runner 自带的 Chrome 跑。Python 控制台编码不是 UTF-8 时脚本会自
 `node scripts/check.mjs`（语法 + 引用 + 关键控件 + 版本一致性）由 CI 的 guard.yml 每次 push 跑；
 本地想提前发现问题，也可以在上面四条之前顺手跑一次。
 
+## 2.5 长期记忆（可选，开发用）
+
+想让接手的 agent 记住这个工作区发生过什么，装 [海马体](docs/HIPPOCAMPUS.md)：
+
+```bash
+git clone --depth 1 https://github.com/coner13/dsh-hippocampus.git ~/dsh-plugins/dsh-hippocampus
+# 在 DSH 里把该目录装成本地 bundle，然后写 ~/.dsh/hippocampus/config.json：
+# { "enabled": true, "workspaces": ["<本仓库绝对路径>"], "humanName": "human" }
+```
+
+装完重启 DSH，`~/.dsh/hippocampus/diag.log` 出现 `apply 跑完` 即生效。
+
 ## 3. Cloudflare Pages（主路径，带后端）
 
 `.env` 里需要：

@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.7.2",
+    "date": "2026-11-10",
+    "title": "文档：长期记忆（海马体）落地",
+    "fixes": ["新增 docs/HIPPOCAMPUS.md；README 增「长期记忆（海马体）」一节，DEPLOY 增安装步骤；说明页面记忆与开发侧记忆的边界、配置要点与隐私"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.7.1",
     "date": "2026-11-10",
     "title": "标题跟随语言切换",
