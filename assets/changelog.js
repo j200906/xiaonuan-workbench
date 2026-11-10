@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.9.0",
+    "date": "2026-11-10",
+    "title": "迭代页收进管理员门后",
+    "fixes": ["侧栏不再出现迭代；设置页「工具」卡里的「迭代（管理员）」先验密码，验过才进；刷新需重新验"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.8.0",
     "date": "2026-11-10",
     "title": "迭代页收进管理员门后",
