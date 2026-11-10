@@ -151,7 +151,8 @@ async function askUpstream(base, key, model, messages, maxTokens) {
       headers,
       body: JSON.stringify(Object.assign(
         { model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 },
-        /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: 'low' } : {}
+        /* 自迭代要的是「想清楚再改」，思考强度拉满；普通聊天仍用 low，免得正文被思考吃光。 */
+        /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: 'max' } : {}
       )),
       signal: ctrl.signal,
       redirect: 'manual'
