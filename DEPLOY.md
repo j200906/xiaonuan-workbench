@@ -244,6 +244,13 @@ Secrets；`deploy_pages.mjs --env` 目前不同步这个键），否则 `/api/co
 
 不要把钥匙写进仓库；`tools/tunnel-token.txt` 只作为旧文件兼容读取。
 
+## 排障
+
+- **模型拿不到长网页的尾部**：先看 `/api/fetch` 的 `offset` 有没有在递增——单次只回 12000 字，
+  响应里的 `nextOffset` 才是下一段起点；`truncated: false`（或 `text` 为空）才说明真的读完了。
+  `wrangler pages deployment tail` / Cloudflare 实时日志里能看到每次请求带的 `offset`，
+  不递增就是前端没把 `nextOffset` 回填给模型。
+
 ## 回滚
 
 - 代码：`git revert <bad-sha>`（不要 `reset --hard`）；guard 失败会自动做一次同样的事

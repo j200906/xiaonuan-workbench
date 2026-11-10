@@ -23,6 +23,10 @@ const AI_MODEL = '@cf/zai-org/glm-4.7-flash';
 const AI_FALLBACK = '@cf/zai-org/glm-4.7-flash';
 const MAX_CHAT_BYTES = 262144;
 const MAX_FEEDBACK_BYTES = 16384;
+/* /api/fetch 一次回多少字：和前端 assets/tools.js 的 FETCH_LIMIT（12000）对齐；
+   offset 是「从第几个字开始读」，上限只防超大整数来打 slice 边界。 */
+const FETCH_WINDOW = 12000;
+const FETCH_OFFSET_MAX = 5000000;
 
 /* 同一 isolate 里同一 IP 的迭代同一时刻只放一个：KV 计数是读-改-写，
    并发点两下会绕过 4 次/小时的额度（Q94 复核 F3）。 */
@@ -258,7 +262,8 @@ export default {
         const rl = await rateLimit(env, 'fetch', clientIp(request), 10, 60, false);
         if (!rl.ok) return json({ ok: false, error: '抓得太频繁' }, 429, request, env);
         const target = String(url.searchParams.get('url') || '');
-        return withHeaders(await fetchPage(target, request, env), request, env);
+        const offset = parseFetchOffset(url.searchParams.get('offset'));
+        return withHeaders(await fetchPage(target, request, env, offset), request, env);
       }
 
       if (path === '/api/feedback') {
@@ -397,7 +402,16 @@ async function wikiSearch(q) {
   }
 }
 
-async function fetchPage(target, request, env) {
+/* query 里的 offset：非负整数，默认 0；非法值当 0，超大值夹到上限。 */
+function parseFetchOffset(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return 0;
+  const n = Number(s);
+  if (!isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.floor(n), FETCH_OFFSET_MAX);
+}
+
+async function fetchPage(target, request, env, offset) {
   let got;
   try {
     got = await safeFetch(target, {
@@ -423,7 +437,22 @@ async function fetchPage(target, request, env) {
   const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? stripTags(titleMatch[1]).slice(0, 120) : got.url;
 
-  return jsonResponse({ ok: true, url: got.url, title, text: text.slice(0, 20000) });
+  /* offset 续读（AUDIT #47）：以前固定 slice(0, 20000)，正文尾部永远读不到。
+     现在一次只回一段窗口，并把总长与下一个 offset 告诉调用方；offset 越界就回空串。 */
+  const total = text.length;
+  const start = Math.min(offset > 0 ? offset : 0, total);
+  const end = Math.min(start + FETCH_WINDOW, total);
+  const truncated = end < total;
+  return jsonResponse({
+    ok: true,
+    url: got.url,
+    title,
+    text: text.slice(start, end),
+    offset: start,
+    nextOffset: truncated ? end : 0,
+    total,
+    truncated
+  });
 }
 
 function jsonResponse(obj, status) {

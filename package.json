@@ -1,6 +1,6 @@
 {
   "name": "xiaonuan-workbench",
-  "version": "1.5.12",
+  "version": "1.5.13",
   "private": true,
   "type": "module",
   "description": "小暖：可以对话、记笔记、收反馈、自迭代的学习工作台",

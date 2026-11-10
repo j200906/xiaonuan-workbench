@@ -384,7 +384,7 @@ def web_search(q):
     return payload
 
 
-def fetch_page(target):
+def fetch_page(target, offset=0):
     res, final_url = safe_fetch(target)
     with res:
         ctype = res.headers.get("Content-Type", "")
@@ -394,7 +394,14 @@ def fetch_page(target):
     title_match = re.search(r"<title[^>]*>([\s\S]*?)</title>", raw, re.I)
     title = strip_tags(title_match.group(1))[:120] if title_match else final_url
     text = strip_tags(raw) if "html" in ctype.lower() else raw
-    return {"ok": True, "url": final_url, "title": title, "text": text[:20000]}
+    total = len(text)
+    start = max(0, min(int(offset or 0), total))
+    piece = text[start:start + 12000]
+    nxt = start + len(piece)
+    return {"ok": True, "url": final_url, "title": title, "text": piece,
+            "offset": start, "total": total,
+            "nextOffset": nxt if nxt < total else None,
+            "truncated": nxt < total}
 
 
 # ---------- 模型 ----------
@@ -1224,8 +1231,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not rate_ok("fetch", client_ip(self), 10, 60):
                     self._json(429, {"ok": False, "error": "抓得太频繁"})
                     return
-                target = (urllib.parse.parse_qs(parsed.query).get("url") or [""])[0]
-                self._json(200, fetch_page(target))
+                qs = urllib.parse.parse_qs(parsed.query)
+                target = (qs.get("url") or [""])[0]
+                try:
+                    offset = max(0, min(5000000, int((qs.get("offset") or ["0"])[0])))
+                except (TypeError, ValueError):
+                    offset = 0
+                self._json(200, fetch_page(target, offset))
                 return
             self._static(path)
         except HttpError as e:

@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.13",
+    "date": "2026-11-10",
+    "title": "网页长文能接着读了",
+    "fixes": ["抓网页支持 offset 续读：单次 12000 字，返回 total/nextOffset，超长能翻页；Worker 与本地后端同步实现"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.5.12",
     "date": "2026-11-10",
     "title": "输入框右下角不再挂模型名",
