@@ -1,6 +1,6 @@
 # 部署（操作步骤）
 
-环境变量的完整说明在 [README.md](README.md#环境变量)。这里只给命令和“哪一步会出错”。
+环境变量的完整清单在 [`.env.example`](.env.example)（逐项带注释）；[README.md](README.md#环境变量) 的表格只列常用项。这里只给命令和“哪一步会出错”。
 
 ## 0. 环境矩阵（Q100）
 
@@ -34,19 +34,21 @@ Node API 用法，最好在 20 上也验一次（CI push 后看 guard）。
 # 它会问管理密码、接本机 3425 magpie、启动后端并开浏览器。
 
 # 或者手动：
-# 新建 .env（变量见 README「环境变量」一节），至少填 XN_ADMIN_PASSWORD
+# 新建 .env（完整清单见 .env.example，常用项见 README「环境变量」一节），至少填 XN_ADMIN_PASSWORD
 python server/app.py --port 8080
 
 # 发布前四件套（顺序随便，全绿再发）：
-node scripts/check.mjs
-node --test tests/unit.test.mjs tests/pipeline.test.mjs tests/security.test.mjs
-node tests/smoke.mjs
-node cloudflare/test.mjs
-node tests/ui-check.mjs     # 端到端：真后端 + 假模型 + 无头 Edge/Chrome
+npm test                    # 4 个测试文件：unit / pipeline / security / security-adversarial
+npm run smoke               # 接口、鉴权、SSRF、413、CORS
+node cloudflare/test.mjs    # Worker 路由与安全边界
+npm run ui                  # 端到端：真后端 + 假模型 + 无头 Edge/Chrome
 ```
 
 `tests/ui-check.mjs` 需要本机有 Edge/Chrome（Windows 默认就有 Edge）；CI 里由 ubuntu
 runner 自带的 Chrome 跑。Python 控制台编码不是 UTF-8 时脚本会自己设 `PYTHONIOENCODING`。
+
+`node scripts/check.mjs`（语法 + 引用 + 关键控件 + 版本一致性）由 CI 的 guard.yml 每次 push 跑；
+本地想提前发现问题，也可以在上面四条之前顺手跑一次。
 
 ## 3. Cloudflare Pages（主路径，带后端）
 
