@@ -1,6 +1,20 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.6",
+    "date": "2026-11-10",
+    "title": "服务商下拉收敛到模型清单",
+    "fixes": [
+      "views.settings.js 的 providerOptions 不再手写服务商 id 数组，改由 XN.models.providerGroups() 生成，加一个服务商不会再漏",
+      "models.js 新增 providerGroups()，按 PROVIDERS 里的 cloud 标记自动分成「自己的 API」和「云端自带」两组",
+      "setCloudModels 重新赋值数组后同步 XN.CLOUD_MODELS 别名，避免它一直指着旧数组导致 /api/config 下发的模型清单不生效"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没在真实浏览器里点开设置页核对下拉渲染；api.js 中 fetchConfig 是否已经调用 setCloudModels 属于被省略的中段，看不到，所以这处覆盖链路只做了别名同步、没验证端到端；本次不升版本号（version.js、changelog.js、package.json、README.md 不在可改范围内），版本由统一发布流程同步。"
+  },
+  {
     "version": "1.5.5",
     "date": "2026-11-10",
     "title": "令牌只留内存，离开即清空",
@@ -161,18 +175,6 @@ window.XN_CHANGELOG = [
       "等待期间显示「正在想…」，不再一片空白"
     ],
     "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
-    ],
     "source": "manual"
   }
 ];

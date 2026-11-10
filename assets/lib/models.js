@@ -41,6 +41,8 @@
         return { id: String(m.id), name: String(m.name || m.id), note: String(m.note || '') };
       });
       if (!cloudModels.length) cloudModels = DEFAULT_CLOUD.slice();
+      /* 重新赋值后要把全局别名指过去，否则 XN.CLOUD_MODELS 还指着旧数组 */
+      XN.CLOUD_MODELS = cloudModels;
     }
   }
 
@@ -105,6 +107,7 @@
     MODELS: MODELS,
     DEFAULT_CLOUD: DEFAULT_CLOUD,
     provider: provider,
+    providerGroups: providerGroups,
     providerOfBase: providerOfBase,
     isCloud: isCloud,
     label: label,

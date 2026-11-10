@@ -9,10 +9,7 @@
   var ARCH_KEYS = ['study', 'feedback', 'changelog', 'settings'];
 
   function providerOptions() {
-    var groups = [
-      { label: '用自己的 API（推荐）', ids: ['custom', 'gateway', 'deepseek', 'moonshot', 'openai', 'zhipu', 'siliconflow'] },
-      { label: '云端自带（无需填 Key，质量一般）', ids: ['cloud'] }
-    ];
+    var groups = M.providerGroups();
     var html = '';
     groups.forEach(function (g) {
       html += '<optgroup label="' + XN.esc(g.label) + '">';
