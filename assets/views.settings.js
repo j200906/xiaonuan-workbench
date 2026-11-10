@@ -181,7 +181,8 @@
     var fb = card.querySelector('#openFeedbackBtn');
     if (fb) fb.addEventListener('click', function () { XN.switchView('feedback'); });
     var it = card.querySelector('#openIterateBtn');
-    if (it) it.addEventListener('click', function () { openIterateGuarded(); });
+    var self = this;
+    if (it) it.addEventListener('click', function () { self.openIterateGuarded(); });
   },
 
   render() {
@@ -210,6 +211,7 @@
       this.renderLanguage();
       this.renderPreview();
       this.renderStorage();
+      this.renderQuickLinks();
 
       var locale = $('#setLocale');
       if (locale) locale.value = XN.i18n.locale();

@@ -160,8 +160,13 @@
       var span = btn.querySelector('span');
       if (span) span.textContent = labels[id] || t((VIEW_META[id] && VIEW_META[id].title) || 'nav.chat');
 
-      if (id === 'chat' || id === 'iterate') {
+      if (id === 'chat') {
         btn.hidden = false;
+        return;
+      }
+      /* 迭代页只在管理员验过密码后出现在侧栏 */
+      if (id === 'iterate') {
+        btn.hidden = !state.admin;
         return;
       }
       var item = (state.cfg.nav || []).filter(function (n) { return n.id === id; })[0];

@@ -378,7 +378,7 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   check('代理模式自动识别', boot.proxy === true);
   check('五个视图注册 + 侧栏 6 个入口', boot.views === 5 && boot.side === 6, `${boot.views}/${boot.side}`);
   check('对话页默认可见', boot.chat);
-  check('迭代入口不需要解锁', await cdp.evaluate(`(() => { const b = document.querySelector('#navIterate'); return !!b && !b.hidden; })()`));
+  check('迭代入口默认隐藏（管理员门后）', await cdp.evaluate(`(() => { const b = document.querySelector('#navIterate'); return !!b && b.hidden === true; })()`));
 
   /* 第三件：入口可见 ≠ 页面进得去。以前点「迭代」会被 switchView 折回设置页，
      这里真点一次侧栏，确认 #view-iterate 真的显示出来。 */
