@@ -452,6 +452,7 @@ textarea { resize: vertical; line-height: 1.65; }
   min-width: 0;
   max-width: min(40vw, 180px);
   padding: 2px 8px;
+  min-height: 24px;
   border-color: transparent;
   background: transparent;
   color: var(--ink-3);
@@ -467,6 +468,16 @@ textarea { resize: vertical; line-height: 1.65; }
   color: var(--ink);
   border-color: var(--ink-4);
   background: var(--sunk);
+}
+/* 超窄屏兜底：底栏放不下「联网 + 模型下拉 + 停止 + 发送 + 模型名」时，
+ * 先允许按钮组收缩（min-width:0），否则流式时（停止可见）模型条会被挤出输入框。
+ * 收到 ≤359px：全局加这条会让 ≥360px 的普通态模型条从 71px 撑到 137px，破坏「≥360 视觉不变」。 */
+@media (max-width: 359px) {
+  .composer-foot .composer-btns { min-width: 0; }
+}
+/* ≤335px 再进一步：直接藏掉模型下拉（模型名 pill 和设置页都还能换模型），底栏不再挤。 */
+@media (max-width: 335px) {
+  .composer-foot .model-pick { display: none; }
 }
 .composer-hint { font-size: .73em; color: var(--ink-4); }
 .composer-btns { display: flex; align-items: center; gap: 6px; }
