@@ -362,5 +362,10 @@
   };
 
   XN.views = XN.views || {};
-  XN.views.feedback = feedback;
+  /* 视图改成插件注册：插件运行时注册清单，没装插件系统就退回老的直接挂载。 */
+  if (XN && XN.plugin) {
+    XN.plugin.register({ id: 'view-feedback', name: '反馈箱', version: '2.0.0', view: feedback, nav: { order: 50 } });
+  } else {
+    XN.views.feedback = feedback;
+  }
 })(window);
