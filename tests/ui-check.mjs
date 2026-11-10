@@ -174,7 +174,7 @@ try {
   check('代理模式自动识别', boot.proxy === true);
   check('五个视图注册 + 侧栏 6 个入口', boot.views === 5 && boot.side === 6, `${boot.views}/${boot.side}`);
   check('对话页默认可见', boot.chat);
-
+  check('迭代入口不需要解锁', await evaluate(`(() => { const b = document.querySelector('#navIterate'); return !!b && !b.hidden; })()`));
   const views = {};
   for (const v of ['study', 'feedback', 'changelog', 'settings', 'chat']) {
     await evaluate(`window.XN.switchView(${JSON.stringify(v)})`);
@@ -222,7 +222,7 @@ try {
   const unlock = await evaluate(`window.XN.unlockAdmin(${JSON.stringify(PASSWORD)})`);
   await sleep(200);
   check('管理密码换令牌', unlock.ok === true && (await evaluate('!!window.XN.adminToken()')));
-  check('解锁后出现迭代入口', await evaluate(`!document.querySelector('#navIterate').hidden`));
+  check('迭代入口解锁后仍可见', await evaluate(`!document.querySelector('#navIterate').hidden`));
 
   await evaluate(`window.XN.switchView('feedback')`);
   await sleep(150);

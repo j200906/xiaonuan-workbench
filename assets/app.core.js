@@ -161,7 +161,7 @@
       if (span) span.textContent = labels[id] || t((VIEW_META[id] && VIEW_META[id].title) || 'nav.chat');
 
       if (id === 'chat' || id === 'iterate') {
-        btn.hidden = id === 'iterate' ? !state.admin : false;
+        btn.hidden = false;
         return;
       }
       var item = (state.cfg.nav || []).filter(function (n) { return n.id === id; })[0];

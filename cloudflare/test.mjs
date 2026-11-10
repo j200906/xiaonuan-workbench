@@ -65,14 +65,16 @@ const token = j.token;
 r = await worker.fetch(req('/api/iterate', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
 }), env);
-check('迭代无令牌 401', r.status === 401);
+let itBody = await r.json();
+check('迭代不再要求密码（无令牌进公开模式）', r.status !== 401 && itBody.publicMode === true);
 
 r = await worker.fetch(req('/api/iterate', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'fake.token' },
   body: '{}'
 }), env);
-check('迭代假令牌 401', r.status === 401);
+itBody = await r.json();
+check('迭代假令牌同样进公开模式', r.status !== 401 && itBody.publicMode === true);
 
 r = await worker.fetch(req('/api/search?q=test', {
   headers: { Origin: 'https://evil.example', 'Sec-Fetch-Site': 'cross-site' }

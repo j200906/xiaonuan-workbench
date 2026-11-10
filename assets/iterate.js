@@ -94,7 +94,7 @@
   }
 
   function lockGuard() {
-    if (!state.admin) { XN.toast('先解锁管理模式'); return false; }
+    /* 迭代界面不再要求先输密码：没解锁时服务端会把它落到试跑分支，不碰 main。 */
     if (!API.isProxy()) { XN.toast('自迭代需要云端或本地后端'); return false; }
     var lock = state.cloudRepo || {};
     if (!lock.locked) { XN.toast('服务器没有锁定发布仓库'); return false; }
@@ -149,9 +149,12 @@
 
       var data = null;
       try { data = await res.json(); } catch (e) {}
-      if (res.status === 401) { XN.lockAdmin(); throw new Error('管理员会话失效，请重新解锁。'); }
+      if (res.status === 401) { throw new Error('服务器拒绝了这次迭代（401）。'); }
       if (!data) throw new Error('服务器返回了空响应（HTTP ' + res.status + '）');
 
+      if (data.publicMode && data.branch) {
+        log('公开模式：改动只会提交到 ' + data.branch + ' 分支，确认没问题再合并到 main', 'ok');
+      }
       (data.log || []).forEach(function (line) { log(line); });
 
       if (data.tickets) {
@@ -342,7 +345,6 @@
     },
 
     onShow: function () {
-      if (!state.admin) { XN.switchView('settings'); return; }
       renderQueue();
       renderResult();
       renderLog();

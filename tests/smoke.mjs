@@ -176,11 +176,14 @@ try {
     assert.equal(res.status, 403);
   });
 
-  await check('迭代接口必须带令牌', async () => {
+  await check('迭代接口未解锁时只给试运行', async () => {
     const res = await fetch(base + '/api/iterate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
     });
-    assert.equal(res.status, 401);
+    assert.equal(res.status, 200);
+    const j = await res.json();
+    assert.equal(j.publicMode, true);
+    assert.equal(j.dryRun, true);
   });
 
   await check('迭代试运行可用', async () => {
