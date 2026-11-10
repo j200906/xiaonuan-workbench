@@ -5,12 +5,21 @@
   var XN = root.XN;
   var $ = XN.$, $$ = XN.$$, t = XN.t;
   var state = XN.state, S = XN.store;
-  var PAGE = 20;
+  /* 笔记分页上限来自 cfg.limits.notesPage，不再写死 20；坏值回落到 20 */
+  function pageSize() {
+    var lim = (state.cfg && state.cfg.limits) || {};
+    var n = Number(lim.notesPage);
+    if (!isFinite(n) || n < 5) n = 20;
+    return Math.min(200, Math.floor(n));
+  }
+  var PAGE = pageSize();
 
   var study = {
     noteLimit: PAGE,
 
     init() {
+      /* boot 里 loadState 已经跑完，这里拿到的才是用户配置 */
+      this.noteLimit = pageSize();
       $('#goalForm').addEventListener('submit', (e) => {
         e.preventDefault();
         this.addGoal();
@@ -20,11 +29,11 @@
       $('#noteCancel').addEventListener('click', () => { $('#noteForm').hidden = true; });
       $('#noteForm').addEventListener('submit', (e) => { e.preventDefault(); this.commitNote(); });
       $('#noteSearch').addEventListener('input', XN.util.debounce(() => {
-        this.noteLimit = PAGE;
+        this.noteLimit = pageSize();
         this.renderNotes();
       }, 150));
       $('#noteMore').addEventListener('click', () => {
-        this.noteLimit += PAGE;
+        this.noteLimit += pageSize();
         this.renderNotes();
       });
 
@@ -184,7 +193,7 @@
       )).join('');
 
       $('#noteMoreWrap').hidden = all.length <= this.noteLimit;
-      $('#noteMore').textContent = t('study.more') + '（还剩 ' + Math.max(0, all.length - this.noteLimit) + '）';
+      $('#noteMore').textContent = t('study.more') + '（还剩 ' + Math.max(0, all.length - this.noteLimit) + ' 条）';
 
       $$('.note', list).forEach((el) => {
         var open = () => {
