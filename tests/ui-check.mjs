@@ -343,7 +343,10 @@ async function runHttpChecks(check, baseUrl, opts) {
 
 /* 完整浏览器检查：和改造前 tests/ui-check.mjs 的 18 项一一对应，只是启动等待改成轮询。
  * 主页改造后又补了 5 条：空态无问候标题 / 空态无建议条 / 无免责声明 /
- * 模型条在输入框底栏 / 模型条显示当前模型名。 */
+ * 模型条在输入框底栏 / 模型条显示当前模型名。
+ * 第二件（友好名 + 背景水印）又补了 5 条：模型条不显示原始 @cf/ id /
+ * 云端原始 id 渲染成友好名 / 模型下拉显示友好名 /
+ * 背景水印存在且 pointer-events:none / 水印不与输入框矩形相交。 */
 async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
@@ -435,6 +438,86 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   check('模型条显示当前模型名',
     pill.exists === true && pill.text.length > 0 && (pill.text === pill.model || (!!pill.trigger && pill.text === pill.trigger)),
     JSON.stringify(pill).slice(0, 160));
+  /* 云端模型的原始 id 长成 @cf/zai-org/glm-4.7-flash 这样，界面上要给友好名。 */
+  check('模型条不显示原始云端 id',
+    pill.exists === true && pill.text.length > 0 && !pill.text.includes('@cf/'),
+    JSON.stringify(pill).slice(0, 160));
+
+  /* 本地假上游不是云端模式，模型条一直是 deepseek-chat，光看它测不出「云端 id 泄漏」。
+     这里临时把当前模型改成云端原始 id 逼一次真实渲染，断言完立刻还原，不改任何配置。 */
+  const cloudPill = await cdp.evaluate(`(() => {
+    const raw = '@cf/zai-org/glm-4.7-flash';
+    const prev = window.XN.state.cfg.tutor.model;
+    let text = '';
+    let threw = '';
+    try {
+      window.XN.state.cfg.tutor.model = raw;
+      if (typeof window.XN.refreshModelPill === 'function') window.XN.refreshModelPill();
+      else window.XN.switchView('chat');
+      const el = document.querySelector('#modelPill');
+      text = el ? (el.textContent || '').trim() : '';
+    } catch (e) {
+      threw = String((e && e.message) || e);
+    } finally {
+      window.XN.state.cfg.tutor.model = prev;
+      try { if (typeof window.XN.refreshModelPill === 'function') window.XN.refreshModelPill(); } catch (e) {}
+    }
+    return { raw, text, threw, restored: window.XN.state.cfg.tutor.model === prev };
+  })()`);
+  check('云端原始 id 渲染成友好名',
+    cloudPill.threw === '' && cloudPill.restored === true &&
+    cloudPill.text.length > 0 && !cloudPill.text.includes('@cf/'),
+    JSON.stringify(cloudPill).slice(0, 180));
+
+  /* 模型下拉：原生 select 的显示文本、自定义菜单的项名都要是友好名；value/data-id 保留原始 id 没关系。 */
+  const modelOptions = await cdp.evaluate(`(() => {
+    const native = [...document.querySelectorAll('#modelPick option')].map((o) => ({ value: o.value, text: (o.textContent || '').trim() }));
+    const menu = [...document.querySelectorAll('#modelMenu .mp-opt')].map((o) => ({
+      value: o.dataset.id || '',
+      text: ((o.querySelector('.mp-name') || o).textContent || '').trim()
+    }));
+    const all = native.concat(menu);
+    return {
+      native: native.length,
+      menu: menu.length,
+      bad: all.filter((o) => o.text.includes('@cf/')),
+      empty: all.filter((o) => !o.text).length,
+      sample: native.slice(0, 3)
+    };
+  })()`);
+  check('模型下拉显示友好名（不出现原始 @cf/ id）',
+    modelOptions.native >= 1 && modelOptions.menu >= 1 && modelOptions.bad.length === 0,
+    JSON.stringify(modelOptions).slice(0, 220));
+
+  /* 背景水印：只许有一个，且必须 pointer-events:none，不能把输入框的点击吃掉。 */
+  const watermark = await cdp.evaluate(`(() => {
+    const els = document.querySelectorAll('.xn-watermark');
+    const el = els[0];
+    const composer = document.querySelector('.composer');
+    if (!el) return { count: els.length, exists: false };
+    const cs = getComputedStyle(el);
+    const wr = el.getBoundingClientRect();
+    const cr = composer ? composer.getBoundingClientRect() : null;
+    const box = (r) => r ? { l: +r.left.toFixed(1), t: +r.top.toFixed(1), r: +r.right.toFixed(1), b: +r.bottom.toFixed(1) } : null;
+    const overlap = !!(wr.width && wr.height && cr && cr.width && cr.height &&
+      !(wr.right <= cr.left || wr.left >= cr.right || wr.bottom <= cr.top || wr.top >= cr.bottom));
+    return {
+      count: els.length,
+      exists: true,
+      pointerEvents: cs.pointerEvents,
+      opacity: cs.opacity,
+      zIndex: cs.zIndex,
+      rect: box(wr),
+      composerRect: box(cr),
+      overlap
+    };
+  })()`);
+  check('背景水印存在且不吃鼠标',
+    watermark.count === 1 && watermark.exists === true && watermark.pointerEvents === 'none',
+    JSON.stringify(watermark).slice(0, 200));
+  check('水印不与输入框矩形相交',
+    watermark.exists === true && watermark.overlap === false,
+    JSON.stringify(watermark).slice(0, 200));
 
   await cdp.evaluate(`document.querySelector('#modelPickTrigger').click()`);
   await sleep(120);
