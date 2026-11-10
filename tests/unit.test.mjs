@@ -202,3 +202,80 @@ test('迁移不会把旧管理令牌搬进 localStorage', () => {
   assert.equal(data['xn.v2.cfg'], '{"a":1}', '普通旧键照常迁移');
   assert.equal(data['xn.cfg.v1'], undefined, '普通旧键迁移后要删掉');
 });
+
+test('记忆管理：list / update / remove / dedupe', () => {
+  const now = Date.now();
+  const day = 86400000;
+  const seed = {
+    name: '测试',
+    explicit: [
+      { id: 'e1', content: '我喜欢喝美式咖啡', ts: now - day * 3 },
+      { id: 'e2', content: '我喜欢喝美式咖啡', ts: now - day },          // 和 e1 重复，但更新
+      { id: 'e3', content: '每周三晚上有吉他课', ts: now - day * 2 }
+    ],
+    implicit: [
+      { id: 'i1', content: '用户在准备考研，想每天背单词', ts: now - 3600000, source: 'dialog' },
+      { id: 'i2', content: '用户在准备考研，想每天背单词！', ts: now - 1800000, source: 'note' }
+    ]
+  };
+  const w = loadClassic(['assets/memory.js'], { 'xn.v2.mem': JSON.stringify(seed) });
+  const M = w.XN_MEM;
+
+  /* list：两组都给，每条带 id/content/ts/相对时间，组内新的在前 */
+  const all = M.list();
+  assert.equal(all.explicit.length, 3);
+  assert.equal(all.implicit.length, 2);
+  assert.equal(all.total, 5);
+  for (const it of all.explicit.concat(all.implicit)) {
+    assert.equal(typeof it.id, 'string');
+    assert.ok(it.id.length > 0);
+    assert.equal(typeof it.content, 'string');
+    assert.ok(it.content.length > 0);
+    assert.equal(typeof it.ts, 'number');
+    assert.equal(typeof it.ago, 'string');
+    assert.ok(it.ago.length > 0, '每条都要有相对时间');
+  }
+  /* 数组来自 vm 沙箱，跨 realm 的 deepEqual 会因原型不同而假失败，这里比字符串。 */
+  assert.equal(all.explicit.map((x) => x.id).join(','), 'e2,e3,e1', '组内按时间倒序');
+  assert.equal(all.implicit[0].source, 'note', '隐式记忆带来源');
+
+  /* list({ kind }) 只给一组 */
+  const onlyImplicit = M.list({ kind: 'implicit' });
+  assert.equal(onlyImplicit.explicit.length, 0);
+  assert.equal(onlyImplicit.implicit.length, 2);
+  const onlyExplicit = M.list({ kind: 'explicit' });
+  assert.equal(onlyExplicit.implicit.length, 0);
+
+  /* update：能改文案、保留原 ts；空内容 / 超 200 字 / 不存在的 id 都要拒 */
+  const before = all.explicit.find((x) => x.id === 'e3');
+  assert.equal(M.update('e3', '  改成了每周四晚上有吉他课  '), true);
+  const updated = M.list({ kind: 'explicit' }).explicit.find((x) => x.id === 'e3');
+  assert.equal(updated.content, '改成了每周四晚上有吉他课', '首尾空白要剪掉');
+  assert.equal(updated.ts, before.ts, '改文案不动时间戳');
+  assert.equal(M.update('e3', '   '), false, '空内容拒绝');
+  assert.equal(M.update('e3', 'x'.repeat(201)), false, '超过 200 字拒绝');
+  assert.equal(M.update('e3', 'x'.repeat(200)), true, '刚好 200 字允许');
+  assert.equal(M.update('没有这个 id', '随便'), false);
+
+  /* remove：删一条返回 true，再删同一条返回 false；显式隐式都能删 */
+  assert.equal(M.remove('e1'), true);
+  assert.equal(M.remove('e1'), false);
+  assert.equal(M.list({ kind: 'explicit' }).explicit.length, 2);
+  assert.equal(M.remove('i2'), true);
+  assert.equal(M.list({ kind: 'implicit' }).implicit.length, 1);
+  assert.equal(M.remove(''), false, '空 id 直接拒');
+
+  /* dedupe：另起一份干净数据，验证「相似合并、保留较新的 ts」 */
+  const w2 = loadClassic(['assets/memory.js'], { 'xn.v2.mem': JSON.stringify(seed) });
+  const M2 = w2.XN_MEM;
+  assert.equal(M2.dedupe(), 2, 'e1/e2 合并 1 条 + i1/i2 合并 1 条');
+  const after = M2.list();
+  const cafe = after.explicit.filter((x) => x.content.indexOf('美式咖啡') >= 0);
+  assert.equal(cafe.length, 1, '重复的显式记忆只留一条');
+  assert.equal(cafe[0].ts, now - day, '保留较新的那条时间戳');
+  const study = after.implicit.filter((x) => x.content.indexOf('考研') >= 0);
+  assert.equal(study.length, 1, '重复的隐式记忆只留一条');
+  assert.equal(study[0].ts, now - 1800000, '保留较新的那条时间戳');
+  assert.equal(study[0].source, 'note', '保留较新那条的来源');
+  assert.equal(M2.dedupe(), 0, '再跑一次没有可合并的');
+});
