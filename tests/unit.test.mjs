@@ -165,6 +165,22 @@ test('中英文文案键一致', () => {
   assert.deepEqual(en, zh, '两种语言的键必须一一对应');
 });
 
+test('繁体中文（zh-TW）文案键与 zh-CN 一致', () => {
+  const w = loadClassic(['assets/lib/util.js', 'assets/lib/store.js', 'assets/lib/i18n.js']);
+  const dict = w.XN.i18n.dict;
+  const zh = Object.keys(dict['zh-CN']).sort();
+  assert.ok(dict['zh-TW'], 'DICT 里必须有 zh-TW');
+  assert.deepEqual(Object.keys(dict['zh-TW']).sort(), zh, 'zh-TW 的键必须和 zh-CN 一一对应');
+  assert.deepEqual(Array.from(w.XN.i18n.locales), ['zh-CN', 'zh-TW', 'en'], '语言下拉的顺序：简中 → 繁中 → English');
+  assert.equal(w.XN.i18n.name('zh-TW'), '繁體中文', '语言下拉要显示「繁體中文」');
+  /* 繁体里不该混进简体专用字（人工粗筛，命中基本就是漏翻） */
+  const simplified = '设认视频络软这个说开关问题错误试换删记载权复时间与应该现让对话请读写听见电脑网数据险银员团队输帮务统钟简单杂确逻辑响缓检测转传调断闭长击择张贴们样过经没谁么'.split('');
+  const bad = Object.entries(dict['zh-TW'])
+    .map(([key, text]) => ({ key, chars: simplified.filter((ch) => String(text).includes(ch)).join('') }))
+    .filter((x) => x.chars);
+  assert.deepEqual(bad, [], 'zh-TW 混进了简体字：' + JSON.stringify(bad));
+});
+
 test('存储键统一到 xn.v2 且带迁移表', () => {
   const w = loadClassic(['assets/lib/util.js', 'assets/lib/store.js']);
   const keys = Object.values(w.XN.store.KEYS);

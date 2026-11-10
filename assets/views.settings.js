@@ -454,7 +454,7 @@
       var sel = $('#setLocale');
       if (!sel) return;
       sel.innerHTML = XN.i18n.locales.map((code) =>
-        '<option value="' + code + '">' + (code === 'zh-CN' ? '简体中文' : 'English') + '</option>'
+        '<option value="' + code + '">' + (XN.i18n.name ? XN.i18n.name(code) : code) + '</option>'
       ).join('');
       sel.addEventListener('change', () => {
         XN.i18n.setLocale(sel.value);
