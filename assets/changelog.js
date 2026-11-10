@@ -1,6 +1,18 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.6",
+    "date": "2026-11-10",
+    "title": "搜索回答要注明来源",
+    "fixes": [
+      "web_search 的工具说明书里明确要求：返回结果带来源（DuckDuckGo / 维基百科），回答时把来源说清楚，不再笼统叫「联网」"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "tools.js 中 toolSearch 的实际实现（结果里是否真的写入 origin 字段）在省略区看不到，没法验证 DuckDuckGo / 维基百科 标签是否真的产出；没跑真实联网搜索（机房 IP 常被挡），也没跑 npm run ui"
+  },
+  {
     "version": "1.5.5",
     "date": "2026-11-10",
     "title": "令牌只留内存，离开即清空",
@@ -161,18 +173,6 @@ window.XN_CHANGELOG = [
       "等待期间显示「正在想…」，不再一片空白"
     ],
     "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
-    ],
     "source": "manual"
   }
 ];

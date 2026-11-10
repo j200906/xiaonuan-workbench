@@ -50,7 +50,7 @@ window.XN_TOOLS = (function () {
       type: 'function',
       function: {
         name: 'web_search',
-        description: '联网搜索。用于查实时信息：新闻、天气、今天几号、最新版本号、你不确定或可能过时的事实。不要用它来查聊天里已经给出的内容。',
+        description: '联网搜索。用于查实时信息：新闻、天气、今天几号、最新版本号、你不确定或可能过时的事实。不要用它来查聊天里已经给出的内容。返回的每条结果都带来源（DuckDuckGo / 维基百科）；回答时请把来源一起说清楚，不要笼统地说「网上说」。',
         parameters: {
           type: 'object',
           properties: {
