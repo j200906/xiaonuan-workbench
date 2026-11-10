@@ -544,52 +544,46 @@ export function resolveTagTarget(refData, annotated) {
   return obj.type === 'commit' ? obj.sha : '';
 }
 
-/* 把已经传好的 blob 挂到分支上。分支被并发提交顶掉（409）时，拿新 head 重建
-   tree/commit 再推一次（Q71）——原来只是把一个「不在任何分支上」的 commit sha
-   丢给用户，他既不能 review 也不能 merge，等于白跑。 */
-async function pushChanges(owner, repo, branch, token, blobs, message, say) {
-  let last = null;
-  for (let round = 1; round <= 2; round++) {
-    const ref = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`, token);
-    if (ref.status !== 200) {
-      return { ok: false, status: 502, error: '读分支失败：' + ((ref.data && ref.data.message) || ref.status) };
-    }
-    const headSha = ref.data.object.sha;
-    const head = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/commits/${headSha}`, token);
-    if (head.status !== 200) return { ok: false, status: 502, error: '读提交失败：' + head.status };
-
-    const tree = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/trees`, token, {
-      method: 'POST',
-      body: JSON.stringify({ base_tree: head.data.tree.sha, tree: blobs })
-    });
-    if (tree.status !== 201) {
-      return { ok: false, status: 502, error: '建 tree 失败：' + ((tree.data && tree.data.message) || tree.status) };
-    }
-
-    const commit = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/commits`, token, {
-      method: 'POST',
-      body: JSON.stringify({ message, tree: tree.data.sha, parents: [headSha] })
-    });
-    if (commit.status !== 201) {
-      return { ok: false, status: 502, error: '建提交失败：' + ((commit.data && commit.data.message) || commit.status) };
-    }
-    last = { sha: commit.data.sha, status: commit.status, message: '' };
-
-    const upd = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ sha: commit.data.sha, force: false })
-    });
-    if (upd.status === 200) return { ok: true, sha: commit.data.sha };
-    last.status = upd.status;
-    last.message = (upd.data && upd.data.message) || ('HTTP ' + upd.status);
-    if (upd.status !== 409) break;
-    say(`分支 ${branch} 刚被推进，换新 head 重试一次（第 ${round} 次）`);
+/* 把已经传好的 blob 挂到分支上。只推一次：409 说明分支被并发提交顶掉了，
+   交给调用方（runIteration）重新读取文件、用原 plan 重跑 validatePlan/verifyFiles
+   之后再用新 blobs 构造提交 —— 绝不能拿「按旧基线校验过的 blobs」直接覆盖别人的提交。
+   （K5：原来这里直接换新 head 重建 tree/commit，会静默覆盖并发提交里同一文件的改动。） */
+async function pushChanges(owner, repo, branch, token, blobs, message) {
+  const ref = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`, token);
+  if (ref.status !== 200) {
+    return { ok: false, status: 502, error: '读分支失败：' + ((ref.data && ref.data.message) || ref.status) };
   }
+  const headSha = ref.data.object.sha;
+  const head = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/commits/${headSha}`, token);
+  if (head.status !== 200) return { ok: false, status: 502, error: '读提交失败：' + head.status };
+
+  const tree = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/trees`, token, {
+    method: 'POST',
+    body: JSON.stringify({ base_tree: head.data.tree.sha, tree: blobs })
+  });
+  if (tree.status !== 201) {
+    return { ok: false, status: 502, error: '建 tree 失败：' + ((tree.data && tree.data.message) || tree.status) };
+  }
+
+  const commit = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/commits`, token, {
+    method: 'POST',
+    body: JSON.stringify({ message, tree: tree.data.sha, parents: [headSha] })
+  });
+  if (commit.status !== 201) {
+    return { ok: false, status: 502, error: '建提交失败：' + ((commit.data && commit.data.message) || commit.status) };
+  }
+
+  const upd = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ sha: commit.data.sha, force: false })
+  });
+  if (upd.status === 200) return { ok: true, sha: commit.data.sha, headSha };
+  /* 409 时 commit.data.sha 是「不在任何分支上」的孤儿提交：不放进结果，避免用户以为已提交。 */
   return {
     ok: false,
-    status: last.status === 409 ? 409 : 502,
-    sha: last.sha,
-    error: '更新分支失败：' + (last.message || ('HTTP ' + last.status))
+    status: upd.status === 409 ? 409 : 502,
+    headSha,
+    error: '更新分支失败：' + ((upd.data && upd.data.message) || ('HTTP ' + upd.status))
   };
 }
 
@@ -673,23 +667,34 @@ export async function runIteration(env, opts) {
   say('目标分支：' + branch + (trialBranch ? '（试跑分支，不打 tag）' : ''));
 
   const optional = new Set([ARCHIVE_FILE, LESSONS_FILE]);
-  const reads = await Promise.all(EDITABLE.concat([README_FILE, CHANGELOG_FILE, ARCHIVE_FILE, LESSONS_FILE, PKG_FILE]).map(async (p) => {
-    try {
-      const f = await readFile(owner, repo, p, branch, token, optional.has(p));
-      return [p, f];
-    } catch (e) {
-      return [p, { error: e.message }];
-    }
-  }));
-
-  const files = {};
-  const missing = [];
-  reads.forEach(([p, f]) => {
-    if (f.error) missing.push(p + '：' + f.error);
-    else files[p] = f.content;
-  });
-  if (missing.length) {
-    return jsonBody({ ok: false, error: '读文件失败：' + missing.slice(0, 3).join('；'), ...(dryRun ? {} : { tickets }), log }, 502);
+  /* GitHub contents API 自带每个文件的 blob sha：记下来当基线。
+     409 后重新读取时用它对出「这期间哪些文件被并发改过」，并重跑校验（K5）。 */
+  const readSourceFiles = async () => {
+    const shas = {};
+    const reads = await Promise.all(EDITABLE.concat([README_FILE, CHANGELOG_FILE, ARCHIVE_FILE, LESSONS_FILE, PKG_FILE]).map(async (p) => {
+      try {
+        const f = await readFile(owner, repo, p, branch, token, optional.has(p));
+        return [p, f];
+      } catch (e) {
+        return [p, { error: e.message }];
+      }
+    }));
+    const filesNow = {};
+    const missing = [];
+    reads.forEach(([p, f]) => {
+      if (f.error) missing.push(p + '：' + f.error);
+      else {
+        filesNow[p] = f.content;
+        shas[p] = f.sha || '';
+      }
+    });
+    return { files: filesNow, shas, missing };
+  };
+  const source = await readSourceFiles();
+  const files = source.files;
+  const fileShas = source.shas;
+  if (source.missing.length) {
+    return jsonBody({ ok: false, error: '读文件失败：' + source.missing.slice(0, 3).join('；'), ...(dryRun ? {} : { tickets }), log }, 502);
   }
 
   const recent = parseArrayFile(files[CHANGELOG_FILE], 'changelog.js');
@@ -838,120 +843,145 @@ export async function runIteration(env, opts) {
     }, 422);
   }
 
-  const bump = ['patch', 'minor', 'major'].indexOf(plan.bump) >= 0 ? plan.bump : 'patch';
-  const next = plan.version;
-  say(`方案：${plan.title || '未命名'}（${applied.mode}，动 ${applied.touched.length} 个文件）`);
+  /* 把「应用补丁 → 升版本 / 写 changelog / README / 教训 / package → 自检」收成一处：
+     409 重试时会用新 head 的文件重新跑这一遍，保证 blobs 不是按旧基线校验出来的（K5）。 */
+  function buildChange(sourceFiles, curNow, recentNow, lessonsNow, appliedNow) {
+    const bump = ['patch', 'minor', 'major'].indexOf(plan.bump) >= 0 ? plan.bump : 'patch';
+    const next = plan.version;
+    say(`方案：${plan.title || '未命名'}（${appliedNow.mode}，动 ${appliedNow.touched.length} 个文件）`);
 
-  /* 只提醒、不拦截的改动（Q77）：innerHTML 之类项目里本来就在用，
-     一刀切会误杀；但把它写进日志和响应，人和 review 都能看见。 */
-  const warnings = changeWarnings([
-    ...(plan.patches || []).map((p) => String((p && p.replace) || '')),
-    ...(plan.rewrites || []).map((r) => String((r && r.content) || '')),
-    ...(plan.creates || []).map((c) => String((c && c.content) || ''))
-  ].join('\n'));
-  if (warnings.length) say('提醒（不拦截）：' + warnings.join('；'));
+    /* 只提醒、不拦截的改动（Q77）：innerHTML 之类项目里本来就在用，
+       一刀切会误杀；但把它写进日志和响应，人和 review 都能看见。 */
+    const warnings = changeWarnings([
+      ...(plan.patches || []).map((p) => String((p && p.replace) || '')),
+      ...(plan.rewrites || []).map((r) => String((r && r.content) || '')),
+      ...(plan.creates || []).map((c) => String((c && c.content) || ''))
+    ].join('\n'));
+    if (warnings.length) say('提醒（不拦截）：' + warnings.join('；'));
 
-  const entry = {
-    version: next,
-    date: new Date().toISOString().slice(0, 10),
-    title: String(plan.title || '云端自迭代').slice(0, 30),
-    fixes: Array.isArray(plan.fixes) ? plan.fixes.map((x) => String(x).slice(0, 120)).slice(0, 8) : [],
-    features: Array.isArray(plan.features) ? plan.features.map((x) => String(x).slice(0, 120)).slice(0, 8) : [],
-    source: 'cloud',
-    feedbackCount: feedback.length,
-    notes: String(plan.notTried || '').slice(0, 200)
-  };
-  if (!entry.fixes.length && !entry.features.length) entry.fixes.push(entry.title);
+    const entry = {
+      version: next,
+      date: new Date().toISOString().slice(0, 10),
+      title: String(plan.title || '云端自迭代').slice(0, 30),
+      fixes: Array.isArray(plan.fixes) ? plan.fixes.map((x) => String(x).slice(0, 120)).slice(0, 8) : [],
+      features: Array.isArray(plan.features) ? plan.features.map((x) => String(x).slice(0, 120)).slice(0, 8) : [],
+      source: 'cloud',
+      feedbackCount: feedback.length,
+      notes: String(plan.notTried || '').slice(0, 200)
+    };
+    if (!entry.fixes.length && !entry.features.length) entry.fixes.push(entry.title);
 
-  /* 5. 版本、更新日志、README */
-  const out = applied.files;
-  out[VERSION_FILE] = '/* 当前版本。从更新日志首条推导，避免两处不一致。 */\n' +
-    'window.XN_VERSION = (window.XN_CHANGELOG && window.XN_CHANGELOG[0] && window.XN_CHANGELOG[0].version) || ' +
-    JSON.stringify(next) + ';\n';
+    /* 5. 版本、更新日志、README */
+    const out = appliedNow.files;
+    out[VERSION_FILE] = '/* 当前版本。从更新日志首条推导，避免两处不一致。 */\n' +
+      'window.XN_VERSION = (window.XN_CHANGELOG && window.XN_CHANGELOG[0] && window.XN_CHANGELOG[0].version) || ' +
+      JSON.stringify(next) + ';\n';
 
-  const recentList = [entry].concat(recent.filter((x) => x.version !== next));
-  const archiveText = files[ARCHIVE_FILE] || 'window.XN_CHANGELOG_ARCHIVE = [];\n';
-  let archive = [];
-  try { archive = parseArrayFile(archiveText, 'changelog.archive.js'); } catch (e) { archive = []; }
-  const overflow = recentList.slice(12);
-  /* 带原文进去：没变的条目原样保留，diff 只剩新加的那一条（Q74）。 */
-  out[CHANGELOG_FILE] = writeArrayFile('XN_CHANGELOG', recentList.slice(0, 12), '版本记录（最近 12 条）。', files[CHANGELOG_FILE]);
-  if (overflow.length) {
-    out[ARCHIVE_FILE] = writeArrayFile('XN_CHANGELOG_ARCHIVE', overflow.concat(archive).slice(0, 300), '旧版本记录（只读归档）。', files[ARCHIVE_FILE]);
-  }
-
-  /* README 标记丢了就不再静默返回原文：记一条日志 + 响应里的 warning，且不提交空改动（Q75）。 */
-  const readme = patchReadmeChecked(files[README_FILE] || '', entry);
-  if (readme.ok) {
-    out[README_FILE] = readme.text;
-    say(readme.reason ? 'README 版本块已更新；' + readme.reason : 'README 已更新（版本块 + 最近更新）');
-  } else {
-    say('README 没有更新：' + readme.reason);
-  }
-  if (readme.reason) warnings.push('README：' + readme.reason);
-
-  /* package.json 的版本必须一起升：check.mjs 和单测都会比对 changelog 首条，
-     只改 changelog 不改 package.json，CI 必挂（实测踩过）。 */
-  try {
-    const pkg = JSON.parse(String(files[PKG_FILE] || '{}'));
-    if (pkg && typeof pkg === 'object') {
-      pkg.version = next;
-      out[PKG_FILE] = JSON.stringify(pkg, null, 2) + '\n';
-      say('package.json 版本已同步到 ' + next);
+    const recentList = [entry].concat(recentNow.filter((x) => x.version !== next));
+    const archiveText = sourceFiles[ARCHIVE_FILE] || 'window.XN_CHANGELOG_ARCHIVE = [];\n';
+    let archive = [];
+    try { archive = parseArrayFile(archiveText, 'changelog.archive.js'); } catch (e) { archive = []; }
+    const overflow = recentList.slice(12);
+    /* 带原文进去：没变的条目原样保留，diff 只剩新加的那一条（Q74）。 */
+    out[CHANGELOG_FILE] = writeArrayFile('XN_CHANGELOG', recentList.slice(0, 12), '版本记录（最近 12 条）。', sourceFiles[CHANGELOG_FILE]);
+    if (overflow.length) {
+      out[ARCHIVE_FILE] = writeArrayFile('XN_CHANGELOG_ARCHIVE', overflow.concat(archive).slice(0, 300), '旧版本记录（只读归档）。', sourceFiles[ARCHIVE_FILE]);
     }
-  } catch (e) {
-    say('package.json 解析失败，版本没同步：' + e.message);
+
+    /* README 标记丢了就不再静默返回原文：记一条日志 + 响应里的 warning，且不提交空改动（Q75）。 */
+    const readme = patchReadmeChecked(sourceFiles[README_FILE] || '', entry);
+    if (readme.ok) {
+      out[README_FILE] = readme.text;
+      say(readme.reason ? 'README 版本块已更新；' + readme.reason : 'README 已更新（版本块 + 最近更新）');
+    } else {
+      say('README 没有更新：' + readme.reason);
+    }
+    if (readme.reason) warnings.push('README：' + readme.reason);
+
+    /* package.json 的版本必须一起升：check.mjs 和单测都会比对 changelog 首条，
+       只改 changelog 不改 package.json，CI 必挂（实测踩过）。 */
+    try {
+      const pkg = JSON.parse(String(sourceFiles[PKG_FILE] || '{}'));
+      if (pkg && typeof pkg === 'object') {
+        pkg.version = next;
+        out[PKG_FILE] = JSON.stringify(pkg, null, 2) + '\n';
+        say('package.json 版本已同步到 ' + next);
+      }
+    } catch (e) {
+      say('package.json 解析失败，版本没同步：' + e.message);
+    }
+
+    /* 教训随版本一起入库：既给人 review，也让下一次迭代能读到。 */
+    const lessonsText = renderLessons(lessonsNow, 'v' + next);
+    if (lessonsText !== String(sourceFiles[LESSONS_FILE] || '')) {
+      out[LESSONS_FILE] = lessonsText;
+      say('教训文件已更新（' + lessonsNow.length + ' 条）');
+    }
+    say('版本：' + curNow + ' → ' + next + '（' + bump + '）');
+
+    const check = verifyFiles(out, Object.keys(out));
+    say(check.detail);
+
+    const changedFiles = [...new Set(appliedNow.touched.concat([VERSION_FILE, CHANGELOG_FILE, ARCHIVE_FILE, README_FILE, LESSONS_FILE, PKG_FILE]))]
+      .filter((p) => typeof out[p] === 'string');
+
+    const skipped = appliedNow.skipped || [];
+    if (skipped.length) say('跳过 ' + skipped.length + ' 处对不上的补丁：' + skipped.map((s) => s.reason).join('；').slice(0, 300));
+
+    return {
+      ok: check.ok,
+      detail: check.detail,
+      bump,
+      next,
+      from: curNow,
+      warnings,
+      entry,
+      out,
+      check,
+      changedFiles,
+      skipped,
+      applied: appliedNow
+    };
   }
 
-  /* 教训随版本一起入库：既给人 review，也让下一次迭代能读到。 */
-  const lessonsText = renderLessons(lessons, 'v' + next);
-  if (lessonsText !== String(files[LESSONS_FILE] || '')) {
-    out[LESSONS_FILE] = lessonsText;
-    say('教训文件已更新（' + lessons.length + ' 条）');
+  function makeResult(built) {
+    return {
+      ok: true,
+      dryRun,
+      version: built.next,
+      from: built.from,
+      bump: built.bump,
+      effort: opts.reasoningEffort,
+      title: built.entry.title,
+      fixes: built.entry.fixes,
+      features: built.entry.features,
+      verify: built.check.detail,
+      notTried: built.entry.notes,
+      files: built.changedFiles,
+      patches: built.applied.touched,
+      skipped: built.skipped,
+      warnings: built.warnings,
+      /* 试运行没有提交，url 留空；真跑会在下面覆盖成 commit 链接。 */
+      url: '',
+      compareUrl: '',
+      log
+    };
   }
-  say('版本：' + cur + ' → ' + next + '（' + bump + '）');
 
-  const check = verifyFiles(out, Object.keys(out));
-  say(check.detail);
-  if (!check.ok) {
+  let current = buildChange(files, cur, recent, lessons, applied);
+  if (!current.ok) {
     return jsonBody({
       ok: false,
-      error: '自检没通过：' + check.detail,
-      attempt: { title: entry.title, patches: (plan.patches || []).map((p) => ({ file: p.file })) },
+      error: '自检没通过：' + current.detail,
+      attempt: { title: current.entry.title, patches: (plan.patches || []).map((p) => ({ file: p.file })) },
       /* 自检失败时也把「哪些补丁被跳过」带出来（Q66）。 */
-      skipped: applied.skipped || [],
+      skipped: current.skipped,
       tickets,
       log
     }, 422);
   }
 
-  const changedFiles = [...new Set(applied.touched.concat([VERSION_FILE, CHANGELOG_FILE, ARCHIVE_FILE, README_FILE, LESSONS_FILE, PKG_FILE]))]
-    .filter((p) => typeof out[p] === 'string');
-
-  const skipped = applied.skipped || [];
-  if (skipped.length) say('跳过 ' + skipped.length + ' 处对不上的补丁：' + skipped.map((s) => s.reason).join('；').slice(0, 300));
-
-  const result = {
-    ok: true,
-    dryRun,
-    version: next,
-    from: cur,
-    bump,
-    effort: opts.reasoningEffort,
-    title: entry.title,
-    fixes: entry.fixes,
-    features: entry.features,
-    verify: check.detail,
-    notTried: entry.notes,
-    files: changedFiles,
-    patches: applied.touched,
-    skipped,
-    warnings,
-    /* 试运行没有提交，url 留空；真跑会在下面覆盖成 commit 链接。 */
-    url: '',
-    compareUrl: '',
-    log
-  };
+  let result = makeResult(current);
 
   if (dryRun) {
     if (env.XN_KV) {
@@ -966,39 +996,97 @@ export async function runIteration(env, opts) {
   /* 真跑：工单一起回传，前端队列才有数据（没有就是空数组）。 */
   result.tickets = tickets;
 
-  /* 6. 一次性提交：blob 是先传的（内容寻址，409 重试时直接复用） */
-  say('上传 ' + changedFiles.length + ' 个 blob…');
-  const blobs = await Promise.all(changedFiles.map(async (p) => {
-    const b = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/blobs`, token, {
-      method: 'POST',
-      body: JSON.stringify({ content: b64encode(out[p]), encoding: 'base64' })
-    });
-    if (b.status !== 201) throw new Error('创建 blob 失败：' + p + '（' + b.status + '）');
-    return { path: p, mode: '100644', type: 'blob', sha: b.data.sha };
-  }));
+  /* 6. 一次性提交：blob 先传。遇到 409（分支被并发推进）不能直接换 head 重建——
+     先重新读文件、用原 plan 重跑 validatePlan/verifyFiles，过了才重试一次；
+     再 409 就收手，绝不无限重试，也不把孤儿 commit 当结果返回（K5）。 */
+  let pushed = null;
+  for (let round = 1; round <= 2; round++) {
+    if (round === 2) {
+      say(`分支 ${branch} 被并发提交顶掉（409），重新读取文件并重校方案…`);
+      const again = await readSourceFiles();
+      if (again.missing.length) {
+        return jsonBody({ ok: false, status: 502, error: '读文件失败：' + again.missing.slice(0, 3).join('；'), tickets, log }, 502);
+      }
+      const recentAgain = parseArrayFile(again.files[CHANGELOG_FILE], 'changelog.js');
+      let pkgAgain = null;
+      try { pkgAgain = JSON.parse(String(again.files[PKG_FILE] || '{}')); } catch (e) { pkgAgain = null; }
+      const curAgain = pickBaseVersion([
+        ...recentAgain.map((x) => x && x.version),
+        (String(again.files[VERSION_FILE] || '').match(/XN_VERSION\s*=\s*["']([^"']+)["']/) || [])[1],
+        pkgAgain && pkgAgain.version
+      ], '1.5.0');
+      /* 用基线 sha 对比，日志里能看出这期间到底哪些文件被别人改了。 */
+      const moved = [...new Set(current.changedFiles)].filter((p) => String(again.shas[p] || '') !== String(fileShas[p] || ''));
+      if (moved.length) say('这些文件在并发提交里被改了，重新校验：' + moved.slice(0, 6).join('、'));
+      const bumpAgain = ['patch', 'minor', 'major'].indexOf(plan.bump) >= 0 ? plan.bump : 'patch';
+      plan.version = bumpVersion(curAgain, bumpAgain);
+      let appliedAgain = null;
+      try {
+        appliedAgain = validatePlan(again.files, plan, EDITABLE, {
+          maxPatches: MAX_PATCHES, maxRewrites: 3, maxCreates: 2, partial: true
+        });
+      } catch (e) {
+        say('重新校验没通过：' + e.message);
+        return jsonBody({
+          ok: false, status: 409, code: 'branch-moved',
+          error: '分支已变动，请重跑（重新校验没通过：' + e.message + '）',
+          tickets, log
+        }, 409);
+      }
+      const lessonsAgain = await loadLessons(env, again.files[LESSONS_FILE]);
+      current = buildChange(again.files, curAgain, recentAgain, lessonsAgain, appliedAgain);
+      if (!current.ok) {
+        say('重新校验没通过：' + current.detail);
+        return jsonBody({
+          ok: false, status: 409, code: 'branch-moved',
+          error: '分支已变动，请重跑（自检没通过：' + current.detail + '）',
+          tickets, log
+        }, 409);
+      }
+      result = makeResult(current);
+      result.tickets = tickets;
+      say(`重新校验通过：版本 ${curAgain} → ${current.next}`);
+    }
 
-  const message = [
-    `feat: ${entry.title} (v${next})`,
-    '',
-    `云端自迭代 · 反馈 ${feedback.length} 条`,
-    `改到：${changedFiles.join('、')}`,
-    `验证：${check.detail}`,
-    `没验证：${entry.notes || '真机、多浏览器、真实服务商'}`
-  ].join('\n');
+    say('上传 ' + current.changedFiles.length + ' 个 blob…');
+    const blobs = await Promise.all(current.changedFiles.map(async (p) => {
+      const b = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/blobs`, token, {
+        method: 'POST',
+        body: JSON.stringify({ content: b64encode(current.out[p]), encoding: 'base64' })
+      });
+      if (b.status !== 201) throw new Error('创建 blob 失败：' + p + '（' + b.status + '）');
+      return { path: p, mode: '100644', type: 'blob', sha: b.data.sha };
+    }));
 
-  const push = await pushChanges(owner, repo, branch, token, blobs, message, say);
-  if (!push.ok) {
-    return jsonBody({
-      ok: false,
-      error: push.error + (push.status === 409
-        ? '；已换新 head 重试过一次仍冲突。这次没有进任何分支（孤儿 blob 会被 GitHub 回收），补丁还在，重跑一次即可。'
-        : ''),
-      commit: push.sha ? push.sha.slice(0, 7) : '',
-      tickets,
-      log
-    }, push.status);
+    const message = [
+      `feat: ${current.entry.title} (v${current.next})`,
+      '',
+      `云端自迭代 · 反馈 ${feedback.length} 条`,
+      `改到：${current.changedFiles.join('、')}`,
+      `验证：${current.check.detail}`,
+      `没验证：${current.entry.notes || '真机、多浏览器、真实服务商'}`
+    ].join('\n');
+
+    const push = await pushChanges(owner, repo, branch, token, blobs, message);
+    if (push.ok) { pushed = push; break; }
+
+    if (push.status !== 409) {
+      return jsonBody({ ok: false, error: push.error, tickets, log }, push.status);
+    }
+    if (round === 2) {
+      say('第二次碰到 409，停止重试（不做无限重试）；本次没有写进任何分支。');
+      return jsonBody({
+        ok: false, status: 409, code: 'branch-moved',
+        error: '分支已变动，请重跑（已重新校验并重试一次，仍被并发提交顶掉）',
+        tickets, log
+      }, 409);
+    }
+    /* 第一轮 409：下一轮会重新读文件、重跑校验，再试一次。 */
   }
-  const commitSha = push.sha;
+  if (!pushed) {
+    return jsonBody({ ok: false, status: 409, code: 'branch-moved', error: '分支已变动，请重跑', tickets, log }, 409);
+  }
+  const commitSha = pushed.sha;
   const commitUrl = `https://github.com/${owner}/${repo}/commit/${commitSha}`;
   /* compareUrl：试跑分支看「相对默认分支差了什么」，正式分支看「这一笔改了什么」。 */
   const compareUrl = trialBranch
@@ -1008,7 +1096,7 @@ export async function runIteration(env, opts) {
 
   /* 7. 打 tag：由 release.yml 在 tag 上打 exe 并创建 release。
      试跑分支不打 tag —— 那边还没 review 过，不能顺手发版。 */
-  const tag = 'v' + next;
+  const tag = 'v' + current.next;
   if (trialBranch) {
     say('试跑分支，跳过打 tag');
     return jsonBody(Object.assign({}, result, {

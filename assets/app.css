@@ -321,14 +321,6 @@ textarea { resize: vertical; line-height: 1.65; }
   animation: rise 420ms var(--ease) both;
 }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
-.empty h2 {
-  font: 600 26px/1.35 var(--font-serif);
-  letter-spacing: -.01em;
-  margin-bottom: 10px;
-}
-.empty p { color: var(--ink-3); font-size: .92em; margin-bottom: 22px; }
-.empty .chips { justify-content: center; }
-.empty .chip { padding: 8px 14px; font-size: .85em; }
 /* 空态：问候语/建议条/说明都去掉后只剩空壳，没有实际内容就不占位、不撑 14vh 留白 */
 .empty:empty {
   display: none;
@@ -481,13 +473,6 @@ textarea { resize: vertical; line-height: 1.65; }
 }
 .send:hover { filter: brightness(1.08); }
 .send:disabled { opacity: .4; }
-.disclaimer {
-  max-width: 720px;
-  margin: 8px auto 0;
-  text-align: center;
-  font-size: .72em;
-  color: var(--ink-4);
-}
 
 /* 行内 Key 提示 */
 .keybar {
@@ -802,7 +787,6 @@ textarea.prompt {
   .board { grid-template-columns: 1fr; padding: 4px 14px 28px; }
   .card.wide { grid-column: auto; }
   .empty { margin-top: 10vh; }
-  .empty h2 { font-size: 22px; }
   .msg.user .body { max-width: 88%; }
   .keybar-grid { grid-template-columns: 1fr; }
 }

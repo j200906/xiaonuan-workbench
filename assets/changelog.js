@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.14",
+    "date": "2026-11-10",
+    "title": "精简死代码",
+    "fixes": ["删掉已无引用的 .disclaimer / .empty h2 / .empty p / .empty .chips / .empty .chip 规则与 i18n 孤儿键 chat.emptyTitle"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.5.13",
     "date": "2026-11-10",
     "title": "网页长文能接着读了",
