@@ -61,6 +61,26 @@ function pickAiModel(raw, env) {
 function hasUpstream(env) { return !!env.XN_API_KEY; }
 function hasAI(env) { return !!env.AI; }
 
+/* 网关下发策略：只把「看起来真的能用」的地址下发给前端。
+ * - 空串 / 解析不出 URL / 非 http(s)：返回 null，调用方干脆不下发 gateway 字段
+ *   （前端 models.js 的 gatewayReady 就会是 false，不会默认选中它）
+ * - 临时隧道（*.trycloudflare.com）：地址照发，但标 stale: true，前端可以提示或禁用
+ * - reachableHint：只有运维显式验证过（XN_GATEWAY_VERIFIED=1）才是 true，
+ *   前端据此决定「能不能直接点」；没验证过的一律先当不可用。 */
+function gatewayInfo(env) {
+  const base = String((env && env.XN_GATEWAY_BASE) || '').trim();
+  if (!base) return null;
+  let url;
+  try { url = new URL(base); } catch (e) { return null; }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  return {
+    base,
+    model: (env && env.XN_GATEWAY_MODEL) || '',
+    stale: /(^|\.)trycloudflare\.com$/i.test(url.hostname),
+    reachableHint: String((env && env.XN_GATEWAY_VERIFIED) || '') === '1'
+  };
+}
+
 /* 只读 Authorization：X-Admin-Token 是管理会话，绝不能当模型 Key 转发出去 */
 function authOnly(request) {
   const h = request.headers.get('Authorization') || '';
@@ -103,15 +123,14 @@ export default {
       }
 
       if (path === '/api/config') {
+        const gateway = gatewayInfo(env);
         return json({
           proxy: hasUpstream(env) || hasAI(env),
           backend: hasUpstream(env) ? 'upstream' : (hasAI(env) ? 'workers-ai' : 'none'),
           model: hasUpstream(env) ? (env.XN_MODEL || 'deepseek-chat') : (env.XN_AI_MODEL || AI_MODEL),
           models: hasAI(env) ? AI_CHOICES : [],
-          gateway: {
-            base: env.XN_GATEWAY_BASE || '',
-            model: env.XN_GATEWAY_MODEL || ''
-          },
+          /* 没配置或明显失效就不带这个字段：前端 gatewayReady=false，不会默认选它 */
+          ...(gateway ? { gateway } : {}),
           repo: {
             owner: env.XN_REPO_OWNER || '',
             name: env.XN_REPO_NAME || '',
