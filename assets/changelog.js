@@ -1,6 +1,20 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.5",
+    "date": "2026-11-10",
+    "title": "令牌只留内存，离开即清空",
+    "fixes": [
+      "GitHub Token 仍只存在 iterate.js 的内存变量 GH_TOKEN，注释改为「绝不写进任何持久化存储」，避免以后被误改成 sessionStorage",
+      "新增 dropToken()，在 pagehide / beforeunload 时主动清空内存里的 Token，关页或切走即失效",
+      "把 dropToken 挂到 XN.IT 上，方便其它模块或测试在退出登录时同步清理"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没在真实浏览器里验证 pagehide / beforeunload 的触发时机和顺序，也没验证 bfcache 恢复后 GH_TOKEN 是否确实保持为空；没跑 npm run ui 的无头点击流程；没检查 iterate.js 中除本次改动外的其它位置是否仍有 Token 落盘路径（节选中段看不到）。"
+  },
+  {
     "version": "1.5.4",
     "date": "2026-11-10",
     "title": "反馈输入加长度硬上限",
@@ -159,17 +173,6 @@ window.XN_CHANGELOG = [
     "features": [
       "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
     ],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.2",
-    "date": "2026-11-09",
-    "title": "修默认模型不出字",
-    "fixes": [
-      "默认云端模型是推理型，token 全花在思考上导致正文为空——看起来像「一个模型都调不了」",
-      "云端模型列表里把能直出正文的 Llama 放到第一位，接入非流式空正文自动换模型重试"
-    ],
-    "features": [],
     "source": "manual"
   }
 ];

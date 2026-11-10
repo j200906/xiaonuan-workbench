@@ -8,7 +8,10 @@
   var $ = XN.$;
   var state = XN.state, API = XN.api, S = XN.store;
 
-  var GH_TOKEN = '';   /* 只存在内存：刷新即失效，绝不进 sessionStorage/localStorage */
+  var GH_TOKEN = '';   /* 只存在内存：刷新即失效，绝不写进任何持久化存储 */
+  function dropToken() { GH_TOKEN = ''; }
+  root.addEventListener('pagehide', dropToken);
+  root.addEventListener('beforeunload', dropToken);
 
   var IT = {
     running: false,
@@ -389,4 +392,5 @@
   };
 
   XN.IT.cloudRun = cloudRun;
+  XN.IT.dropToken = dropToken;
 })(window);
