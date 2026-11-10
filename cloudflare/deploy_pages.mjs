@@ -63,6 +63,7 @@ await copyFile(join(here, 'worker.js'), join(out, '_worker.js')); // Pages 用 _
 await copyFile(join(here, 'iterate.js'), join(out, 'iterate.js')); // 云端迭代模块
 await copyFile(join(here, 'shared.js'), join(out, 'shared.js'));   // 安全共享层
 await copyFile(join(here, 'rules.js'), join(out, 'rules.js'));     // 补丁校验
+await copyFile(join(here, 'lessons.js'), join(out, 'lessons.js')); // 自迭代教训
 
 let count = 0;
 async function walk(dir) {

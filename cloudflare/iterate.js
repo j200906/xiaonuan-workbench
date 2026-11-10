@@ -140,31 +140,41 @@ function gatewayBase(env) {
 }
 
 async function askUpstream(base, key, model, messages, maxTokens) {
-  const ctrl = new AbortController();
-  /* 大提示词 + 会思考的模型，180 秒经常不够，放宽到 5 分钟 */
-  const timer = setTimeout(() => ctrl.abort(), 300000);
+  const once = async () => {
+    const ctrl = new AbortController();
+    /* 大提示词 + 会思考的模型，180 秒经常不够，放宽到 5 分钟 */
+    const timer = setTimeout(() => ctrl.abort(), 300000);
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (key) headers.Authorization = 'Bearer ' + key;
+      const res = await fetch(base + '/chat/completions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(Object.assign(
+          { model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 },
+          /* 自迭代要的是「想清楚再改」，思考强度拉满；普通聊天仍用 low，免得正文被思考吃光。 */
+          /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: 'max' } : {}
+        )),
+        signal: ctrl.signal,
+        redirect: 'manual'
+      });
+      const text = await res.text();
+      if (res.status >= 300 && res.status < 400) throw new Error('模型网关返回了重定向，已拒绝跟随');
+      if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + text.slice(0, 180));
+      let data;
+      try { data = JSON.parse(text); } catch (e) { throw new Error('模型返回的不是 JSON'); }
+      return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  /* 网关偶发 connection reset，重试一次再判死。 */
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (key) headers.Authorization = 'Bearer ' + key;
-    const res = await fetch(base + '/chat/completions', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(Object.assign(
-        { model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 },
-        /* 自迭代要的是「想清楚再改」，思考强度拉满；普通聊天仍用 low，免得正文被思考吃光。 */
-        /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: 'max' } : {}
-      )),
-      signal: ctrl.signal,
-      redirect: 'manual'
-    });
-    const text = await res.text();
-    if (res.status >= 300 && res.status < 400) throw new Error('模型网关返回了重定向，已拒绝跟随');
-    if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + text.slice(0, 180));
-    let data;
-    try { data = JSON.parse(text); } catch (e) { throw new Error('模型返回的不是 JSON'); }
-    return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-  } finally {
-    clearTimeout(timer);
+    return await once();
+  } catch (e) {
+    await new Promise((r) => setTimeout(r, 1500));
+    return await once();
   }
 }
 
