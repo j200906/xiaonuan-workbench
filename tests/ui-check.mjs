@@ -395,7 +395,7 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
       currentView: (window.XN.state && window.XN.state.view) || ''
     };
   })()`);
-  check('点侧栏「迭代」能进页面', iterateNav.navExists === true && iterateNav.visible === true,
+  check('未解锁时点侧栏「迭代」被拦回设置页', iterateNav.navExists === true && iterateNav.visible === false && iterateNav.currentView === 'settings',
     JSON.stringify(iterateNav).slice(0, 160));
 
   /* 迭代页模型下拉：默认应是「跟随模型条」，网关项只在服务器下发了网关地址时才可用。 */

@@ -478,6 +478,7 @@ EDITABLE = [
     "assets/emotion.js", "assets/memory.js", "assets/tools.js",
     "assets/lib/util.js", "assets/lib/store.js", "assets/lib/i18n.js",
     "assets/lib/md.js", "assets/lib/models.js", "assets/lib/api.js", "assets/lib/patch.js",
+    "assets/lib/plugin.js", "assets/plugins/export-session.js",
 ]
 VERSION_FILE = "assets/version.js"
 CHANGELOG_FILE = "assets/changelog.js"
