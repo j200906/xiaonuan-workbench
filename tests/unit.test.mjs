@@ -56,6 +56,27 @@ function loadClassic(files, seed = {}) {
   return sandbox;
 }
 
+test('index.html 引用的脚本都在三处清单里（防回滚）', () => {
+  /* 往 index.html 加一个 <script src="assets/...">，必须同步三处，否则自迭代自检会红、CI 会回滚。
+     例外：version/changelog/changelog.archive 走单独常量，本来就不在 EDITABLE。 */
+  const html = read('index.html');
+  const refs = Array.from(html.matchAll(/<script[^>]+src="([^"]+)"/g))
+    .map((m) => m[1].split('?')[0])
+    .filter((s) => s.startsWith('assets/'))
+    .filter((s) => !/assets\/(version|changelog|changelog\.archive)\.js$/.test(s));
+
+  const jsEditable = read('cloudflare/iterate.js').split('const EDITABLE = [')[1].split('];')[0];
+  const pyEditable = read('server/app.py').split('EDITABLE = [')[1].split(']')[0];
+  const fixture = read('tests/iterate.test.mjs').split('const FILES = [')[1].split('];')[0];
+
+  const missJs = refs.filter((r) => !jsEditable.includes("'" + r + "'"));
+  assert.deepEqual(missJs, [], 'cloudflare/iterate.js 的 EDITABLE 缺：' + JSON.stringify(missJs));
+  const missPy = refs.filter((r) => !pyEditable.includes('"' + r + '"'));
+  assert.deepEqual(missPy, [], 'server/app.py 的 EDITABLE 缺：' + JSON.stringify(missPy));
+  const missFix = refs.filter((r) => !fixture.includes("'" + r + "'"));
+  assert.deepEqual(missFix, [], 'tests/iterate.test.mjs 的 FILES 缺：' + JSON.stringify(missFix));
+});
+
 test('Markdown：表格 / 嵌套列表 / 代码块 / XSS', () => {
   const w = loadClassic(['assets/lib/util.js', 'assets/lib/md.js']);
   const md = w.XN.md.render;

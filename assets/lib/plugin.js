@@ -189,7 +189,7 @@
   function views() {
     return Object.keys(viewRegistry).map(function (vid) {
       var owner = plugins.filter(function (p) { return p.id === viewOwners[vid]; })[0] || {};
-      return { id: vid, title: (owner.view && owner.view.title) || (root.XN_VIEW_TITLES || {})[vid] || vid, plugin: owner.id };
+      return { id: vid, title: (owner.view && owner.view.title) || owner.name || (root.XN_VIEW_TITLES || {})[vid] || vid, plugin: owner.id };
     });
   }
 

@@ -319,7 +319,7 @@ try {
     const j = await res.json();
     assert.equal(j.ok, true);
     assert.equal(j.dryRun, true);
-    assert.match(j.version, /^1\.\d+\.\d+$/);
+    assert.match(j.version, /^\d+\.\d+\.\d+$/);
   });
 
   await check('请求体过大返回 413', async () => {

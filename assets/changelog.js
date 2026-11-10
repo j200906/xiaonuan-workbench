@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "2.0.0",
+    "date": "2026-11-10",
+    "title": "插件化大改：六个视图全部插件化",
+    "fixes": ["插件宿主 v2（视图注册/依赖校验/错误隔离/生命周期事件）+ 学习台/反馈箱/更新日志/设置/迭代五个视图改为插件注册 + XN.views 兼容别名 + 插件契约测试 7 条 + 防回滚结构测试 + docs/PLUGINS.md 插件开发指南"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.9.2",
     "date": "2026-11-10",
     "title": "迭代页守卫补进 switchView",

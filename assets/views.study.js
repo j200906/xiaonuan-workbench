@@ -303,5 +303,16 @@
   };
 
   XN.views = XN.views || {};
-  XN.views.study = study;
+  /* 插件宿主 v2：视图登记为插件；宿主不在时退回老路径（兼容） */
+  if (XN.plugin && XN.plugin.register) {
+    XN.plugin.register({
+      id: 'view-study',
+      name: '学习台',
+      version: '2.0.0',
+      view: study,
+      nav: { order: 20 }
+    });
+  } else {
+    XN.views.study = study;
+  }
 })(window);

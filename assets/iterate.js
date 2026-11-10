@@ -426,7 +426,10 @@
   }
 
   XN.views = XN.views || {};
-  XN.views.iterate = {
+
+  /* 迭代页视图：方法体原样搬进独立对象，再交给插件系统登记。
+     没有插件系统（还没上线 / 被回滚 / 老页面）就退回直接挂 XN.views —— 两种路径行为一致。 */
+  var iterateView = {
     init: function () {
       $('#itStart').addEventListener('click', function () { cloudRun(false, false); });
       $('#itStop').addEventListener('click', stop);
@@ -461,6 +464,18 @@
       applyModelDefault(!IT.modelTouched);
     }
   };
+
+  if (XN && XN.plugin && typeof XN.plugin.register === 'function') {
+    XN.plugin.register({
+      id: 'view-iterate',
+      name: '迭代',
+      version: '2.0.0',
+      view: iterateView,
+      nav: { order: 60 }
+    });
+  } else {
+    XN.views.iterate = iterateView;
+  }
 
   XN.IT.cloudRun = cloudRun;
 })(window);

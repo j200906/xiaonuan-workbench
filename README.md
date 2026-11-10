@@ -8,7 +8,7 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.9.2**
+当前版本 **v2.0.0**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
@@ -72,6 +72,12 @@ python server/app.py --port 8080
 python -m pip install pyinstaller
 python build_exe.py
 ```
+
+## 插件
+
+小暖的能力可以像插件一样「一行挂上去」：一个普通对象、一个 `id`，宿主负责挂载、卸载和开关。
+内置示例是「导出当前会话」，设置页的「插件」卡随时可以关掉再打开；视图和按钮都能做成插件。
+完整契约（字段表、`ctx`、错误隔离、迁移步骤）见 [docs/PLUGINS.md](docs/PLUGINS.md)。
 
 ## 目录
 
