@@ -247,7 +247,12 @@ function updateHeader() {
   }
 
   function switchView(id) {
-    if (VIEW_IDS.indexOf(id) < 0) id = 'chat';
+  if (VIEW_IDS.indexOf(id) < 0) id = 'chat';
+  /* 迭代页只有管理员能进：侧栏默认不挂它，设置页那个按钮验过密码才放行 */
+  if (id === 'iterate' && !state.admin) {
+    U.toast('迭代页只有管理员能打开：设置 → 工具 → 迭代（管理员）');
+    id = 'settings';
+  }
     /* 迭代页不再需要先解锁管理密码：界面上早已没有密码栏，state.admin 恒为 false，
        旧门会把点「迭代」的人直接弹回设置页。未解锁时迭代接口自己只跑试运行/试跑分支，
        兜底在服务端，前端不再拦。 */

@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.9.2",
+    "date": "2026-11-10",
+    "title": "迭代页守卫补进 switchView",
+    "fixes": ["直接 switchView('iterate') 或刷新恢复到迭代页时也会被拦回设置页；只有设置里验过密码才放行"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.9.1",
     "date": "2026-11-10",
     "title": "迭代入口真正收进管理员门后",
