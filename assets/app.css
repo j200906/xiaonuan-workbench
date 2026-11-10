@@ -72,6 +72,40 @@ input:focus, textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+
+/* xn-select：原生下拉在各平台默认色很难看，这里统一成与输入框一致的外观 */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 100%;
+  padding: 9px 34px 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.3;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%236b6456' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 8px;
+  transition: border-color .15s, box-shadow .15s, background-color .15s;
+}
+select:hover { border-color: var(--ink-4); }
+select:focus, select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+select:disabled { opacity: .55; cursor: not-allowed; }
+select option { background: var(--panel); color: var(--ink); }
+[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23a89f8f' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+[data-theme="dark"] select:focus { box-shadow: 0 0 0 3px rgba(180, 85, 58, .22); }
+
 textarea { resize: vertical; line-height: 1.65; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 7px; }

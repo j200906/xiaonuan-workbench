@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.6.0",
+    "date": "2026-11-10",
+    "title": "选择框换新装 + 精简死代码",
+    "fixes": ["统一所有下拉框外观（去系统默认灰底/方角、加主题化箭头与焦点环、暗色适配）；删掉已无引用的 CSS 与 i18n 孤儿键"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.5.14",
     "date": "2026-11-10",
     "title": "精简死代码",
