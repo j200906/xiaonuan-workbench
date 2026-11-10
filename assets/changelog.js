@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "2.1.1",
+    "date": "2026-11-10",
+    "title": "搜索能力接上",
+    "fixes": ["XN.services 的 search 默认实现改走 XN_TOOLS，报 ready 状态正确"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "2.1.0",
     "date": "2026-11-10",
     "title": "能力接口层 + 声明式设置",

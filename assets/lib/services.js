@@ -53,12 +53,13 @@
   });
 
   define('search', function () {
+    var tools = root.XN_TOOLS || XN.TOOLS || null;
     return {
-      run: async function (query) {
-        if (XN.TOOLS && isFn(XN.TOOLS.run)) return XN.TOOLS.run('web_search', { query: query });
-        throw new Error('搜索能力未接入');
+      run: async function (query, opts) {
+        if (!tools || !isFn(tools.run)) throw new Error('搜索能力未接入');
+        return tools.run('web_search', Object.assign({ query: query }, opts || {}));
       },
-      ready: function () { return !!(XN.TOOLS && isFn(XN.TOOLS.run)); }
+      ready: function () { return !!(tools && isFn(tools.run)); }
     };
   });
 
