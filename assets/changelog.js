@@ -1,6 +1,18 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.6",
+    "date": "2026-11-10",
+    "title": "失败时展示补丁与原因",
+    "fixes": [
+      "结果面板在 422 失败时，除 attempt.title 外还展示 attempt.files（补丁文件）与 attempt.reason（原因），无字段时安全降级"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "package.json / assets/changelog.js / assets/version.js / README.md 不在本次可改白名单，版本号仍是 1.5.5、未升到 1.5.6，需人工补；没在真实后端 422 响应下跑端到端；没验证服务端 attempt.files 的字段名是否就叫 files（不同则文件列表不显示，但不会报错）；「这一版想改什么」输入框的 id 不在可见正文"
+  },
+  {
     "version": "1.5.5",
     "date": "2026-11-10",
     "title": "令牌只留内存，离开即清空",
@@ -161,18 +173,6 @@ window.XN_CHANGELOG = [
       "等待期间显示「正在想…」，不再一片空白"
     ],
     "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
-    ],
     "source": "manual"
   }
 ];
