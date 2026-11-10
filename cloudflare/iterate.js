@@ -13,6 +13,9 @@ import {
   safeBase, b64encode, b64decode, bumpVersion
 } from './shared.js';
 import { validatePlan, balance } from './rules.js';
+import {
+  loadLessons, recordFailure, renderLessons, lessonsForPrompt, LESSONS_FILE, HARD_THRESHOLD
+} from './lessons.js';
 
 const EDITABLE = [
   'index.html',
@@ -41,6 +44,7 @@ const VERSION_FILE = 'assets/version.js';
 const CHANGELOG_FILE = 'assets/changelog.js';
 const ARCHIVE_FILE = 'assets/changelog.archive.js';
 const README_FILE = 'README.md';
+const PKG_FILE = 'package.json';
 const MAX_PATCHES = 8;
 const TOTAL_BUDGET = 100000;
 const FILE_BUDGET = 18000;
@@ -109,10 +113,58 @@ function digest(files) {
   return entries.map((p) => {
     const text = String(files[p] || '');
     const room = Math.max(2000, Math.min(per, TOTAL_BUDGET - used));
-    const body = text.length > room ? text.slice(0, room) + '\n/* …（本文件后面省略；如需改这里，find 要带足够上下文）*/' : text;
+    let body = text;
+    if (text.length > room) {
+      /* 头和尾都要给。只给开头时，模型看不到文件后半段的函数，
+         就会照着「结构」列表凭空编出 find（实测就是这么失败的）。 */
+      const head = Math.floor(room * 0.55);
+      const tail = room - head;
+      const cut = text.length - head - tail;
+      body = text.slice(0, head) +
+        `\n/* …（中间省略 ${cut} 字，这段看不到，不要对它下 patch）… */\n` +
+        text.slice(text.length - tail);
+    }
     used += Math.min(text.length, room);
     return `### ${p}（${text.split('\n').length} 行）\n结构：${outline(text)}\n\`\`\`\n${body}\n\`\`\``;
   }).join('\n\n');
+}
+
+/* 本机网关的地址：云端必须 https + 白名单主机（防 SSRF），
+   而本机后端用同一个文件跑，127.0.0.1 得放行——只有显式开 XN_ALLOW_LOCAL_GATEWAY 才认。 */
+function gatewayBase(env) {
+  const raw = String((env && env.XN_GATEWAY_BASE) || '').trim();
+  if (!raw) return '';
+  const local = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$)/i.test(raw);
+  if (local) return String(env.XN_ALLOW_LOCAL_GATEWAY) === '1' ? raw.replace(/\/+$/, '') : '';
+  return safeBase(raw, '', env);
+}
+
+async function askUpstream(base, key, model, messages, maxTokens) {
+  const ctrl = new AbortController();
+  /* 大提示词 + 会思考的模型，180 秒经常不够，放宽到 5 分钟 */
+  const timer = setTimeout(() => ctrl.abort(), 300000);
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (key) headers.Authorization = 'Bearer ' + key;
+    const res = await fetch(base + '/chat/completions', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(Object.assign(
+        { model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 },
+        /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: 'low' } : {}
+      )),
+      signal: ctrl.signal,
+      redirect: 'manual'
+    });
+    const text = await res.text();
+    if (res.status >= 300 && res.status < 400) throw new Error('模型网关返回了重定向，已拒绝跟随');
+    if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + text.slice(0, 180));
+    let data;
+    try { data = JSON.parse(text); } catch (e) { throw new Error('模型返回的不是 JSON'); }
+    return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function askModel(env, opts, system, user, maxTokens) {
@@ -125,28 +177,16 @@ async function askModel(env, opts, system, user, maxTokens) {
     const fallback = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
     const base = safeBase(opts.providerBase, fallback, env);
     const model = opts.model || env.XN_MODEL || 'deepseek-chat';
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 120000);
-    try {
-      const res = await fetch(base + '/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + opts.apiKey },
-        body: JSON.stringify(Object.assign(
-          { model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 },
-          /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: 'low' } : {}
-        )),
-        signal: ctrl.signal,
-        redirect: 'manual'
-      });
-      const text = await res.text();
-      if (res.status >= 300 && res.status < 400) throw new Error('模型网关返回了重定向，已拒绝跟随');
-      if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + text.slice(0, 180));
-      let data;
-      try { data = JSON.parse(text); } catch (e) { throw new Error('模型返回的不是 JSON'); }
-      return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-    } finally {
-      clearTimeout(timer);
-    }
+    return askUpstream(base, opts.apiKey, model, messages, maxTokens);
+  }
+
+  /* 本机网关优先：它挂的是能写代码的模型，比 Workers AI 自带那个 flash 强得多。
+     没配网关才退回 AI 绑定。 */
+  const gw = gatewayBase(env);
+  if (gw) {
+    const model = opts.model || env.XN_GATEWAY_MODEL || '';
+    if (!model) throw new Error('配了 XN_GATEWAY_BASE，但没给 XN_GATEWAY_MODEL');
+    return askUpstream(gw, env.XN_GATEWAY_KEY || '', model, messages, maxTokens);
   }
 
   if (!env.AI) throw new Error('服务器没有 AI 绑定，也没有提供模型 Key');
@@ -290,11 +330,12 @@ export async function runIteration(env, opts) {
   if (info.status !== 200) {
     return jsonBody({ ok: false, error: '读仓库失败：' + ((info.data && info.data.message) || info.status), log }, 502);
   }
-  const branch = info.data.default_branch || 'main';
-  say('默认分支：' + branch);
+  const branch = String(env.XN_ITER_BRANCH || '').trim() || info.data.default_branch || 'main';
+  const trialBranch = branch !== (info.data.default_branch || 'main');
+  say('目标分支：' + branch + (trialBranch ? '（试跑分支，不打 tag）' : ''));
 
-  const optional = new Set([ARCHIVE_FILE]);
-  const reads = await Promise.all(EDITABLE.concat([README_FILE, CHANGELOG_FILE, ARCHIVE_FILE]).map(async (p) => {
+  const optional = new Set([ARCHIVE_FILE, LESSONS_FILE]);
+  const reads = await Promise.all(EDITABLE.concat([README_FILE, CHANGELOG_FILE, ARCHIVE_FILE, LESSONS_FILE, PKG_FILE]).map(async (p) => {
     try {
       const f = await readFile(owner, repo, p, branch, token, optional.has(p));
       return [p, f];
@@ -319,6 +360,15 @@ export async function runIteration(env, opts) {
     '1.5.0';
   say(`当前版本 ${cur}，最近版本 ${(recent[0] && recent[0].version) || '?'}`);
 
+  /* 教训：改代码前先读，这是 magpie 那套机制里最关键的一步。 */
+  const lessons = await loadLessons(env, files[LESSONS_FILE]);
+  if (lessons.length) {
+    const hard = lessons.filter((l) => Number(l.seen) >= HARD_THRESHOLD).length;
+    say(`历史教训 ${lessons.length} 条（硬规则 ${hard} 条），已并入提示词`);
+  } else {
+    say('还没有历史教训');
+  }
+
   /* 3. 模型出方案 */
   const cacheKey = 'iterate:plan:' + owner + '/' + repo;
   if (dryRun && env.XN_KV && opts.useCache !== false) {
@@ -332,50 +382,79 @@ export async function runIteration(env, opts) {
   }
 
   const planPrompt = `仓库：${owner}/${repo}，当前版本 ${cur}。\n\n` +
+    `历史教训（以前踩过的坑，逐条对照，别再犯）：\n${lessonsForPrompt(lessons)}\n\n` +
     `用户反馈：\n${feedbackText(feedback)}\n\n` +
     `代码（节选，按文件给结构 + 正文）：\n${digest(files)}\n\n` +
-    `请挑 1 个最值得做的问题，给出可验证的改动。允许大改，但一次最多重写 3 个文件或新建 2 个。\n` +
+    `请挑 1 个最值得做的问题，给出可验证的改动。优先用 patches（改几行最稳、最不容易出错）；` +
+    `确实需要整份重写时才用 rewrite，且 content 控制在 12000 字以内（超过会被截断）；一次最多重写 3 个文件或新建 2 个。\n` +
     `输出一个 JSON 对象，不要解释、不要 markdown 代码块：\n` +
     `{"mode":"patch|rewrite","bump":"patch|minor|major","title":"不超过18字","fixes":["改了什么"],"features":[],"verify":"你打算怎么验证","notTried":"你没法验证什么",` +
     `"patches":[{"file":"白名单文件","find":"原文里逐字存在且只出现一次的片段","replace":"替换成"}],` +
     `"rewrites":[{"file":"","content":"完整文件"}],"creates":[{"file":"assets/新文件.js","content":"..."}]}\n` +
-    `规则：file 只能是 ${EDITABLE.join(' / ')}；find 至少 8 字；最多 ${MAX_PATCHES} 处；` +
+    `规则：file 只能是 ${EDITABLE.join(' / ')}；find 必须从上面正文里逐字复制（含缩进标点），至少 8 字、在该文件里只出现一次；最多 ${MAX_PATCHES} 处；` +
     `不许 eval / new Function / document.write / 外链脚本 / javascript:；不许改 server、cloudflare、.github、tests；` +
     `patch 模式不要同时给 rewrites。`;
 
-  say('把 ' + Object.keys(files).length + ' 个文件交给模型…');
-  const rawText = await askModel(
-    env, opts,
-    '你是代码修改计划器。只输出一个 JSON 对象。改动必须小、可验证、能通过括号扫描。',
-    planPrompt,
-    4200
-  );
-  const plan = pickJson(rawText);
+  /* 4. 出方案 + 校验。校验不过就把错误喂回去再试一次：
+     小模型一次就编对 find 的概率不高，单次失败直接 422 会让自迭代几乎跑不起来。 */
+  const SYSTEM = '你是代码修改计划器。只输出一个 JSON 对象。改动必须小、可验证、能通过括号扫描。';
+  let plan = null;
+  let applied = null;
+  const attempts = [];
+  for (let attempt = 1; attempt <= 2 && !plan; attempt++) {
+    let retryNote = '';
+    if (attempt > 1) {
+      const lastFail = attempts[attempts.length - 1] || { error: '' };
+      retryNote = `\n\n【上一次失败】${lastFail.error}\n` +
+        (String(lastFail.error).indexOf('JSON') >= 0
+          ? '上一次输出不完整或不是 JSON，多半是内容太长被截断。这次只输出 patches，最多 2 处，不要 rewrites、不要 creates。'
+          : 'find 必须从上面正文里逐字复制（含缩进标点），只改你看得到的部分；看不到的文件就别动它。');
+    }
+    say(`第 ${attempt} 次让模型出方案…`);
+    const rawText = await askModel(env, opts, SYSTEM, planPrompt + retryNote, 8000);
+    const candidate = pickJson(rawText);
+    if (!candidate) {
+      attempts.push({ attempt, error: '模型没给出可解析的 JSON', raw: String(rawText || '').slice(0, 300) });
+      continue;
+    }
+    const bumpTry = ['patch', 'minor', 'major'].indexOf(candidate.bump) >= 0 ? candidate.bump : 'patch';
+    candidate.version = bumpVersion(cur, bumpTry);
+    try {
+      applied = validatePlan(files, candidate, EDITABLE, {
+        maxPatches: MAX_PATCHES, maxRewrites: 3, maxCreates: 2, partial: true
+      });
+      plan = candidate;
+    } catch (e) {
+      attempts.push({
+        attempt,
+        error: e.message,
+        title: String(candidate.title || '').slice(0, 40),
+        mode: candidate.mode,
+        patches: (candidate.patches || []).slice(0, MAX_PATCHES).map((p) => ({
+          file: p.file,
+          find: String(p.find || '').slice(0, 120)
+        })),
+        rewrites: (candidate.rewrites || []).map((r) => r.file),
+        reason: e.message
+      });
+    }
+  }
+
   if (!plan) {
-    return jsonBody({ ok: false, error: '模型没给出可解析的 JSON', raw: String(rawText || '').slice(0, 600), log }, 502);
+    const last = attempts[attempts.length - 1] || { error: '未知原因' };
+    /* 失败也要留下痕迹：同一条规则再踩一次就 +1，踩够 3 次升级成硬规则。 */
+    try { await recordFailure(env, last.error); } catch (e) { /* 记账失败不影响返回 */ }
+    return jsonBody({
+      ok: false,
+      error: (attempts.length > 1 ? '连试两版都没通过校验：' : '这一版没通过校验：') + last.error,
+      attempt: last,
+      attempts,
+      log
+    }, 422);
   }
 
   const bump = ['patch', 'minor', 'major'].indexOf(plan.bump) >= 0 ? plan.bump : 'patch';
-  const next = bumpVersion(cur, bump);
-  plan.version = next;
-
-  /* 4. 校验并应用 */
-  let applied;
-  try {
-    applied = validatePlan(files, plan, EDITABLE, { maxPatches: MAX_PATCHES, maxRewrites: 3, maxCreates: 2 });
-  } catch (e) {
-    const attempt = {
-      title: String(plan.title || '').slice(0, 40),
-      mode: plan.mode,
-      patches: (plan.patches || []).slice(0, MAX_PATCHES).map((p) => ({
-        file: p.file,
-        find: String(p.find || '').slice(0, 120)
-      })),
-      rewrites: (plan.rewrites || []).map((r) => r.file),
-      reason: e.message
-    };
-    return jsonBody({ ok: false, error: '这一版没通过校验：' + e.message, attempt, log }, 422);
-  }
+  const next = plan.version;
   say(`方案：${plan.title || '未命名'}（${applied.mode}，动 ${applied.touched.length} 个文件）`);
 
   const entry = {
@@ -407,6 +486,26 @@ export async function runIteration(env, opts) {
   }
 
   out[README_FILE] = patchReadme(files[README_FILE] || '', entry);
+
+  /* package.json 的版本必须一起升：check.mjs 和单测都会比对 changelog 首条，
+     只改 changelog 不改 package.json，CI 必挂（实测踩过）。 */
+  try {
+    const pkg = JSON.parse(String(files[PKG_FILE] || '{}'));
+    if (pkg && typeof pkg === 'object') {
+      pkg.version = next;
+      out[PKG_FILE] = JSON.stringify(pkg, null, 2) + '\n';
+      say('package.json 版本已同步到 ' + next);
+    }
+  } catch (e) {
+    say('package.json 解析失败，版本没同步：' + e.message);
+  }
+
+  /* 教训随版本一起入库：既给人 review，也让下一次迭代能读到。 */
+  const lessonsText = renderLessons(lessons, 'v' + next);
+  if (lessonsText !== String(files[LESSONS_FILE] || '')) {
+    out[LESSONS_FILE] = lessonsText;
+    say('教训文件已更新（' + lessons.length + ' 条）');
+  }
   say('版本：' + cur + ' → ' + next + '（' + bump + '）');
   say('README 已更新（版本块 + 最近更新）');
 
@@ -421,8 +520,11 @@ export async function runIteration(env, opts) {
     }, 422);
   }
 
-  const changedFiles = [...new Set(applied.touched.concat([VERSION_FILE, CHANGELOG_FILE, ARCHIVE_FILE, README_FILE]))]
+  const changedFiles = [...new Set(applied.touched.concat([VERSION_FILE, CHANGELOG_FILE, ARCHIVE_FILE, README_FILE, LESSONS_FILE, PKG_FILE]))]
     .filter((p) => typeof out[p] === 'string');
+
+  const skipped = applied.skipped || [];
+  if (skipped.length) say('跳过 ' + skipped.length + ' 处对不上的补丁：' + skipped.map((s) => s.reason).join('；').slice(0, 300));
 
   const result = {
     ok: true,
@@ -435,6 +537,7 @@ export async function runIteration(env, opts) {
     notTried: entry.notes,
     files: changedFiles,
     patches: applied.touched,
+    skipped,
     log
   };
 
@@ -495,8 +598,18 @@ export async function runIteration(env, opts) {
   }
   say('已提交 ' + commit.data.sha.slice(0, 7) + ' 到 ' + branch);
 
-  /* 7. 打 tag：由 release.yml 在 tag 上打 exe 并创建 release */
+  /* 7. 打 tag：由 release.yml 在 tag 上打 exe 并创建 release。
+     试跑分支不打 tag —— 那边还没 review 过，不能顺手发版。 */
   const tag = 'v' + next;
+  if (trialBranch) {
+    say('试跑分支，跳过打 tag');
+    return jsonBody(Object.assign({}, result, {
+      tag: '',
+      tagState: 'skipped',
+      commit: commit.data.sha.slice(0, 7),
+      branch
+    }), 200);
+  }
   let tagState = 'created';
   const tagRes = await ghFetch(`https://api.github.com/repos/${owner}/${repo}/git/refs`, token, {
     method: 'POST',

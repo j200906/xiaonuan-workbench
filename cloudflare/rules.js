@@ -9,7 +9,10 @@ const FORBIDDEN = [
   { re: /new\s+Function\s*\(/, label: 'new Function' },
   { re: /document\.write\s*\(/, label: 'document.write' },
   { re: /<script[^>]+src\s*=\s*["']https?:/i, label: '外链脚本' },
-  { re: /javascript\s*:/i, label: 'javascript: 伪协议' }
+  /* 只在真的会被当 URL 用的位置拦 javascript:。
+     原来是无脑匹配，模型在注释里写一句「禁止 javascript:」也会被判违规。 */
+  { re: /(?:href|src|action)\s*=\s*["']?\s*javascript\s*:/i, label: 'javascript: 伪协议' },
+  { re: /\.(?:href|src)\s*=\s*["']\s*javascript\s*:/i, label: 'javascript: 伪协议' }
 ];
 
 const CONTROL = ['if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'constructor'];
@@ -137,6 +140,39 @@ function hasDef(source, name) {
   ].some((re) => re.test(source));
 }
 
+/* 单条补丁：所有检查都过了才写回 files，抛错时不动它。
+   拆出来是为了「部分应用」——一条补丁编错不该拖垮整轮自迭代。 */
+function applyOnePatch(files, p, ordinal, editable) {
+  const label = '第 ' + ordinal + ' 处';
+  const file = String((p && p.file) || '');
+  if (editable && editable.indexOf(file) < 0) throw new Error('不允许改 ' + file);
+
+  const find = String((p && p.find) || '');
+  const replace = String((p && p.replace) || '');
+  if (find.length < 8) throw new Error(label + ' find 太短，容易误伤');
+  if (find.length > 8000) throw new Error(label + ' find 太长');
+  if (replace.length > 24000) throw new Error(label + ' 改动过大');
+
+  const bad = forbidden(replace);
+  if (bad) throw new Error(label + ' 含被禁止的写法：' + bad);
+
+  const source = files[file];
+  if (typeof source !== 'string') throw new Error('读不到 ' + file);
+  const first = source.indexOf(find);
+  if (first < 0) throw new Error(label + ' 在 ' + file + ' 里找不到原文');
+  if (source.indexOf(find, first + 1) >= 0) throw new Error(label + ' 原文不唯一');
+
+  const after = source.slice(0, first) + replace + source.slice(first + find.length);
+  const bal = /\.js$/.test(file) ? balance(after) : { ok: true };
+  if (!bal.ok) throw new Error(label + ' 会让 ' + file + ' 括号不配平：' + bal.reason);
+
+  const dupes = defsIn(replace).filter((name) => hasDef(source, name) && !hasDef(find, name));
+  if (dupes.length) throw new Error(label + ' 重复定义：' + dupes.join('、'));
+
+  files[file] = after;
+  return file;
+}
+
 export function applyPatches(files, patches, editable, opts = {}) {
   const max = opts.maxPatches || 8;
   if (!Array.isArray(patches) || !patches.length) throw new Error('没有补丁');
@@ -144,33 +180,7 @@ export function applyPatches(files, patches, editable, opts = {}) {
 
   const touched = [];
   patches.forEach((p, idx) => {
-    const label = '第 ' + (idx + 1) + ' 处';
-    const file = String((p && p.file) || '');
-    if (editable && editable.indexOf(file) < 0) throw new Error('不允许改 ' + file);
-
-    const find = String((p && p.find) || '');
-    const replace = String((p && p.replace) || '');
-    if (find.length < 8) throw new Error(label + ' find 太短，容易误伤');
-    if (find.length > 8000) throw new Error(label + ' find 太长');
-    if (replace.length > 24000) throw new Error(label + ' 改动过大');
-
-    const bad = forbidden(replace);
-    if (bad) throw new Error(label + ' 含被禁止的写法：' + bad);
-
-    const source = files[file];
-    if (typeof source !== 'string') throw new Error('读不到 ' + file);
-    const first = source.indexOf(find);
-    if (first < 0) throw new Error(label + ' 在 ' + file + ' 里找不到原文');
-    if (source.indexOf(find, first + 1) >= 0) throw new Error(label + ' 原文不唯一');
-
-    const after = source.slice(0, first) + replace + source.slice(first + find.length);
-    const bal = /\.js$/.test(file) ? balance(after) : { ok: true };
-    if (!bal.ok) throw new Error(label + ' 会让 ' + file + ' 括号不配平：' + bal.reason);
-
-    const dupes = defsIn(replace).filter((name) => hasDef(source, name) && !hasDef(find, name));
-    if (dupes.length) throw new Error(label + ' 重复定义：' + dupes.join('、'));
-
-    files[file] = after;
+    const file = applyOnePatch(files, p, idx + 1, editable);
     if (touched.indexOf(file) < 0) touched.push(file);
   });
   return touched;
@@ -224,12 +234,29 @@ export function validatePlan(files, plan, editable, opts = {}) {
     });
   }
 
+  const skipped = [];
   if (Array.isArray(plan.patches) && plan.patches.length) {
-    applyPatches(out, plan.patches, editable, opts).forEach((f) => {
-      if (touched.indexOf(f) < 0) touched.push(f);
-    });
+    if (opts.partial) {
+      /* 部分应用：编错的补丁跳过并记账，能用的照用。
+         小模型经常一条 find 编错，全盘 422 会让自迭代实际上跑不起来。 */
+      plan.patches.slice(0, opts.maxPatches || 8).forEach((p, idx) => {
+        try {
+          const f = applyOnePatch(out, p, idx + 1, editable);
+          if (touched.indexOf(f) < 0) touched.push(f);
+        } catch (e) {
+          skipped.push({ index: idx + 1, file: String((p && p.file) || ''), reason: e.message });
+        }
+      });
+    } else {
+      applyPatches(out, plan.patches, editable, opts).forEach((f) => {
+        if (touched.indexOf(f) < 0) touched.push(f);
+      });
+    }
   }
 
-  if (!touched.length) throw new Error('这一版没有任何改动');
-  return { files: out, touched, mode };
+  if (!touched.length) {
+    const why = skipped.length ? '（' + skipped[0].reason + '）' : '';
+    throw new Error('这一版没有任何可应用的改动' + why);
+  }
+  return { files: out, touched, mode, skipped };
 }
