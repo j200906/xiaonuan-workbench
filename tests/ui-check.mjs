@@ -348,7 +348,8 @@ async function runHttpChecks(check, baseUrl, opts) {
  * 云端原始 id 渲染成友好名 / 模型下拉显示友好名 /
  * 背景水印存在且 pointer-events:none / 水印不与输入框矩形相交。
  * 第三件（迭代页能进得去）再补 4 条：点侧栏「迭代」能进页面 /
- * 迭代页模型默认跟随模型条 / 网关模型项随网关可用性禁用 / 开始按钮存在且可点。 */
+ * 迭代页模型默认跟随模型条 / 网关模型项随网关可用性禁用 / 开始按钮存在且可点。
+ * 收尾D 再补 1 条：点「试运行」后 1.5s 内真的发出 /api/iterate 请求且无未捕获异常。 */
 async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
@@ -447,6 +448,77 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   check('迭代开始按钮存在且可点（点下去不报异常）',
     itStart.exists === true && itStart.disabledBefore === false && itStart.clickErr === '' && itStart.errsDelta === 0,
     JSON.stringify(itStart).slice(0, 200));
+
+  /* 收尾D：光有按钮不算数，「试运行」点下去必须真的打到后端。
+     这里拦一次 fetch 数请求（再用 performance entries 交叉验证），1.5s 内至少一次 /api/iterate 才算过；
+     点完不管成没成，都点一下停止、把按钮还原，别让它拖住后面的断言。 */
+  const dryRunProbe = await cdp.evaluate(`(async () => {
+    const pane = document.querySelector('#view-iterate');
+    if (pane && pane.hidden && window.XN && window.XN.switchView) {
+      window.XN.switchView('iterate');
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    /* 选「试运行」：优先 #itDry，其次文字带「试运行」的按钮，最后退回「只整理反馈」（服务端同样是 dryRun）。 */
+    const buttons = [...document.querySelectorAll('#view-iterate button')];
+    const byText = buttons.filter((b) => /试运行/.test((b.textContent || '').trim()));
+    const btn = document.querySelector('#itDry') || byText[0] || document.querySelector('#itTriage');
+    if (!btn) return { clicked: false, reason: '迭代页找不到试运行/只整理反馈按钮' };
+
+    const perfCount = () => performance.getEntriesByType('resource')
+      .filter((e) => String(e.name).indexOf('api/iterate') >= 0).length;
+    const errsBefore = (window.__errs || []).length;
+    const perfBefore = perfCount();
+    const calls = [];
+    const prevFetch = window.fetch;
+    window.fetch = function (input, init) {
+      const url = typeof input === 'string' ? input : ((input && input.url) || '');
+      if (String(url).indexOf('api/iterate') >= 0) {
+        calls.push({ url: String(url), method: (init && init.method) || 'GET' });
+      }
+      return prevFetch.apply(this, arguments);
+    };
+
+    let clickErr = '';
+    const disabledBefore = btn.disabled;
+    try { btn.click(); } catch (e) { clickErr = String((e && e.message) || e); }
+
+    const t0 = Date.now();
+    while (Date.now() - t0 < 1500 && calls.length === 0 && perfCount() === perfBefore) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const elapsed = Date.now() - t0;
+    const perfHits = perfCount() - perfBefore;
+
+    const stop = document.querySelector('#itStop');
+    const started = !!stop && stop.hidden === false;
+    if (started) {
+      try { stop.click(); } catch (e) {}
+      await new Promise((r) => setTimeout(r, 300));
+      stop.hidden = true;
+    }
+    window.fetch = prevFetch;
+    const start2 = document.querySelector('#itStart');
+    if (start2) start2.disabled = false;
+    const tri2 = document.querySelector('#itTriage');
+    if (tri2) tri2.disabled = false;
+
+    return {
+      clicked: true,
+      id: btn.id || '(no id)',
+      label: (btn.textContent || '').trim().slice(0, 16),
+      disabledBefore,
+      calls: calls.length,
+      perfHits,
+      elapsed,
+      clickErr,
+      errsDelta: (window.__errs || []).length - errsBefore,
+      started
+    };
+  })()`);
+  check('点「试运行」真的发出 /api/iterate 请求',
+    dryRunProbe.clicked === true && (dryRunProbe.calls >= 1 || dryRunProbe.perfHits >= 1) &&
+    dryRunProbe.clickErr === '' && dryRunProbe.errsDelta === 0,
+    JSON.stringify(dryRunProbe).slice(0, 240));
 
   /* 主页改造：那条「小暖会犯错」的免责声明已经删了，DOM 里不该再有 .disclaimer，
      也不该有任何地方把那句话渲染出来（i18n 字典里留不留键不管，只看真实页面）。 */
