@@ -28,7 +28,10 @@ window.XN_TOOLS = (function () {
      3500 字对长文问答太短，关键段落经常刚好在截断线后面；提到 12000。 */
   var SEARCH_LIMIT = 5;
   var FETCH_LIMIT = 12000;
-  var CUT_MARK = '\n…（正文过长，已截断；可以用 offset 参数继续读）';
+  /* 续读提示统一成一句：还剩多少字、下次用哪个 offset。 */
+  function cutHint(rest, nextOffset) {
+    return '\n…（已截断：还剩 ' + rest + ' 字，可用 offset=' + nextOffset + ' 继续读）';
+  }
 
   /* 不支持 tools 时用于猜测「这句话要不要联网」的关键词表 */
   var AUTO_KEYWORDS = [
@@ -168,13 +171,27 @@ window.XN_TOOLS = (function () {
       return { ok: false, text: '工具没跑通：url 必须是 http:// 或 https:// 开头的完整网址' };
     }
 
-    var data = await getJSON('api/fetch?url=' + encodeURIComponent(u));
+    var offset = Math.max(0, Math.floor(Number(args.offset) || 0));
+    /* offset 必须真的发给服务端：老服务端会忽略它，新服务端按它切片并回 total/nextOffset/truncated。 */
+    var data = await getJSON('api/fetch?url=' + encodeURIComponent(u) + (offset > 0 ? '&offset=' + offset : ''));
+
     var full = String(data.text || '');
-    var offset = Math.max(0, Number(args.offset) || 0);
-    var body = full.slice(offset, offset + FETCH_LIMIT);
-    if (offset + FETCH_LIMIT < full.length) {
-      body += CUT_MARK + '（总长 ' + full.length + ' 字，下次 offset=' + (offset + FETCH_LIMIT) + '）';
-    }
+    /* 服务端自己切过片（带回 total / nextOffset / truncated）时，full 已经是 offset 之后那一段，
+       不能再按 offset 切第二次；没有这些字段说明是老服务端，给的是整段正文，就在本地切。 */
+    var serverSliced = (data.truncated === true)
+      || Number.isFinite(Number(data.nextOffset))
+      || Number.isFinite(Number(data.total));
+    var total = Number(data.total);
+    if (!Number.isFinite(total) || total < 0) total = serverSliced ? (offset + full.length) : full.length;
+
+    var body = serverSliced ? full.slice(0, FETCH_LIMIT) : full.slice(offset, offset + FETCH_LIMIT);
+    var nextOffset = Number(data.nextOffset);
+    if (!Number.isFinite(nextOffset) || nextOffset <= offset) nextOffset = offset + body.length;
+    /* 还剩多少字统一按 total - offset - 12000，负数按 0。 */
+    var rest = total - offset - FETCH_LIMIT;
+    if (rest < 0) rest = 0;
+    var truncated = serverSliced ? (data.truncated === true || nextOffset < total) : (offset + FETCH_LIMIT < total);
+    if (truncated) body += cutHint(rest, nextOffset);
     var text = '标题：' + (data.title || '(无标题)') + '\n'
       + '网址：' + (data.url || u) + '\n'
       + '正文' + (offset ? '（从 ' + offset + ' 字开始）' : '') + '：\n' + (body || '(正文为空)');
