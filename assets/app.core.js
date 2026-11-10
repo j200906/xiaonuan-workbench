@@ -88,6 +88,7 @@
   /* ---------- 配置 ---------- */
   function saveConfig() {
     S.set(S.KEYS.cfg, state.cfg);
+    refreshModelPill();
     if (XN.emit) XN.emit('config:change', state.cfg);
   }
   XN.saveConfig = saveConfig;
@@ -181,6 +182,19 @@
   }
   XN.renderSideLinks = renderSideLinks;
 
+  /* 模型条文案：永远显示一个模型名，配置里为空也不留白。 */
+  function modelLabel() {
+    var model = String((state.cfg.tutor && state.cfg.tutor.model) || '').trim();
+    return model || defaultConfig().tutor.model || 'deepseek-chat';
+  }
+  XN.modelLabel = modelLabel;
+
+  function refreshModelPill() {
+    var pill = $('#modelPill');
+    if (pill) pill.textContent = modelLabel();
+  }
+  XN.refreshModelPill = refreshModelPill;
+
   function updateHeader() {
     var titleEl = $('#mainTitle');
     if (titleEl) {
@@ -194,8 +208,7 @@
     $$('.side-link').forEach(function (b) {
       b.classList.toggle('on', b.dataset.view === state.view);
     });
-    var pill = $('#modelPill');
-    if (pill) pill.textContent = state.cfg.tutor.model || t('chat.selectModel');
+    refreshModelPill();
     var chip = $('#verChip');
     if (chip) chip.textContent = 'v' + (root.XN_VERSION || '?');
   }
@@ -351,24 +364,10 @@
   }
   XN.scrollBottom = scrollBottom;
 
-  function greeting() {
-    var h = new Date().getHours();
-    if (h < 5) return '还没睡？';
-    if (h < 11) return '早上好';
-    if (h < 14) return '中午好';
-    if (h < 18) return '下午好';
-    return '晚上好';
-  }
-
+  /* 主页空态：只留一个最简容器，不再渲染问候标题和建议条。
+     id 必须保留：视图切换、新建会话等逻辑都靠 #chatEmpty 判断是否空态。 */
   function emptyState() {
-    var starters = (root.XN_PERSONA && root.XN_PERSONA.starters) || [];
-    return '<div class="empty" id="chatEmpty">' +
-      '<h2>' + U.esc(greeting()) + '</h2>' +
-      '<p>' + U.esc(t('chat.emptyBody')) + '</p>' +
-      '<div class="chips">' + starters.map(function (s) {
-        return '<button class="chip" type="button" data-prompt="' + U.esc(s) + '">' +
-          U.esc(s.length > 18 ? s.slice(0, 17) + '…' : s) + '</button>';
-      }).join('') + '</div></div>';
+    return '<div class="empty" id="chatEmpty"></div>';
   }
 
   function messageNode(m) {
@@ -424,14 +423,6 @@
     var s = currentSession();
     if (!s || !s.messages.length) {
       box.innerHTML = emptyState();
-      $$('.chip[data-prompt]', box).forEach(function (chip) {
-        chip.addEventListener('click', function () {
-          var input = $('#input');
-          input.value = chip.dataset.prompt;
-          autoGrow();
-          input.focus();
-        });
-      });
       return;
     }
     var thread = document.createElement('div');
@@ -1143,6 +1134,7 @@
     state.cfg.nav = (state.cfg.nav || []).filter(function (n) { return n.id !== 'chat'; });
     if (!state.cfg.nav.length) state.cfg.nav = defaultConfig().nav;
     state.cfg.labels = mergeConfig(defaultConfig().labels, state.cfg.labels || {});
+    refreshModelPill();
 
     state.key = storedKey();
     state.gatewayKey = S.sessionGet('xn.v2.gatewayKey', '');
