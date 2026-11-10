@@ -1,8 +1,17 @@
 name: Deploy static site
 
+# GitHub Pages（纯静态，没有 /api）。和 Cloudflare Pages 不是一回事：
+#   - 这里：push main → guard 通过后自动部署到 github.io
+#   - Cloudflare：Direct Upload，push main 不会更新 pages.dev，要手动跑 deploy_pages.mjs
+#
+# Q97：只在“校验与护栏”成功后部署（workflow_run），坏提交不会先上线再回滚；
+# guard 自己生成的回滚提交跳过——坏提交从未部署，回滚后的内容就是线上已有的上一版。
+# 紧急手动部署：Actions → 本工作流 → Run workflow（workflow_dispatch 不受 guard 限制）。
+
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ['校验与护栏']
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -16,16 +25,26 @@ concurrency:
 
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       !(github.event.workflow_run.head_commit.author.email == 'guard@users.noreply.github.com' &&
+         startsWith(github.event.workflow_run.head_commit.message, 'Revert "')))
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # workflow_run 默认 checkout 默认分支 HEAD，必须显式取 guard 校验过的那个提交
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Assemble site
         run: |

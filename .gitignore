@@ -19,6 +19,8 @@ coverage/
 # 本地环境与编辑器
 .env
 .env.*
+# 示例文件要入库：clone 下来照着它建 .env
+!.env.example
 .DS_Store
 Thumbs.db
 .vscode/

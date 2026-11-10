@@ -235,6 +235,7 @@
             <div class="card-tools">
               <span class="card-meta" id="fbMeta">0 条</span>
               <button class="btn ghost sm" id="fbPull" type="button" hidden data-i18n="fb.pull">拉取云端</button>
+              <button class="btn ghost sm danger" id="fbWipe" type="button" hidden title="把服务器上的反馈全部删掉（需要管理员）">清空云端</button>
               <button class="btn ghost sm" id="fbExport" type="button" data-i18n="fb.export">导出</button>
               <button class="btn ghost sm danger" id="fbClear" type="button" data-i18n="fb.clear">清空</button>
             </div>
@@ -248,29 +249,6 @@
     <!-- ---------- 设置 ---------- -->
     <section class="pane" id="view-settings" data-view="settings" hidden>
       <div class="board">
-        <article class="card wide" id="cloudIterCard" hidden>
-          <header class="card-head">
-            <h2 data-i18n="settings.cloudIterate">云端自迭代</h2>
-            <span class="card-meta">在 Cloudflare 上跑，直接改 GitHub 里的文件</span>
-          </header>
-          <p class="hint">
-            不需要先输密码：没解锁时改动只提交到试跑分支。它会：读反馈 → 出方案 → 校验 → 一次提交。
-            GitHub Actions 随后在 Windows 上打 exe 并创建 release。先「试运行」只看方案、不动仓库。
-          </p>
-          <div class="grid-2">
-            <label class="field"><span class="label">发布仓库（服务器锁定，不可改）</span><input id="ciOwner" type="text" readonly></label>
-            <label class="field" hidden><span class="label">仓库名</span><input id="ciRepo" type="text" readonly></label>
-          </div>
-          <p class="hint" id="ciLockNote"></p>
-          <label class="field" id="ciTokenRow"><span class="label">GitHub Token（服务器没配时才需要；只存在内存）</span><input id="ciToken" type="password" spellcheck="false" autocomplete="off" placeholder="只勾 repo 写权限，用完可撤销"></label>
-          <div class="arch-btns">
-            <button class="btn ghost sm" id="ciDry" type="button">试运行</button>
-            <button class="btn sm" id="ciRun" type="button">开始迭代</button>
-            <span class="hint" id="ciMsg"></span>
-          </div>
-          <pre class="it-log" id="ciLog" hidden></pre>
-        </article>
-
         <h3 class="group-title" data-i18n="settings.appearance">外观与布局</h3>
         <article class="card wide">
           <header class="card-head">
@@ -472,7 +450,7 @@
             </select>
           </label>
           <p class="card-note">思考强度只对本地网关（deepseek-v4 系）生效；模型思考过程会实时显示在下面的日志里。</p>
-          <p class="card-note">发布仓库锁在服务器（j200906/xiaonuan-workbench），这里不用再填。GitHub Token 只在内存里，刷新即失效。</p>
+          <p class="card-note">发布仓库锁在服务器（j200906/xiaonuan-workbench），这里不用再填。GitHub Token 只在服务器（XN_GH_TOKEN），浏览器不持有、也不读本机存储。</p>
         </article>
 
         <article class="card">

@@ -1,6 +1,22 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.7",
+    "date": "2026-11-10",
+    "title": "并入 Q61–Q100 收口工作",
+    "fixes": [
+      "合入另一条线（fdbfc18）的收口：.env 样例、CI 护栏、部署文档、隐私与安全说明、发布链路脚本",
+      "新增 scripts/build-pages.mjs 与 npm run build，部署前先产出 Pages 产物再比对",
+      "反馈条目带上服务器真 id（serverId），云端条目才允许删除",
+      "check.mjs 增加 tag 与 Pages 产物的一致性检查",
+      "冲突解决：版本号统一取高（1.5.6→1.5.7）；浏览器内 GH Token 仍只存内存、离开即清；反馈字段清洗与长度截断保留"
+    ],
+    "features": [],
+    "source": "merge",
+    "feedbackCount": 0,
+    "notes": "这次是把两条并行线合到一起，没有新增用户可见功能。合并后 check / 单测 / 冒烟 / Worker / UI / security 六套全绿。"
+  },
+  {
     "version": "1.5.6",
     "date": "2026-11-10",
     "title": "六项体检问题一起修",

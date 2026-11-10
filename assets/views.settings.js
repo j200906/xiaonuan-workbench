@@ -41,12 +41,18 @@
         this.syncProvider();
       });
 
-      $('#ciDry').addEventListener('click', () => {
-        if (XN.IT && XN.IT.cloudRun) XN.IT.cloudRun(true);
-      });
-      $('#ciRun').addEventListener('click', () => {
-        if (XN.IT && XN.IT.cloudRun) XN.IT.cloudRun(false);
-      });
+      /* 旧「云端自迭代」卡片已随 index.html 一起撤掉（改由「迭代」页负责）。
+         这里不再绑定 #ciDry / #ciRun，避免空节点把 init 打断。 */
+      if ($('#ciDry')) {
+        $('#ciDry').addEventListener('click', () => {
+          if (XN.IT && XN.IT.cloudRun) XN.IT.cloudRun(true);
+        });
+      }
+      if ($('#ciRun')) {
+        $('#ciRun').addEventListener('click', () => {
+          if (XN.IT && XN.IT.cloudRun) XN.IT.cloudRun(false);
+        });
+      }
 
       /* 管理密码那栏已经从界面撤掉：自迭代不再需要先解锁。
          这里保留判空，免得旧页面/缓存里还带着表单时脚本报错。 */
@@ -137,26 +143,8 @@
       $('#setKeyMeta').textContent = state.key ? '已配置' : (API.isProxy() ? '走后端代理' : '未配置');
       $('#verMeta').textContent = 'v' + (root.XN_VERSION || '?') + ' · ' + XN.util.todayStr();
 
-      var ci = $('#cloudIterCard');
-      if (ci) ci.hidden = !state.admin;
-      var lock = state.cloudRepo || {};
-      if ($('#ciOwner')) {
-        $('#ciOwner').value = state.localMode
-          ? '本地工作区（直接写文件）'
-          : (lock.locked ? (lock.owner + ' / ' + lock.name) : '未锁定');
-        $('#ciOwner').readOnly = true;
-      }
-      if ($('#ciRepo')) $('#ciRepo').hidden = true;
-      if ($('#ciTokenRow')) $('#ciTokenRow').hidden = state.localMode || !!lock.serverToken;
-      if ($('#ciLockNote')) {
-        $('#ciLockNote').textContent = state.localMode
-          ? '本地模式：不需要仓库锁，也不需要 GitHub Token。改动会先备份到 data/backups/，然后直接写进这个工作区。'
-          : (lock.locked
-            ? (lock.serverToken ? '仓库和 Token 都在服务器上，这里不用填。' : '仓库已锁定；Token 服务器没配，需要你本次提供（只存在内存，刷新即失效）。')
-            : '服务器没锁定发布仓库，自迭代不可用；如果这是本地版，请用 start-local 启动。');
-      }
-
-      /* 管理卡片已经撤掉，这几行全部判空 */
+      /* 云端自迭代卡片已撤掉（改由「迭代」页负责），GitHub Token 也不再进 DOM。
+         这几行保留判空写法，兼容旧缓存页面里的残留节点。 */
       if ($('#adminState')) $('#adminState').textContent = state.admin ? '已解锁' : '未解锁';
       if ($('#adminLock')) $('#adminLock').hidden = !state.admin;
       if ($('#adminUnlock')) $('#adminUnlock').textContent = state.admin ? '重新解锁' : '解锁改代码';

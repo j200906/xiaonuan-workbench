@@ -1,7 +1,14 @@
 name: 校验与护栏
 
 # 自迭代会直接往 main 提交代码。这里在 push 和 PR 上都跑：
-# 语法 → 引用完整性 → 单元测试。失败时只回滚那一次提交，不 reset、不连环 revert。
+# lint → 自检（语法/引用/版本一致性）→ 单元测试 → 后端冒烟 → Worker 路由 → 端到端 UI。
+# 失败时只回滚那一次提交，不 reset、不连环 revert。
+#
+# 防重入（Q96）：
+#   - concurrency 串行，避免两次失败各回滚一次；
+#   - 回滚前确认 HEAD == origin/main，main 已前进就跳过，避免覆盖后续提交；
+#   - 回滚提交作者固定 guard@users.noreply.github.com，下一轮直接停止；
+#   - 回滚提交标题以 `Revert "` 开头时也停止（手动 revert 同理）。
 
 on:
   push:
@@ -12,9 +19,17 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: guard-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']   # Q100：本地/CI Node 版本矩阵（engines.node >=20）
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,7 +37,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ matrix.node }}
 
       - uses: actions/setup-python@v5
         with:
@@ -34,31 +49,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: JS 语法
-        run: |
-          fail=0
-          for f in assets/*.js assets/lib/*.js cloudflare/*.js scripts/*.mjs tests/*.mjs; do
-            [ -f "$f" ] || continue
-            if ! node --check "$f"; then
-              echo "::error file=$f::语法检查没通过"
-              fail=1
-            fi
-          done
-          exit $fail
-
-      - name: 页面引用完整性
-        run: |
-          fail=0
-          for id in setProvider setLocale fbPull cloudIterCard navEditor ctlPrompt noteMore keyRemember; do
-            grep -q "id=\"$id\"" index.html || { echo "::error::index.html 少了 #$id"; fail=1; }
-          done
-          for f in $(grep -oE '(src|href)="assets/[^"?]+\.(js|css)' index.html | sed -E 's/^(src|href)="//' | sort -u); do
-            [ -f "$f" ] || { echo "::error file=index.html::引用了不存在的 $f"; fail=1; }
-          done
-          exit $fail
+      - name: 自检（语法 / 引用 / 版本一致性 / .pages 漂移）
+        run: node scripts/check.mjs
 
       - name: 单元测试
-        run: node --test tests/unit.test.mjs
+        run: node --test tests/*.test.mjs
 
       - name: 后端冒烟
         run: node tests/smoke.mjs
@@ -66,18 +61,99 @@ jobs:
       - name: Worker 路由
         run: node cloudflare/test.mjs
 
-      - name: 失败时回滚（仅 push，且只回滚本次提交）
-        if: failure() && github.event_name == 'push'
+  ui:
+    # Q95：端到端以前只在本地跑。这里用 tests/ui-ci.mjs（CDP 直连，不 import playwright、
+    # 不进 package.json）跑真后端 + 假模型 + 无头 Chromium；失败会挡住 GitHub Pages 部署。
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      XN_SHOT_DIR: coverage/ui-e2e
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+      # 个别镜像会报 "No usable sandbox!"，那时改成 '1'
+      # XN_NO_SANDBOX: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'   # CDP 用 Node 内置全局 WebSocket，需要 22+
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 选无头浏览器
+        # 优先用 runner 自带 Chrome；没有再用 Playwright 官方安装器拉 chromium。
+        # 两条路都不改 package.json —— 脚本只按可执行文件路径找。
+        run: |
+          set -euo pipefail
+          bin="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || command -v microsoft-edge || true)"
+          if [ -z "$bin" ]; then
+            echo "runner 上没有 Chrome/Chromium，改用 Playwright 安装器拉 chromium"
+            npx --yes playwright@1.49.0 install --with-deps chromium
+            bin="$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null | head -n1 || true)"
+          fi
+          if [ -z "$bin" ] || [ ! -x "$bin" ]; then
+            echo "::error::没有可用的 Chromium 内核浏览器"
+            exit 1
+          fi
+          "$bin" --version
+          echo "XN_CHROME=$bin" >> "$GITHUB_ENV"
+
+      - name: 中文字体（只影响失败截图，装不上不算错）
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk || echo "字体没装上，继续"
+
+      - name: 预检（不起浏览器）
+        run: node tests/ui-ci.mjs --dry
+
+      - name: 端到端 UI
+        run: node tests/ui-ci.mjs
+
+      - name: 上传失败截图与报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-e2e-${{ github.run_id }}
+          path: coverage/ui-e2e
+          if-no-files-found: ignore
+          retention-days: 7
+
+  rollback:
+    # 单独一个 job：matrix 两条腿都失败时也只回滚一次。
+    needs: check
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: 只回滚本次失败提交（防连环）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          tip=$(git rev-parse HEAD)
+          remote=$(git rev-parse origin/main)
+          if [ "$tip" != "$remote" ]; then
+            echo "main 已前进到 $remote，HEAD=$tip 不是最新提交，跳过回滚（避免覆盖后续提交）"
+            exit 0
+          fi
           author=$(git log -1 --format='%ae')
+          subject=$(git log -1 --format='%s')
           if [ "$author" = "guard@users.noreply.github.com" ]; then
-            echo "上一条已经是回滚提交，停止，避免连环回滚"
+            echo "HEAD 是 guard 自己生成的提交，停止，避免连环回滚"
+            exit 0
+          fi
+          if [[ "$subject" == 'Revert "'* ]]; then
+            echo "HEAD 已是回滚提交，停止，避免连环回滚"
             exit 0
           fi
           git config user.name "xiaonuan-guard"
           git config user.email "guard@users.noreply.github.com"
           git revert --no-edit HEAD
-          git push
+          git push origin HEAD:main
           echo "::warning::这次提交没通过检查，已生成回滚提交（未 reset 历史）"

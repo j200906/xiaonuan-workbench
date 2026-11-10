@@ -14,11 +14,21 @@ export const ALLOWED_HOSTS = [
 
 const HOST_RE = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(\.(?!-)[a-z0-9-]{1,63})+$/i;
 
+/* 会把任意子域解析回内网的通配 DNS 服务：白名单只看主机名，放进来等于开后门。 */
+const REBIND_SUFFIX = ['.nip.io', '.xip.io', '.sslip.io', '.lvh.me', '.vcap.me', '.localtest.me', '.traefik.me'];
+
 export function extraHosts(env) {
   const raw = String((env && env.XN_EXTRA_HOSTS) || '');
   const list = raw.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
-  if (list.length > 8) return list.slice(0, 8);
-  return list.filter((h) => HOST_RE.test(h) && !isPrivateHost(h));
+  const safe = list.filter((h) =>
+    HOST_RE.test(h) && !isPrivateHost(h) && !REBIND_SUFFIX.some((suff) => h.endsWith(suff))
+  );
+  return safe.slice(0, 8);
+}
+
+/* 环境变量开关：1/true/yes/on 都算开（大小写不敏感）。 */
+export function envFlag(env, name) {
+  return /^(1|true|yes|on)$/i.test(String((env && env[name]) || '').trim());
 }
 
 export function safeBase(raw, fallback, env) {
@@ -76,6 +86,28 @@ function isPrivateV4(p) {
   return false;
 }
 
+/* 把 IPv6 文本展开成 8 个 16 位整数；只认标准写法（含 :: 缩写），解析不了返回 null。 */
+function ipv6Parts(rawHost) {
+  const h = String(rawHost || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  const halves = h.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const groups = [];
+  for (const g of head) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    groups.push(parseInt(g, 16));
+  }
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0) return null;
+  for (let i = 0; i < missing; i++) groups.push(0);
+  for (const g of tail) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    groups.push(parseInt(g, 16));
+  }
+  return groups.length === 8 ? groups : null;
+}
+
 export function isPrivateHost(rawHost) {
   let host = String(rawHost || '').trim().toLowerCase().replace(/\.$/, '');
   if (!host) return true;
@@ -102,7 +134,8 @@ export function isPrivateHost(rawHost) {
   const v4 = ipv4Parts(host);
   if (v4) return isPrivateV4(v4);
 
-  /* IPv6：::1、fc00::/7、fe80::/10、IPv4 映射地址 */
+  /* IPv6：::1、fc00::/7、fe80::/10、IPv4 映射地址。
+     映射地址必须按数值判定：::ffff:7f00:1 这种十六进制写法，光看字符串会漏（Q94 复核）。 */
   if (host.indexOf(':') >= 0) {
     const h = host.replace(/%.*$/, '');
     if (h === '::' || h === '::1') return true;
@@ -111,6 +144,18 @@ export function isPrivateHost(rawHost) {
     const mapped = h.match(/::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
     if (mapped) return isPrivateHost(mapped[1]);
     if (/^64:ff9b::/i.test(h)) return true;
+    const g = ipv6Parts(h);
+    if (g) {
+      /* ::ffff:a.b.c.d（IPv4-mapped）：前 5 组为 0、第 6 组 0xffff，后两组就是 IPv4。 */
+      const isMappedV4 = g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff;
+      if (isMappedV4) {
+        return isPrivateV4([(g[6] >> 8) & 255, g[6] & 255, (g[7] >> 8) & 255, g[7] & 255]);
+      }
+      /* IPv4-compatible（::a.b.c.d，已废弃但解析器仍可能接受）：同理按后 32 位判。 */
+      if (g.slice(0, 6).every((x) => x === 0)) {
+        return isPrivateV4([(g[6] >> 8) & 255, g[6] & 255, (g[7] >> 8) & 255, g[7] & 255]);
+      }
+    }
   }
   return false;
 }
@@ -156,6 +201,8 @@ export async function assertPublicUrl(raw) {
   let u;
   try { u = new URL(String(raw)); } catch (e) { throw new Error('url 不对'); }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('只支持 http(s)');
+  /* IPv6 字面量的私网判定太容易漏（::ffff:7f00:1 等写法），抓网页先不支持它。 */
+  if (u.hostname.charAt(0) === '[') throw new Error('不支持 IPv6 字面量地址');
   if (u.username || u.password) throw new Error('不允许带账号密码的 URL');
   if (isPrivateHost(u.hostname)) throw new Error('不给内网地址');
   if (!(await resolvePublic(u.hostname))) throw new Error('这个域名解析到内网或解析失败，已拒绝');
@@ -216,12 +263,21 @@ export function constantTimeEqual(a, b) {
   return diff === 0;
 }
 
+/* 令牌版本：服务端改一次 XN_ADMIN_TOKEN_VERSION 就让所有已发会话立即失效，
+   不需要 KV 撤销列表，也不需要改密码（改密码同样会换 HMAC 密钥，但会踢掉所有会话）。 */
+function tokenVersion(env) {
+  return String((env && env.XN_ADMIN_TOKEN_VERSION) || '1').trim() || '1';
+}
+
 export async function issueToken(env, ttlSec = 43200) {
   const secret = env.XN_ADMIN_SECRET || env.XN_ADMIN_PASSWORD;
   if (!secret) throw new Error('no secret');
+  const now = Math.floor(Date.now() / 1000);
   const payload = strToB64url(JSON.stringify({
-    exp: Math.floor(Date.now() / 1000) + ttlSec,
-    iat: Math.floor(Date.now() / 1000),
+    exp: now + ttlSec,
+    iat: now,
+    ver: tokenVersion(env),
+    jti: Math.random().toString(36).slice(2, 10),
     scope: 'admin'
   }));
   return payload + '.' + await hmac(secret, payload);
@@ -236,7 +292,10 @@ export async function verifyToken(env, token) {
   if (!constantTimeEqual(expect, parts[1])) return false;
   try {
     const payload = JSON.parse(b64urlToStr(parts[0]));
-    return payload.scope === 'admin' && payload.exp * 1000 > Date.now();
+    if (payload.scope !== 'admin') return false;
+    if (!(payload.exp * 1000 > Date.now())) return false;
+    /* 老令牌没有 ver 字段，按当前版本以外的值处理：改版后必须重新解锁。 */
+    return String(payload.ver || '') === tokenVersion(env);
   } catch (e) {
     return false;
   }
@@ -254,9 +313,16 @@ export function clientIp(request) {
   return request.headers.get('CF-Connecting-IP') || '0.0.0.0';
 }
 
+/* 同源判定。Origin 缺失 = 非浏览器客户端（curl / 桌面壳 / 本地后端），
+   默认放行以兼容本机版；但这些边界要守住：
+   - 浏览器明确标了 Sec-Fetch-Site: cross-site 的一律拒绝（防止跨站带凭证请求）；
+   - XN_REQUIRE_ORIGIN=1 时，缺 Origin 也拒绝（只给浏览器用的部署建议开）；
+   - 有 Origin 就必须同源或在 XN_ALLOWED_ORIGINS 白名单里。 */
 export function sameOrigin(request, env) {
   const origin = request.headers.get('Origin');
-  if (!origin) return true; /* curl / 原生客户端；管理接口还有令牌 */
+  const site = request.headers.get('Sec-Fetch-Site');
+  if (String(site || '').toLowerCase() === 'cross-site') return false;
+  if (!origin) return !envFlag(env, 'XN_REQUIRE_ORIGIN');
   const url = new URL(request.url);
   if (origin === url.origin) return true;
   const allowed = String((env && env.XN_ALLOWED_ORIGINS) || '')
@@ -271,7 +337,7 @@ export function corsHeaders(request, env) {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Token',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Max-Age': '600',
     'Vary': 'Origin'
   };

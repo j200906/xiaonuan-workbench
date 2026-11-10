@@ -68,6 +68,21 @@ _load_env_file()
 
 BASE_DIR = Path(os.environ.get("XN_ROOT") or Path(__file__).resolve().parent.parent).resolve()
 DATA_DIR = Path(os.environ.get("XN_DATA_DIR") or (BASE_DIR / "data")).resolve()
+
+
+def app_version():
+    """版本号唯一来源是 package.json；本地后端也照它报，别再写死（Q99/Q100）。"""
+    try:
+        with (BASE_DIR / "package.json").open("r", encoding="utf-8") as fh:
+            return str(json.load(fh).get("version") or "0")
+    except (OSError, ValueError):
+        return "0"
+
+
+def token_version():
+    """和 cloudflare/shared.js 对齐：改 XN_ADMIN_TOKEN_VERSION 即可吊销全部本地会话（Q92）。"""
+    return (os.environ.get("XN_ADMIN_TOKEN_VERSION") or "1").strip() or "1"
+
 UPSTREAM = (os.environ.get("XN_BASE") or "https://api.deepseek.com/v1").rstrip("/")
 DEFAULT_MODEL = os.environ.get("XN_MODEL") or "deepseek-chat"
 API_KEY = (os.environ.get("XN_API_KEY") or "").strip()
@@ -120,9 +135,13 @@ class HttpError(Exception):
 
 
 def client_ip(handler):
-    fwd = handler.headers.get("X-Forwarded-For")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    # 只有显式 XN_TRUST_PROXY=1 才信 X-Forwarded-For（前面确实有反向代理时）。
+    # 否则用连接地址：否则谁都能换一个头绕过限流（Q94 复核 F4）。
+    trust = (os.environ.get("XN_TRUST_PROXY") or "").strip().lower() in ("1", "true", "yes", "on")
+    if trust:
+        fwd = handler.headers.get("X-Forwarded-For")
+        if fwd:
+            return fwd.split(",")[0].strip()
     return handler.client_address[0]
 
 
@@ -156,9 +175,12 @@ def b64url_decode(text):
 def issue_token(ttl=43200):
     if not ADMIN_SECRET:
         raise HttpError(501, "服务端没有配置管理密码")
+    now = int(time.time())
     payload = json.dumps({
-        "exp": int(time.time()) + ttl,
-        "iat": int(time.time()),
+        "exp": now + ttl,
+        "iat": now,
+        "ver": token_version(),
+        "jti": base64.b16encode(os.urandom(4)).decode("ascii"),
         "scope": "admin",
     }, separators=(",", ":")).encode("utf-8")
     body = b64url(payload)
@@ -181,7 +203,9 @@ def verify_token(token):
         payload = json.loads(b64url_decode(body))
     except Exception:
         return False
-    return payload.get("scope") == "admin" and payload.get("exp", 0) > time.time()
+    return (payload.get("scope") == "admin"
+            and payload.get("exp", 0) > time.time()
+            and str(payload.get("ver") or "") == token_version())
 
 
 def bearer(handler):
@@ -1122,9 +1146,14 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(400, "请求体不是 JSON")
 
     def _same_origin(self):
+        # 和 cloudflare/shared.js 同一套规则（Q94）：浏览器标了 cross-site 一律拒；
+        # 缺 Origin 的视为非浏览器客户端（curl/桌面壳），XN_REQUIRE_ORIGIN 开时也拒。
+        if (self.headers.get("Sec-Fetch-Site") or "").strip().lower() == "cross-site":
+            return False
+        strict = (os.environ.get("XN_REQUIRE_ORIGIN") or "").strip().lower() in ("1", "true", "yes", "on")
         origin = self.headers.get("Origin")
         if not origin:
-            return True
+            return not strict
         host = self.headers.get("Host") or ""
         return urllib.parse.urlsplit(origin).netloc == host
 
@@ -1160,7 +1189,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/health":
                 self._json(200, {"ok": True, "model": DEFAULT_MODEL, "hasKey": bool(API_KEY),
-                                  "local": LOCAL_UPSTREAM, "version": "1.5.1"})
+                                  "local": LOCAL_UPSTREAM, "version": app_version()})
                 return
             if path == "/api/admin/check":
                 ok = self._admin()
@@ -1263,6 +1292,78 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json(500, {"ok": False, "error": "服务器出错了：%s" % e})
 
+    def do_DELETE(self):
+        parsed = urllib.parse.urlsplit(self.path)
+        path = parsed.path
+        try:
+            if path == "/api/feedback":
+                self._feedback_delete(parsed)
+                return
+            self._json(404, {"ok": False, "error": "没有这个接口"})
+        except HttpError as e:
+            payload = {"ok": False, "error": str(e)}
+            payload.update(e.extra)
+            self._json(e.status, payload)
+        except Exception as e:
+            self._json(500, {"ok": False, "error": "服务器出错了：%s" % e})
+
+    def _feedback_delete(self, parsed):
+        """和 worker.js 的 DELETE /api/feedback 对齐（Q90）：
+        ?all=1 全删、?id= 单条、?before=YYYY-MM-DD 删旧数据；要管理员令牌 + 同源。"""
+        if not self._same_origin():
+            raise HttpError(403, "来源不允许")
+        if not self._admin():
+            raise HttpError(401, "管理员会话无效")
+        q = urllib.parse.parse_qs(parsed.query)
+        all_flag = (q.get("all") or [""])[0] == "1"
+        want_id = (q.get("id") or [""])[0].strip()
+        before = (q.get("before") or [""])[0].strip()
+        if not (all_flag or want_id or before):
+            raise HttpError(400, "要指定 ?all=1、?id= 或 ?before=YYYY-MM-DD，避免误删")
+        if before:
+            try:
+                parsed_day = datetime.strptime(before, "%Y-%m-%d").date()
+            except ValueError:
+                raise HttpError(400, "before 要是真实日期 YYYY-MM-DD")
+            if before != parsed_day.isoformat():
+                raise HttpError(400, "before 要是真实日期 YYYY-MM-DD")
+            if parsed_day > datetime.now(timezone.utc).date():
+                raise HttpError(400, "before 不能是未来日期；要全删请用 ?all=1")
+
+        path = DATA_DIR / "feedback.jsonl"
+        if not path.exists():
+            self._json(200, {"ok": True, "deleted": 0, "scanned": 0})
+            return
+
+        kept, deleted, scanned = [], 0, 0
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                scanned += 1
+                try:
+                    rec = json.loads(stripped)
+                except ValueError:
+                    kept.append(stripped)
+                    continue
+                hit = all_flag
+                if not hit and want_id and str(rec.get("id") or "") == want_id:
+                    hit = True
+                if not hit and before and str(rec.get("ts") or "")[:10] < before:
+                    hit = True
+                if hit:
+                    deleted += 1
+                else:
+                    kept.append(stripped)
+
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
+            for line in kept:
+                fh.write(line + "\n")
+        tmp.replace(path)
+        self._json(200, {"ok": True, "deleted": deleted, "scanned": scanned})
+
     def _admin_verify(self):
         if not self._same_origin():
             raise HttpError(403, "来源不允许")
@@ -1290,6 +1391,9 @@ class Handler(BaseHTTPRequestHandler):
 
         auth = self.headers.get("Authorization") or ""
         client_key = auth.replace("Bearer ", "", 1).strip() if auth else ""
+        # 管理令牌只能走 X-Admin-Token；塞进 Authorization 会被当模型 Key 转发（Q94 复核 F2）。
+        if client_key and verify_token(client_key):
+            raise HttpError(400, "管理令牌不能当模型 Key 用：模型 Key 放 Authorization，管理令牌放 X-Admin-Token")
         key = client_key or API_KEY
         if not key and not LOCAL_UPSTREAM:
             raise HttpError(503, "服务端没配 XN_API_KEY，请自带 Key 或先用本地模式")

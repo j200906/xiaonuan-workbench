@@ -41,15 +41,53 @@ if (missing.length) {
 
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const changelog = await readFile(join(root, 'assets/changelog.js'), 'utf8');
-const first = (changelog.match(/"version"\s*:\s*"([^"]+)"/) || [])[1];
-if (first !== pkg.version) {
+const changelogVersion = (changelog.match(/"version"\s*:\s*"([^"]+)"/) || [])[1];
+const versionJs = await readFile(join(root, 'assets/version.js'), 'utf8');
+const versionFallback = (versionJs.match(/\|\|\s*"([0-9]+\.[0-9]+\.[0-9]+)"/) || [])[1];
+
+const versions = [
+  ['package.json', pkg.version],
+  ['assets/changelog.js 首条', changelogVersion],
+  ['assets/version.js 兜底值', versionFallback]
+];
+const versionMismatch = versions.filter(([, v]) => v !== pkg.version);
+if (versionMismatch.length) {
   failed++;
-  console.error(`FAIL 版本不一致：package.json=${pkg.version} changelog=${first}`);
+  console.error('FAIL 版本不一致：' + versions.map(([k, v]) => `${k}=${v}`).join(' / '));
 } else {
-  console.log(`版本：v${first}`);
+  console.log(`版本：v${pkg.version}（package.json / changelog 首条 / version.js 一致）`);
 }
 
-const required = ['setProvider', 'setLocale', 'fbPull', 'cloudIterCard', 'navEditor', 'ctlPrompt', 'noteMore', 'keyRemember'];
+/* git tag 只在 HEAD 正好打了 tag 时校验；日常提交不该因为“还没打 tag”失败。 */
+const headTag = spawnSync('git', ['describe', '--tags', '--exact-match', 'HEAD'], { cwd: root, encoding: 'utf8' });
+if (headTag.status === 0) {
+  const tag = headTag.stdout.trim();
+  if (tag !== 'v' + pkg.version) {
+    failed++;
+    console.error(`FAIL git tag 与版本不一致：HEAD=${tag} package.json=v${pkg.version}`);
+  } else {
+    console.log(`tag：${tag} 与版本一致`);
+  }
+} else {
+  console.log('tag：HEAD 未打 tag（发版时再核对 v 版本号）');
+}
+
+/* .pages 是构建产物（.gitignore）。CI 里通常不存在，本地并发改源码时也不该误报：
+ * 默认只警告；发布前跑 node scripts/check.mjs --strict（或 npm run check:pages）算失败。 */
+const strict = process.argv.includes('--strict');
+const pages = spawnSync(process.execPath, [join(root, 'scripts', 'build-pages.mjs'), '--check'], { encoding: 'utf8' });
+const pagesErr = (pages.stderr || '').trim();
+if (pages.status === 0) {
+  console.log((pages.stdout || 'Pages 产物：与源码一致').trim().split('\n')[0]);
+} else if (strict) {
+  failed++;
+  console.error(pagesErr || 'FAIL cloudflare/.pages 与源码不一致');
+} else {
+  console.warn('WARN cloudflare/.pages 与源码不一致（构建产物，先跑 npm run build；--strict 时算失败）');
+  if (pagesErr) console.warn(pagesErr);
+}
+
+const required = ['setProvider', 'setLocale', 'fbPull', 'navEditor', 'ctlPrompt', 'noteMore', 'keyRemember'];
 const missingIds = required.filter((id) => !html.includes(`id="${id}"`));
 if (missingIds.length) {
   failed++;
