@@ -292,15 +292,30 @@
     return p[0] + '.' + p[1] + '.' + (p[2] + 1);
   }
 
+  /* 从 cur 到 suggested 的差值推断升级类型；不是向上升级就返回空串 */
+  function inferType(cur, suggested) {
+    var C = parseVersion(cur);
+    var T = parseVersion(suggested);
+    if (!C || !T) return '';
+    if (cmpVersion(suggested, cur) <= 0) return '';
+    if (T[0] !== C[0]) return T[0] > C[0] ? 'major' : '';
+    if (T[1] !== C[1]) return T[1] > C[1] ? 'minor' : '';
+    return 'patch';
+  }
+
   function nextVersion(cur, suggested, type) {
-    var base = bumpVersion(cur, type || 'patch');
+    /* 没指定类型时按建议版本自己推：1.5.5 到 1.6.0 是 minor，不该被压成 patch */
+    var kind = (type === 'major' || type === 'minor' || type === 'patch')
+      ? type
+      : (inferType(cur, suggested) || 'patch');
+    var base = bumpVersion(cur, kind);
     if (parseVersion(suggested) && cmpVersion(suggested, cur) > 0) {
       /* 模型给的版本必须和 bump 类型一致，避免 patch 改动跳大版本 */
       var S = parseVersion(suggested);
       var B = parseVersion(base);
-      if (type === 'major' && S[1] === 0 && S[2] === 0) return suggested;
-      if (type === 'minor' && S[0] === B[0] && S[2] === 0) return suggested;
-      if (!type || type === 'patch') {
+      if (kind === 'major' && S[1] === 0 && S[2] === 0) return suggested;
+      if (kind === 'minor' && S[0] === B[0] && S[2] === 0) return suggested;
+      if (kind === 'patch') {
         if (S[0] === B[0] && S[1] === B[1]) return suggested;
       }
     }

@@ -1,6 +1,20 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.6",
+    "date": "2026-11-10",
+    "title": "版本号自动推断升级类型",
+    "fixes": [
+      "在 assets/lib/patch.js 的 nextVersion 前新增 inferType()，按 当前版本 → 建议版本 的差值判定 major/minor/patch",
+      "nextVersion 在调用方没给 type 时改用 inferType 推导，不再一律压成 patch：1.5.5 → 1.6.0 现在会得到 1.6.0，而不是 1.5.6",
+      "显式传入 type 时行为不变，仍要求建议版本与 bump 类型一致；建议版本不大于当前版本时依然回落到自动 bump，保证结果一定大于当前版本"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没有跑真实云端自迭代（iterate.js 里调用 nextVersion 的那段在节选中被省略，看不到调用点）；没在浏览器里点一遍「开始工作」；没做真机多浏览器验证。本次未改 package.json / assets/version.js / README.md（都不在可写白名单），因此没有升版本号，也没有往 assets/changelog.js 追加条目，四处版本仍保持一致。"
+  },
+  {
     "version": "1.5.5",
     "date": "2026-11-10",
     "title": "令牌只留内存，离开即清空",
@@ -161,18 +175,6 @@ window.XN_CHANGELOG = [
       "等待期间显示「正在想…」，不再一片空白"
     ],
     "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
-    ],
     "source": "manual"
   }
 ];
