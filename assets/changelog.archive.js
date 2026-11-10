@@ -1,6 +1,30 @@
 /* 旧版本记录（只读归档）。 */
 window.XN_CHANGELOG_ARCHIVE = [
   {
+    "version": "1.4.4",
+    "date": "2026-11-09",
+    "title": "GLM 关掉思考，25 秒变 14 秒",
+    "fixes": [
+      "GLM 默认先想一大段（25 秒），中间界面全白，看着像调用失败",
+      "关掉思考（enable_thinking:false）后 14 秒出首字、16 秒完成，且不再输出大段思考",
+      "等待期间显示「正在想…」，不再一片空白"
+    ],
+    "features": [],
+    "source": "manual"
+  },
+  {
+    "version": "1.4.3",
+    "date": "2026-11-09",
+    "title": "云端只留 GLM，其余用自己的 Key",
+    "fixes": [
+      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
+    ],
+    "features": [
+      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
+    ],
+    "source": "manual"
+  },
+  {
     "version": "1.4.2",
     "date": "2026-11-09",
     "title": "修默认模型不出字",

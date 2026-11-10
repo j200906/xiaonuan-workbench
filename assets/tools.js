@@ -396,7 +396,9 @@ window.XN_TOOLS = (function () {
 
     var content = '';
     if (typeof textChat === 'function') {
-      var out = await textChat(messages);
+      var out = opts.signal
+        ? await textChat(messages, { signal: opts.signal })
+        : await textChat(messages);
       content = (out && typeof out === 'object') ? String(out.content || '') : String(out || '');
     }
     if (!content) content = '（这次没能生成回复，要不要再说一次？）';
