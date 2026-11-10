@@ -684,5 +684,17 @@
   };
 
   XN.views = XN.views || {};
-  XN.views.settings = settings;
+  /* 视图插件化：插件宿主在时走注册（宿主负责挂载/路由/开关），
+     宿主不在时退回老的 XN.views 直挂，保证旧部署也能用。 */
+  if (XN.plugin && typeof XN.plugin.register === 'function') {
+    XN.plugin.register({
+      id: 'view-settings',
+      name: '设置',
+      version: '2.0.0',
+      view: settings,
+      nav: { order: 40 }
+    });
+  } else {
+    XN.views.settings = settings;
+  }
 })(window);
