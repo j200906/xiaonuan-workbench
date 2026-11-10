@@ -139,7 +139,7 @@ function gatewayBase(env) {
   return safeBase(raw, '', env);
 }
 
-async function askUpstream(base, key, model, messages, maxTokens) {
+async function askUpstream(base, key, model, messages, maxTokens, effort) {
   const once = async () => {
     const ctrl = new AbortController();
     /* 大提示词 + 会思考的模型，180 秒经常不够，放宽到 5 分钟 */
@@ -152,8 +152,8 @@ async function askUpstream(base, key, model, messages, maxTokens) {
         headers,
         body: JSON.stringify(Object.assign(
           { model, messages, temperature: 0.2, max_tokens: maxTokens || 3000 },
-          /* 自迭代要的是「想清楚再改」，思考强度拉满；普通聊天仍用 low，免得正文被思考吃光。 */
-          /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: 'max' } : {}
+          /* 自迭代要的是「想清楚再改」，思考强度由界面传，默认拉满。 */
+          /^(marvis\/|.*deepseek-v4)/i.test(model) ? { reasoning_effort: effort || 'max' } : {}
         )),
         signal: ctrl.signal,
         redirect: 'manual'
@@ -163,7 +163,11 @@ async function askUpstream(base, key, model, messages, maxTokens) {
       if (!res.ok) throw new Error('模型返回 ' + res.status + '：' + text.slice(0, 180));
       let data;
       try { data = JSON.parse(text); } catch (e) { throw new Error('模型返回的不是 JSON'); }
-      return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      const msg = (data.choices && data.choices[0] && data.choices[0].message) || {};
+      return {
+        text: msg.content || '',
+        reasoning: String(msg.reasoning_content || '')
+      };
     } finally {
       clearTimeout(timer);
     }
@@ -188,7 +192,7 @@ async function askModel(env, opts, system, user, maxTokens) {
     const fallback = (env.XN_BASE || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
     const base = safeBase(opts.providerBase, fallback, env);
     const model = opts.model || env.XN_MODEL || 'deepseek-chat';
-    return askUpstream(base, opts.apiKey, model, messages, maxTokens);
+    return askUpstream(base, opts.apiKey, model, messages, maxTokens, opts.reasoningEffort);
   }
 
   /* 本机网关优先：它挂的是能写代码的模型，比 Workers AI 自带那个 flash 强得多。
@@ -198,7 +202,7 @@ async function askModel(env, opts, system, user, maxTokens) {
     const model = opts.model || env.XN_GATEWAY_MODEL || '';
     if (model) {
       try {
-        return await askUpstream(gw, env.XN_GATEWAY_KEY || '', model, messages, maxTokens);
+        return await askUpstream(gw, env.XN_GATEWAY_KEY || '', model, messages, maxTokens, opts.reasoningEffort);
       } catch (e) {
         if (!env.AI) throw new Error('本机网关不可用（' + e.message + '），也没有 AI 绑定可以退回');
       }
@@ -210,10 +214,11 @@ async function askModel(env, opts, system, user, maxTokens) {
   const params = { messages, max_tokens: maxTokens || 3000 };
   if (name.indexOf('glm') >= 0) params.chat_template_kwargs = { enable_thinking: false };
   const out = await env.AI.run(name, params);
-  if (typeof out === 'string') return out;
-  if (out && typeof out.response === 'string') return out.response;
-  if (out && out.choices && out.choices[0] && out.choices[0].message) return out.choices[0].message.content || '';
-  return '';
+  let text = '';
+  if (typeof out === 'string') text = out;
+  else if (out && typeof out.response === 'string') text = out.response;
+  else if (out && out.choices && out.choices[0] && out.choices[0].message) text = out.choices[0].message.content || '';
+  return { text, reasoning: '' };
 }
 
 function pickJson(text) {
@@ -300,6 +305,9 @@ export async function runIteration(env, opts) {
   const token = String(opts.token || env.XN_GH_TOKEN || '').trim();
   const dryRun = !!opts.dryRun;
   const triageOnly = !!opts.triageOnly;
+  const EFFORTS = ['low', 'medium', 'high', 'max'];
+  opts.reasoningEffort = EFFORTS.indexOf(String(opts.reasoningEffort || '')) >= 0
+    ? String(opts.reasoningEffort) : 'max';
 
   if (!owner || !repo) {
     return jsonBody({ ok: false, error: '服务器没有锁定发布仓库（XN_REPO_OWNER / XN_REPO_NAME）' }, 501);
@@ -329,13 +337,13 @@ export async function runIteration(env, opts) {
       say('没有反馈，工单为空');
       return jsonBody({ ok: true, triageOnly: true, tickets: [], log });
     }
-    const raw = await askModel(
+    const triage = await askModel(
       env, opts,
       '你是工单拆解器。把用户反馈拆成可执行工单，合并重复项，不发明用户没说过的问题。只输出 JSON。',
       `反馈：\n${feedbackText(feedback)}\n\n输出：{"tickets":[{"title":"不超过16字","kind":"bug|feature|content","severity":1-3,"why":"依据","scope":"页面或文件"}]}\n最多 5 条。没有可做的就返回 {"tickets":[]}。`,
       1200
     );
-    const data = pickJson(raw);
+    const data = pickJson(triage.text);
     const tickets = Array.isArray(data && data.tickets) ? data.tickets.slice(0, 5) : [];
     say('拆出 ' + tickets.length + ' 条工单');
     return jsonBody({ ok: true, triageOnly: true, tickets, log });
@@ -426,8 +434,10 @@ export async function runIteration(env, opts) {
           ? '上一次输出不完整或不是 JSON，多半是内容太长被截断。这次只输出 patches，最多 2 处，不要 rewrites、不要 creates。'
           : 'find 必须从上面正文里逐字复制（含缩进标点），只改你看得到的部分；看不到的文件就别动它。');
     }
-    say(`第 ${attempt} 次让模型出方案…`);
-    const rawText = await askModel(env, opts, SYSTEM, planPrompt + retryNote, 8000);
+    say(`第 ${attempt} 次让模型出方案（思考强度 ${opts.reasoningEffort || 'max'}）…`);
+    const reply = await askModel(env, opts, SYSTEM, planPrompt + retryNote, 8000);
+    if (reply.reasoning) say('模型思考：' + reply.reasoning.replace(/\s+/g, ' ').slice(0, 600));
+    const rawText = reply.text;
     const candidate = pickJson(rawText);
     if (!candidate) {
       attempts.push({ attempt, error: '模型没给出可解析的 JSON', raw: String(rawText || '').slice(0, 300) });
@@ -546,6 +556,9 @@ export async function runIteration(env, opts) {
     ok: true,
     dryRun,
     version: next,
+    from: cur,
+    bump,
+    effort: opts.reasoningEffort,
     title: entry.title,
     fixes: entry.fixes,
     features: entry.features,

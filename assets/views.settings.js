@@ -51,25 +51,31 @@
         if (XN.IT && XN.IT.cloudRun) XN.IT.cloudRun(false);
       });
 
-      $('#adminForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        var msg = $('#adminMsg');
-        msg.textContent = '正在确认…';
-        var r = await XN.unlockAdmin($('#adminPwd').value);
-        if (r.ok) {
-          $('#adminPwd').value = '';
-          msg.textContent = '已解锁：现在可以自迭代、改架构。';
+      /* 管理密码那栏已经从界面撤掉：自迭代不再需要先解锁。
+         这里保留判空，免得旧页面/缓存里还带着表单时脚本报错。 */
+      if ($('#adminForm')) {
+        $('#adminForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          var msg = $('#adminMsg');
+          msg.textContent = '正在确认…';
+          var r = await XN.unlockAdmin($('#adminPwd').value);
+          if (r.ok) {
+            $('#adminPwd').value = '';
+            msg.textContent = '已解锁：现在可以自迭代、改架构。';
+            this.render();
+            XN.switchView('settings');
+          } else {
+            msg.textContent = r.error || '没成功。';
+          }
+        });
+      }
+      if ($('#adminLock')) {
+        $('#adminLock').addEventListener('click', () => {
+          XN.lockAdmin();
           this.render();
-          XN.switchView('settings');
-        } else {
-          msg.textContent = r.error || '没成功。';
-        }
-      });
-      $('#adminLock').addEventListener('click', () => {
-        XN.lockAdmin();
-        this.render();
-        $('#adminMsg').textContent = '已锁定。';
-      });
+          if ($('#adminMsg')) $('#adminMsg').textContent = '已锁定。';
+        });
+      }
 
       $('#dataExport').addEventListener('click', () => {
         var dump = {
@@ -153,9 +159,10 @@
             : '服务器没锁定发布仓库，自迭代不可用；如果这是本地版，请用 start-local 启动。');
       }
 
-      $('#adminState').textContent = state.admin ? '已解锁' : '未解锁';
-      $('#adminLock').hidden = !state.admin;
-      $('#adminUnlock').textContent = state.admin ? '重新解锁' : '解锁改代码';
+      /* 管理卡片已经撤掉，这几行全部判空 */
+      if ($('#adminState')) $('#adminState').textContent = state.admin ? '已解锁' : '未解锁';
+      if ($('#adminLock')) $('#adminLock').hidden = !state.admin;
+      if ($('#adminUnlock')) $('#adminUnlock').textContent = state.admin ? '重新解锁' : '解锁改代码';
 
       this.renderAppearance();
       this.renderNavEditor();

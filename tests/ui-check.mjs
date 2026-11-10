@@ -189,9 +189,9 @@ try {
     rows: document.querySelectorAll('#navEditor .nav-row').length,
     providers: document.querySelectorAll('#setProvider option').length,
     locales: document.querySelectorAll('#setLocale option').length,
-    admin: document.querySelector('#adminState').textContent
+    passwordCard: !!document.querySelector('#adminForm')
   })`);
-  check('设置页控件齐全', settings.rows === 4 && settings.providers >= 7 && settings.locales === 2,
+  check('设置页控件齐全 + 密码栏已移除', settings.rows === 4 && settings.providers >= 7 && settings.locales === 2 && settings.passwordCard === false,
     JSON.stringify(settings));
   const persona = await evaluate(`({ len: document.querySelector('#ctlPrompt').value.length, has: document.querySelector('#ctlPrompt').value.includes('小暖'), meta: document.querySelector('#promptMeta').textContent })`);
   check('人格可见', persona.len > 500 && persona.has && persona.meta.includes('动态'),

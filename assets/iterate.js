@@ -87,6 +87,12 @@
     return { apiKey: state.key || '', providerBase: base, model: model };
   }
 
+  function effortArg() {
+    var el = $('#itReason');
+    var v = el ? String(el.value || '') : '';
+    return ['low', 'medium', 'high', 'max'].indexOf(v) >= 0 ? v : 'max';
+  }
+
   function currentToken() {
     var raw = $('#ciToken') ? $('#ciToken').value.trim() : '';
     if (raw) GH_TOKEN = raw;
@@ -141,6 +147,7 @@
         body: JSON.stringify(Object.assign({
           dryRun: !!dryRun,
           triageOnly: !!triageOnly,
+          reasoningEffort: effortArg(),
           token: token
         }, args)),
         signal: ctrl.signal,
@@ -208,12 +215,16 @@
 
       IT.result = {
         version: data.version || '',
+        from: data.from || '',
+        effort: data.effort || '',
         title: data.title || '',
         fixes: data.fixes || [],
         features: data.features || [],
         verify: data.verify || '',
         run: data.run || '',
         notTried: data.notTried || '',
+        skipped: data.skipped || [],
+        publicMode: !!data.publicMode,
         publish: state.localMode
           ? { mode: 'local', backup: data.backup || '', commit: data.commit || '' }
           : (data.tag
@@ -296,17 +307,37 @@
           ? '已写入本地' + (r.publish.backup ? '（备份：' + XN.esc(r.publish.backup) + '）' : '') + (r.publish.commit ? ' · ' + XN.esc(r.publish.commit) : '')
           : '未提交（试运行或草稿）';
 
-    box.innerHTML = '<div class="it-res-head"><strong>' + (r.version ? 'v' + XN.esc(r.version) : '这一版') + '</strong>' +
-      '<span>' + XN.esc(r.title || '') + '</span><span class="it-mode">云端</span></div>' +
+    var transition = (r.from && r.version && r.from !== r.version)
+      ? 'v' + XN.esc(r.from) + ' → v' + XN.esc(r.version)
+      : (r.version ? 'v' + XN.esc(r.version) : '这一版');
+    var effortText = r.effort ? ({ low: '低', medium: '中', high: '高', max: '最高' })[r.effort] || r.effort : '—';
+
+    box.innerHTML = '<div class="it-res-head"><strong>' + transition + '</strong>' +
+      '<span>' + XN.esc(r.title || '') + '</span><span class="it-mode">' + (r.publicMode ? '公开模式' : '云端') + '</span></div>' +
       '<div class="it-res-cols"><div><h4>修复</h4><ul>' + list(r.fixes) + '</ul></div>' +
       '<div><h4>新增</h4><ul>' + list(r.features) + '</ul></div></div>' +
       '<dl class="it-res-meta">' +
+      '<dt>思考强度</dt><dd>' + XN.esc(effortText) + '</dd>' +
       '<dt>验证</dt><dd>' + XN.esc(r.verify || '—') + '</dd>' +
       '<dt>发布</dt><dd>' + pubText + '</dd>' +
       '<dt>改到的文件</dt><dd>' + XN.esc((r.changed || []).join('、') || '—') + '</dd>' +
       '<dt>没验证</dt><dd>' + XN.esc(r.notTried || '—') + '</dd>' +
+      (r.skipped && r.skipped.length ? '<dt>跳过的补丁</dt><dd>' + XN.esc(r.skipped.map(function (s) { return '#' + s.index + ' ' + s.reason; }).join('；')) + '</dd>' : '') +
       (r.attempt ? '<dt>失败时想改</dt><dd>' + XN.esc(r.attempt.title || '—') + '</dd>' : '') +
       '</dl>';
+
+    var vbox = $('#itVersion');
+    if (vbox) {
+      var vmeta = $('#itVersionMeta');
+      if (vmeta) vmeta.textContent = r.version ? ('v' + r.version) : '—';
+      var where = r.publish.mode === 'tag' ? ('tag v' + XN.esc(r.publish.tag) + '，Actions 会打包 exe')
+        : r.publish.mode === 'commit' ? ('已提交到 ' + XN.esc(r.publish.branch || 'main') + '（' + XN.esc(r.publish.commit || '') + '）')
+        : r.publish.mode === 'local' ? '已写入本地工作区'
+        : '试运行，没有写仓库';
+      vbox.innerHTML = '<div class="kv"><span>版本</span><b>' + transition + '</b></div>' +
+        '<div class="kv"><span>更新日志首条</span><b>' + XN.esc(r.title || '—') + '</b></div>' +
+        '<div class="kv"><span>去向</span><b>' + where + '</b></div>';
+    }
     $('#itResultBtns').hidden = false;
     var link = $('#itPRLink');
     link.hidden = r.publish.mode !== 'tag';

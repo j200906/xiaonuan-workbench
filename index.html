@@ -382,18 +382,6 @@
           </form>
         </article>
 
-        <article class="card">
-          <header class="card-head"><h2 data-i18n="settings.admin">管理模式</h2><span class="card-meta" id="adminState">未解锁</span></header>
-          <form id="adminForm" class="admin-form">
-            <label class="field"><span class="label">管理密码</span><input id="adminPwd" type="password" autocomplete="off" placeholder="由服务器校验，前端不保存密码"></label>
-            <div class="arch-btns">
-              <button class="btn primary sm" type="submit" id="adminUnlock" data-i18n="settings.unlock">解锁</button>
-              <button class="btn ghost sm" type="button" id="adminLock" hidden data-i18n="settings.lock">锁定</button>
-            </div>
-            <p class="hint" id="adminMsg">密码只发给服务器校验；解锁后拿到 12 小时会话令牌。</p>
-          </form>
-        </article>
-
         <article class="card wide">
           <header class="card-head"><h2 data-i18n="settings.data">本机数据</h2><span class="card-meta" id="storageMeta">—</span></header>
           <div class="kv" id="dataList"></div>
@@ -474,7 +462,22 @@
               <option value="follow">跟随模型条所选</option>
             </select>
           </label>
+          <label class="field">
+            <span class="label">思考强度</span>
+            <select id="itReason">
+              <option value="low">低 · 快</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+              <option value="max" selected>最高 · 想清楚再改</option>
+            </select>
+          </label>
+          <p class="card-note">思考强度只对本地网关（deepseek-v4 系）生效；模型思考过程会实时显示在下面的日志里。</p>
           <p class="card-note">发布仓库锁在服务器（j200906/xiaonuan-workbench），这里不用再填。GitHub Token 只在内存里，刷新即失效。</p>
+        </article>
+
+        <article class="card">
+          <header class="card-head"><h2>版本更新</h2><span class="card-meta" id="itVersionMeta">—</span></header>
+          <div class="it-version" id="itVersion"><p class="it-empty">跑完一次会出现版本号变化、更新日志首条和去向。</p></div>
         </article>
 
         <article class="card wide">
