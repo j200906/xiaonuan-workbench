@@ -1,6 +1,20 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.12",
+    "date": "2026-11-10",
+    "title": "输入框右下角不再挂模型名",
+    "fixes": [
+      "删掉输入框右下角的模型名（#modelPill 整块移除：HTML、JS 引用、CSS 规则、相关断言一起清）",
+      "底栏只剩「提示语 / 联网 / 模型下拉 / 发送」，布局不变；模型下拉仍显示友好名（GLM-4.7-Flash）",
+      "文档同步 v1.5.11 的迭代页与网关约定（XN_GATEWAY_VERIFIED、/api/config 可能不下发 gateway）"
+    ],
+    "features": [],
+    "source": "manual",
+    "feedbackCount": 0,
+    "notes": "只改展示，不动对话与迭代逻辑。"
+  },
+  {
     "version": "1.5.11",
     "date": "2026-11-10",
     "title": "迭代页终于能用了",

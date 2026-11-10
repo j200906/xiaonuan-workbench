@@ -88,7 +88,6 @@
   /* ---------- 配置 ---------- */
   function saveConfig() {
     S.set(S.KEYS.cfg, state.cfg);
-    refreshModelPill();
     if (XN.emit) XN.emit('config:change', state.cfg);
   }
   XN.saveConfig = saveConfig;
@@ -201,18 +200,13 @@
   }
   XN.friendlyModel = friendlyModel;
 
-  /* 模型条文案：永远显示一个友好的模型名，配置里为空也不留白。 */
+  /* 模型条文案：永远显示一个友好的模型名，配置里为空也不留白。
+     只负责「把 id 说成人话」，不再往页面写——输入框右下角那条已经删掉了。 */
   function modelLabel() {
     var model = String((state.cfg.tutor && state.cfg.tutor.model) || '').trim() || defaultConfig().tutor.model;
     return friendlyModel(model) || 'deepseek-chat';
   }
   XN.modelLabel = modelLabel;
-
-  function refreshModelPill() {
-    var pill = $('#modelPill');
-    if (pill) pill.textContent = modelLabel();
-  }
-  XN.refreshModelPill = refreshModelPill;
 
   function updateHeader() {
     var titleEl = $('#mainTitle');
@@ -227,7 +221,6 @@
     $$('.side-link').forEach(function (b) {
       b.classList.toggle('on', b.dataset.view === state.view);
     });
-    refreshModelPill();
     var chip = $('#verChip');
     if (chip) chip.textContent = 'v' + (root.XN_VERSION || '?');
   }
@@ -1005,8 +998,6 @@
       applyConfig();
     });
 
-    $('#modelPill').addEventListener('click', function () { switchView('settings'); });
-
     var wrap = $('#modelPickWrap');
     var trigger = $('#modelPickTrigger');
     var menu = $('#modelMenu');
@@ -1155,7 +1146,6 @@
     state.cfg.nav = (state.cfg.nav || []).filter(function (n) { return n.id !== 'chat'; });
     if (!state.cfg.nav.length) state.cfg.nav = defaultConfig().nav;
     state.cfg.labels = mergeConfig(defaultConfig().labels, state.cfg.labels || {});
-    refreshModelPill();
 
     state.key = storedKey();
     state.gatewayKey = S.sessionGet('xn.v2.gatewayKey', '');

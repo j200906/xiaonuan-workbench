@@ -8,7 +8,7 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.5.11**
+当前版本 **v1.5.12**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
@@ -104,7 +104,7 @@ tests/                     单元、冒烟、无头浏览器 UI 检查
 
 ## 自迭代怎么跑
 
-「设置 → 管理模式」输入管理密码即可解锁。侧栏的「迭代」入口始终可见；未解锁时点它会被带到设置页先解锁，未解锁的迭代请求也只跑试运行（云端落 `iterate/public` 试跑分支，本地只出方案不写文件）。
+「设置 → 管理模式」输入管理密码即可解锁。侧栏的「迭代」入口始终可见，「迭代」页本身也不用解锁就能直接打开；解锁只决定它能不能真写：未解锁的请求只跑试运行——云端落 `XN_PUBLIC_ITERATE_BRANCH`（默认 `iterate/public`）试跑分支，本地只出方案不写文件。
 
 流程：
 
@@ -120,7 +120,8 @@ tests/                     单元、冒烟、无头浏览器 UI 检查
 - 发布仓库锁在服务器（`XN_REPO_OWNER` / `XN_REPO_NAME`），客户端传什么都不认
 - 管理密码只在 `/api/admin/verify` 用一次，换 12 小时 HMAC 令牌；前端不存密码
 - GitHub Token 只在服务端（`XN_GH_TOKEN`），浏览器不持有、也没有输入框
-- 自迭代模型优先用你在模型条里选的服务商；选「自迭代模型（本机网关）」时走服务器下发的网关地址
+- 自迭代模型优先用你在模型条里选的服务商；选「自迭代模型（本机网关）」时走服务器下发的网关地址，网关不可用会自动回落成「跟随模型条」
+- 网关下发：`/api/config` 只在地址有效时才带 `gateway`（空地址 / 解析不出 / 非 http(s) 就整块不带，前端按「服务器未配置」处理）；`gateway.stale` 标出临时隧道（`*.trycloudflare.com`），`gateway.reachableHint` 只有服务器设了 `XN_GATEWAY_VERIFIED=1` 才是 true——没标的地址前端不默认选它
 
 ## 安全模型
 
@@ -153,7 +154,9 @@ tests/                     单元、冒烟、无头浏览器 UI 检查
 | `XN_GH_TOKEN` | 服务器 GitHub Token（可选） |
 | `XN_EXTRA_HOSTS` | 额外允许的模型主机（如本机网关隧道域名） |
 | `XN_GATEWAY_BASE` / `XN_GATEWAY_MODEL` | 下发给前端的本机网关地址与模型 |
+| `XN_GATEWAY_VERIFIED` | 设 1 才把网关标成「已验证」（`/api/config` 的 `gateway.reachableHint`）；不设则地址照发但按未验证处理 |
 | `XN_ITER_MODEL` | 没有外部 Key 时，云端自迭代用的 Workers AI 模型 |
+| `XN_PUBLIC_ITERATE_BRANCH` | 未解锁时云端自迭代落的分支，默认 `iterate/public` |
 | `XN_DATA_DIR` | 本地反馈/备份目录 |
 | `XN_AUTO_COMMIT` | 本地自迭代成功后自动 `git commit`（默认 0） |
 | `XN_TUNNEL_KEY` | 本机网关出口代理的钥匙（优先于文件） |

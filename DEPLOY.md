@@ -61,6 +61,13 @@ XN_ADMIN_PASSWORD=...
 XN_ADMIN_SECRET=...            # 建议单独一个随机串
 XN_REPO_OWNER=j200906
 XN_REPO_NAME=xiaonuan-workbench
+
+# 线上要走本机网关（自迭代）时才加这三行。
+# 注意：--env 会把前两个同步到 Pages；XN_GATEWAY_VERIFIED 不在同步列表里，
+# 必须去 Cloudflare 控制台手工配，否则 /api/config 的 gateway.reachableHint 恒为 false。
+XN_GATEWAY_BASE=https://xxxx.trycloudflare.com/v1
+XN_GATEWAY_MODEL=...
+XN_GATEWAY_VERIFIED=1
 ```
 
 ```bash
@@ -217,7 +224,23 @@ python tools/tunnel_proxy.py --port 8790 --target http://127.0.0.1:3425
 #    XN_GATEWAY_BASE=https://xxxx.trycloudflare.com/v1
 #    XN_GATEWAY_MODEL=...
 #    XN_EXTRA_HOSTS=xxxx.trycloudflare.com
+#    XN_GATEWAY_VERIFIED=1      # 不设的话前端按「未验证」处理
 ```
+
+填完地址还要把 `XN_GATEWAY_VERIFIED=1` 配上（Cloudflare Pages → Settings → Variables and
+Secrets；`deploy_pages.mjs --env` 目前不同步这个键），否则 `/api/config` 里的
+`gateway.reachableHint` 是 false，前端按「未验证」处理、不会默认选它。
+
+`/api/config` 对网关有三种态度（v1.5.11 起）：
+
+- **地址有效但没标 verified**：`gateway` 照发，`reachableHint: false`
+- **地址是空的 / 解析不出 / 不是 http(s)**：**整块不带 `gateway` 字段**，前端按「服务器未配置」处理
+  （`models.js` 的 `gatewayReady` 为 false），不会默认选中它
+- **`*.trycloudflare.com` 这类临时隧道**：地址照发，但带 `gateway.stale: true`，前端可以提示隧道可能已过期
+
+所以别再假设 `/api/config` 一定有 `gateway`：读的时候一律 `cfg.gateway || {}`。`gw.reachableHint === true`
+只代表「运维已验证过这个地址」，真正能不能用还要看是不是本机回环、或者填过钥匙
+（前端按 `ready && (local || key)` 判断）。
 
 不要把钥匙写进仓库；`tools/tunnel-token.txt` 只作为旧文件兼容读取。
 
