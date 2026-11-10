@@ -64,7 +64,7 @@
       if (iTo < 0) iTo = 0;
       if (iFrom < iTo) { var tmp = iFrom; iFrom = iTo; iTo = tmp; }
 
-      var range = iFrom === iTo ? [list[iTo]] : list.slice(iTo, iFrom);
+      var range = iFrom === iTo ? [list[iTo]] : list.slice(iTo, iFrom + 1);
       var fixes = range.reduce(function (n, c) { return n + (c.fixes || []).length; }, 0);
       var feats = range.reduce(function (n, c) { return n + (c.features || []).length; }, 0);
       var scope = iFrom === iTo ? 'v' + toV + ' 这一个版本' : 'v' + fromV + ' 之后 · ' + range.length + ' 个版本';
