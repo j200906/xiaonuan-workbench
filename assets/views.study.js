@@ -20,6 +20,7 @@
     init() {
       /* boot 里 loadState 已经跑完，这里拿到的才是用户配置 */
       this.noteLimit = pageSize();
+      this.ensureExportButton();
       $('#goalForm').addEventListener('submit', (e) => {
         e.preventDefault();
         this.addGoal();
@@ -71,6 +72,49 @@
     saveTimer() { S.set(S.KEYS.timer, state.timer); },
     saveGoals() { S.set(S.KEYS.goals, state.goals); },
     saveNotes() { S.set(S.KEYS.notes, state.notes); },
+
+    /* 笔记导出：按钮由 JS 注入到笔记列表下方，不改 index.html。
+       #noteList 的 innerHTML 每次 renderNotes 都会被重写，所以按钮挂在外层容器上。 */
+    ensureExportButton() {
+      var list = $('#noteList');
+      if (!list || $('#noteExportMd')) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'note-export';
+      wrap.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin:2px 0 10px';
+      wrap.innerHTML = '<button class="btn ghost sm" id="noteExportMd" type="button">导出 Markdown</button>';
+      list.parentNode.insertBefore(wrap, list.nextSibling);
+      var btn = wrap.querySelector('#noteExportMd');
+      btn.addEventListener('click', () => this.exportNotesMarkdown());
+      this.syncExportButton();
+    },
+
+    syncExportButton() {
+      var btn = $('#noteExportMd');
+      if (!btn) return;
+      var n = (state.notes || []).length;
+      btn.disabled = !n;
+      btn.title = n ? ('把 ' + n + ' 条笔记导出成一个 .md 文件') : '还没有笔记可以导出';
+    },
+
+    exportNotesMarkdown() {
+      var notes = state.notes || [];
+      if (!notes.length) {
+        XN.toast('还没有笔记，先写一条再导出');
+        this.syncExportButton();
+        return;
+      }
+      var day = XN.util.todayStr();
+      var lines = ['# 小暖笔记（共 ' + notes.length + ' 条，导出于 ' + day + '）', ''];
+      notes.forEach((n) => {
+        var date = XN.util.dayKey(n.updated || n.ts) || XN.fmtDate(n.updated || n.ts);
+        lines.push('## ' + (n.title || '无标题') + ' · ' + date);
+        lines.push('');
+        lines.push(String(n.body || '').trim());
+        lines.push('');
+      });
+      XN.download('xiaonuan-notes-' + day + '.md', lines.join('\n').replace(/\n{3,}/g, '\n\n'), 'text/markdown;charset=utf-8');
+      XN.toast('导出 ' + notes.length + ' 条笔记');
+    },
 
     addGoal() {
       var input = $('#goalInput');
@@ -173,6 +217,7 @@
     renderNotes() {
       var list = $('#noteList');
       if (!list) return;
+      this.syncExportButton();
       var all = this.filtered();
       var items = all.slice(0, this.noteLimit);
 

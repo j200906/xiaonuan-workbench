@@ -9,10 +9,37 @@
     return String(v || '0.0.0').split('.').map(function (n) { return Number(n) || 0; });
   }
 
+  /* 日志列表默认只展开最近 5 条，其余折叠；「展开全部 / 收起」按钮由 JS 注入，index.html 不用改。
+     展开状态只放内存：换个比较区间就回到「只看最近 5 条」。 */
+  var PAGE = 5;
+  var expanded = false;
+
+  function itemHtml(c) {
+    return '<article class="cl-item">' +
+      '<div class="cl-head"><strong>v' + XN.esc(c.version) + '</strong>' +
+      '<span class="cl-title">' + XN.esc(c.title || '') + '</span>' +
+      '<span class="cl-date">' + XN.esc(c.date || '') + '</span></div>' +
+      ((c.fixes && c.fixes.length) ? '<div class="cl-sec"><h4>修掉的</h4><ul>' +
+        c.fixes.map(function (x) { return '<li>' + XN.esc(x) + '</li>'; }).join('') + '</ul></div>' : '') +
+      ((c.features && c.features.length) ? '<div class="cl-sec"><h4>新增的</h4><ul>' +
+        c.features.map(function (x) { return '<li>' + XN.esc(x) + '</li>'; }).join('') + '</ul></div>' : '') +
+      (c.notes ? '<p class="cl-note">' + XN.esc(c.notes) + '</p>' : '') +
+      '</article>';
+  }
+
+  function toggleHtml(collapsed, rest) {
+    var label = collapsed
+      ? '展开全部（还有 ' + rest + ' 条）'
+      : '收起（只看最近 ' + PAGE + ' 条）';
+    return '<div class="cl-more" style="display:flex;justify-content:center;padding-top:2px">' +
+      '<button type="button" class="btn ghost sm" id="clToggle" aria-controls="clList" aria-expanded="' +
+      (collapsed ? 'false' : 'true') + '">' + XN.esc(label) + '</button></div>';
+  }
+
   var changelog = {
     init() {
-      $('#clFrom').addEventListener('change', () => this.render());
-      $('#clTo').addEventListener('change', () => this.render());
+      $('#clFrom').addEventListener('change', () => { expanded = false; this.render(); });
+      $('#clTo').addEventListener('change', () => { expanded = false; this.render(); });
     },
 
     onShow() {
@@ -75,18 +102,17 @@
         box.innerHTML = '<p class="it-empty">这段区间没有记录。</p>';
         return;
       }
-      box.innerHTML = range.map(function (c) {
-        return '<article class="cl-item">' +
-          '<div class="cl-head"><strong>v' + XN.esc(c.version) + '</strong>' +
-          '<span class="cl-title">' + XN.esc(c.title || '') + '</span>' +
-          '<span class="cl-date">' + XN.esc(c.date || '') + '</span></div>' +
-          ((c.fixes && c.fixes.length) ? '<div class="cl-sec"><h4>修掉的</h4><ul>' +
-            c.fixes.map(function (x) { return '<li>' + XN.esc(x) + '</li>'; }).join('') + '</ul></div>' : '') +
-          ((c.features && c.features.length) ? '<div class="cl-sec"><h4>新增的</h4><ul>' +
-            c.features.map(function (x) { return '<li>' + XN.esc(x) + '</li>'; }).join('') + '</ul></div>' : '') +
-          (c.notes ? '<p class="cl-note">' + XN.esc(c.notes) + '</p>' : '') +
-          '</article>';
-      }).join('');
+      var collapsed = !expanded && range.length > PAGE;
+      var shown = collapsed ? range.slice(0, PAGE) : range;
+      box.innerHTML = shown.map(itemHtml).join('') +
+        (range.length > PAGE ? toggleHtml(collapsed, range.length - shown.length) : '');
+      var toggle = $('#clToggle');
+      if (toggle) {
+        toggle.addEventListener('click', function () {
+          expanded = !expanded;
+          changelog.render();
+        });
+      }
     }
   };
 

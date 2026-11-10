@@ -93,6 +93,8 @@
         if (!all.length) { XN.toast('还是空的'); return; }
         XN.download('xiaonuan-feedback-' + XN.util.todayStr() + '.json', JSON.stringify(all, null, 2));
       });
+      /* 「导出 CSV」不发 HTML 里，按钮在这里注入（见 ensureCsvButton） */
+      this.ensureCsvButton();
       $one('#fbClear').addEventListener('click', () => {
         if (!state.feedback.length && !this.cloud.length) return;
         if (!confirm(t('fb.clearAsk'))) return;
@@ -138,6 +140,69 @@
       return local.concat(cloud).sort(function (a, b) {
         return new Date(b.ts).getTime() - new Date(a.ts).getTime();
       });
+    },
+
+    /* ---------- 导出 CSV（M2） ----------
+       index.html 不动：按钮由 ensureCsvButton 注入到「导出」旁边。
+       列：时间/类型/正文/联系方式/状态。Excel 认 BOM，所以正文前补 \ufeff；
+       字段按 RFC4180：含逗号/引号/换行的才加引号，内部双引号翻倍。 */
+    ensureCsvButton() {
+      var btn = $one('#fbExportCsv');
+      if (btn) return btn;
+      var anchor = $one('#fbExport');
+      var meta = $one('#fbMeta');
+      var head = (anchor && anchor.parentNode) || (meta && meta.parentNode);
+      if (!head) return null;
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'fbExportCsv';
+      btn.className = 'btn ghost sm';
+      btn.textContent = '导出 CSV';
+      btn.title = '把当前列表导出成 CSV（Excel 能直接打开）';
+      btn.addEventListener('click', () => this.exportCsv());
+      if (anchor && anchor.parentNode === head) head.insertBefore(btn, anchor.nextSibling);
+      else head.appendChild(btn);
+      return btn;
+    },
+
+    csvCell(value) {
+      var s = String(value == null ? '' : value);
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    },
+
+    /* CSV 里的时间用 YYYY-MM-DD HH:mm：Excel 能认成日期，排序也不会乱；
+       界面上的 dateText 是「11 月 10 日 22:25」，导出缺少年份。 */
+    csvTime(ts) {
+      var d = new Date(ts);
+      if (isNaN(d.getTime())) return String(ts == null ? '' : ts).slice(0, 16).replace('T', ' ');
+      var p = function (n) { return (n < 10 ? '0' : '') + n; };
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+        ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    },
+
+    toCsv(list) {
+      var self = this;
+      var rows = [['时间', '类型', '正文', '联系方式', '状态']];
+      (list || []).forEach(function (f) {
+        rows.push([
+          self.csvTime(f.ts),
+          f.type,
+          f.body,
+          f.contact,
+          f.origin === 'cloud' ? '云端' : (f.status === 'sent' ? '已上传' : '仅本机')
+        ]);
+      });
+      return rows.map(function (cells) {
+        return cells.map(function (c) { return self.csvCell(c); }).join(',');
+      }).join('\r\n');
+    },
+
+    exportCsv() {
+      var all = this.merged();
+      if (!all.length) { XN.toast('还是空的'); return; }
+      XN.download('xiaonuan-feedback-' + XN.util.todayStr() + '.csv',
+        '\ufeff' + this.toCsv(all), 'text/csv;charset=utf-8');
+      XN.toast('已导出 ' + all.length + ' 条（CSV）');
     },
 
     async submit() {
@@ -260,6 +325,9 @@
       if (!list) return;
       var all = this.merged();
       $one('#fbMeta').textContent = all.length + ' 条';
+      /* 空列表时 CSV 按钮置灰（按钮是注入的，可能还没建，ensureCsvButton 兼作创建） */
+      var csvBtn = this.ensureCsvButton();
+      if (csvBtn) csvBtn.disabled = !all.length;
 
       var endpoint = ((state.cfg.feedback && state.cfg.feedback.endpoint) || '').trim() || (API.isProxy() ? 'api/feedback' : '');
       $one('#fbSink').textContent = endpoint

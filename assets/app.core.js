@@ -504,7 +504,13 @@
       name: mem && mem.name ? mem.name() : ''
     });
 
-    if (trails.length) {
+    if (act && act.implicit && act.implicit.length) {
+    prompt += '\n【我印象里（不一定对，别当成他说过）】' + act.implicit.slice(0, 8).join('；');
+  }
+  if (memories.length) {
+    prompt += '\n【记忆的使用方式】带（今天/昨天/N天前）的是旧事；与用户现在的说法冲突时，以现在为准，不要拿旧事反驳他。';
+  }
+  if (trails.length) {
       prompt += '\n【顺着这句话联想起来的事】' + trails.map(function (x) { return x.content; }).join('；');
     }
     if (mem && mem.relation) {

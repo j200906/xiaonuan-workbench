@@ -639,7 +639,35 @@ window.XN_MEM = (function () {
     });
   }
 
-  function getActiveMemories() {
+  /* 给注入用的「带上下文」版本：每条带相对时间，显式/隐式分开。
+   无上下文的记忆会让模型把旧事当现状，所以这里统一加标签。 */
+function agoLabel(ts) {
+  const t = toTs(ts);
+  if (!t) return '';
+  const d = Date.now() - t;
+  const day = Math.floor(d / 86400000);
+  if (day <= 0) return '今天';
+  if (day === 1) return '昨天';
+  if (day < 7) return day + '天前';
+  if (day < 60) return Math.floor(day / 7) + '周前';
+  const dt = new Date(t);
+  return (dt.getMonth() + 1) + '月' + dt.getDate() + '日';
+}
+
+function withTime(it) {
+  const when = agoLabel(it && it.ts);
+  const body = trim(toStr(it && it.content));
+  return when ? '（' + when + '）' + body : body;
+}
+
+function getActiveMemoriesContext() {
+  const d = load();
+  const ex = sortByTsDesc(d.explicit).slice(0, MAX_EXPAND).map(withTime).filter(Boolean);
+  const im = sortByTsDesc(d.implicit).slice(0, 12).map(withTime).filter(Boolean);
+  return { explicit: ex, implicit: im, hasImplicit: im.length > 0 };
+}
+
+function getActiveMemories() {
     var d = load();
     var ex = sortByTsDesc(d.explicit);
     var im = sortByTsDesc(d.implicit);
@@ -905,6 +933,7 @@ window.XN_MEM = (function () {
 
     activate: activate,
     getActiveMemories: getActiveMemories,
+    getActiveMemoriesContext: getActiveMemoriesContext,
 
     relation: relation,
     touch: touch,

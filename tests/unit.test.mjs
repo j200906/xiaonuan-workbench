@@ -172,6 +172,34 @@ test('存储键统一到 xn.v2 且带迁移表', () => {
   assert.ok(Object.keys(w.XN.store.LEGACY).length >= 10, '旧键迁移表不能为空');
 });
 
+test('存储用量统计：小样本能算对总字节', () => {
+  /* usage() 按 xn.v2.* 逐键算 UTF-8 字节数；旧 xn.* 与无关键都不该算进去。
+     样本里放一个 3 字节的汉字，确保不是按「字符数」糊弄过去的。 */
+  const seeded = {
+    'xn.v2.sessions': '[{"id":"a","body":"暖"}]',
+    'xn.v2.notes': 'hello',
+    'xn.somethingOld': '{"legacy":true}',
+    'other.thing': 'nope'
+  };
+  const w = loadClassic(['assets/lib/util.js', 'assets/lib/store.js'], seeded);
+  const used = w.XN.store.usage();
+
+  /* 注意：vm 沙箱里的数组有自己的 Array.prototype，先摊开成本机数组再比，
+     否则 deepEqual 会因为「结构相同但原型不同」报错。 */
+  assert.deepEqual([...used.keys.map((k) => k.key)].sort(), ['xn.v2.notes', 'xn.v2.sessions']);
+  const enc = new TextEncoder();
+  const expectedNotes = enc.encode(seeded['xn.v2.notes']).length;
+  const expectedSessions = enc.encode(seeded['xn.v2.sessions']).length;
+  const byKey = Object.fromEntries(used.keys.map((k) => [k.key, k.bytes]));
+  assert.equal(byKey['xn.v2.notes'], expectedNotes);
+  assert.equal(byKey['xn.v2.sessions'], expectedSessions);
+  assert.equal(used.totalBytes, expectedNotes + expectedSessions);
+  assert.equal(used.bytes, used.totalBytes, '兼容字段 bytes 要等于 totalBytes');
+  assert.equal(used.quotaHint.assumedQuotaBytes, 5 * 1024 * 1024);
+  assert.equal(used.quotaHint.level, 'ok');
+  assert.ok(used.quotaHint.usedRatio >= 0 && used.quotaHint.usedRatio < 0.7);
+});
+
 test('迁移不会把旧管理令牌搬进 localStorage', () => {
   /* store.js 装载时会自动跑一次 migrate()。旧版把管理令牌放在 xn.admin（localStorage），
      v1.5.5 起令牌只认 sessionStorage，所以迁移必须「删旧键」而不是「搬新键」——

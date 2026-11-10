@@ -155,6 +155,7 @@
       this.renderLanguage();
       this.renderPreview();
       this.renderStorage();
+      this.renderAbout();
 
       var locale = $('#setLocale');
       if (locale) locale.value = XN.i18n.locale();
@@ -173,6 +174,33 @@
       $('#dataList').innerHTML = rows.map((r) =>
         '<div class="kv-row"><span>' + XN.esc(r[0]) + '</span><span>' + XN.esc(r[1]) + '</span></div>'
       ).join('');
+    },
+
+    /* 「关于」信息卡：用 JS 注入到设置视图（不改 index.html）。
+       版本 / 构建来源 / 最近更新 / 问题反馈都从运行时数据取，避免多处手写版本号。 */
+    renderAbout() {
+      var board = $('#view-settings .board');
+      if (!board) return;
+      var card = $('#aboutInfoCard');
+      if (!card) {
+        card = document.createElement('article');
+        card.className = 'card wide';
+        card.id = 'aboutInfoCard';
+        board.appendChild(card);
+      }
+      var repo = (state.cloudRepo && state.cloudRepo.owner && state.cloudRepo.name)
+        ? state.cloudRepo.owner + '/' + state.cloudRepo.name
+        : 'j200906/xiaonuan-workbench';
+      var repoUrl = 'https://github.com/' + repo;
+      var changelog = root.XN_CHANGELOG || [];
+      var updated = (changelog[0] && changelog[0].date) || '—';
+      card.innerHTML = '<header class="card-head"><h2>关于</h2><span class="card-meta">版本 / 构建 / 反馈</span></header>' +
+        '<div class="kv">' +
+        '<div class="kv-row"><span>当前版本</span><span>v' + XN.esc(root.XN_VERSION || '?') + '</span></div>' +
+        '<div class="kv-row"><span>构建来源</span><span><a href="' + XN.esc(repoUrl) + '" target="_blank" rel="noopener noreferrer">' + XN.esc(repo) + '</a></span></div>' +
+        '<div class="kv-row"><span>最近更新时间</span><span>' + XN.esc(updated) + '</span></div>' +
+        '<div class="kv-row"><span>问题反馈</span><span><a href="' + XN.esc(repoUrl + '/issues/new') + '" target="_blank" rel="noopener noreferrer">提交 Issue</a></span></div>' +
+        '</div>';
     },
 
     syncProvider() {
