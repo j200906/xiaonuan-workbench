@@ -1248,7 +1248,10 @@
   XN.readJSON = S.get;
   XN.writeJSON = S.set;
 
-  /* defer 脚本按顺序执行；等本轮脚本都注册完再 boot，避免漏掉后面的视图模块 */
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
-  else setTimeout(boot, 0);
+  /* defer 脚本按文档顺序执行，并且都在 DOMContentLoaded 之前跑完；
+     这里统一挂 DOMContentLoaded，保证排在后面的视图模块都已注册。
+     CSS 只会推迟脚本开始执行的时刻，不会打乱脚本之间的先后关系；
+     本文件若被动态注入（readyState 已是 interactive），也等 DOMContentLoaded 再 boot。 */
+  if (document.readyState === 'complete') setTimeout(boot, 0);
+  else document.addEventListener('DOMContentLoaded', boot, { once: true });
 })(window);

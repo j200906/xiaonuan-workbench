@@ -1,6 +1,19 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.8",
+    "date": "2026-11-10",
+    "title": "启动等 DOMContentLoaded 再跑",
+    "fixes": [
+      "app.core.js：boot 的触发不再依赖 document.readyState 的 loading 分支，统一等 DOMContentLoaded；即使本文件被动态注入（readyState 已是 interactive），也不会",
+      "index.html：在 defer 脚本块前补一行注释，明确「顺序即依赖」，避免以后有人调换 script 顺序"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没有真实模拟「app.core.js 被动态注入且 readyState=interactive」的场景；没跑 npm run ui 的无头回归，也没在低端机上测首屏时间；本次没动 package.json / assets/version.js / assets/changelog.js / README.md 四处版本号，避免出现不一致"
+  },
+  {
     "version": "1.5.7",
     "date": "2026-11-10",
     "title": "加深次要文字对比度",
@@ -166,19 +179,6 @@ window.XN_CHANGELOG = [
       "发布仓库锁死在服务器（XN_REPO_OWNER / XN_REPO_NAME），客户端传别的仓库会被忽略",
       "「迭代」页直接调用云端接口，走同一套校验、README 更新与自动发版",
       "自迭代使用模型条里选的模型与服务商"
-    ],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.5",
-    "date": "2026-11-09",
-    "title": "自迭代用你选的模型",
-    "fixes": [
-      "云端自迭代只收 Key、不收服务商，选 Moonshot 也照样打 DeepSeek"
-    ],
-    "features": [
-      "自迭代现在用模型条里选的那个模型，并带上对应的服务商地址",
-      "选云端模型时自动走服务器自带推理，不传你的 Key"
     ],
     "source": "manual"
   }

@@ -8,15 +8,15 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.5.7**
+当前版本 **v1.5.8**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
+- **v1.5.8** 启动等 DOMContentLoaded 再跑
 - **v1.5.7** 加深次要文字对比度
 - **v1.5.5** 令牌只留内存，离开即清空
 - **v1.5.4** 反馈输入加长度硬上限
 - **v1.5.3** 修更新日志对比漏版本
-- **v1.5.2** 网关地址每次下发都生效
 <!-- /XN:RECENT -->
 
 ---

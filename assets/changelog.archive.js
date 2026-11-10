@@ -1,6 +1,19 @@
 /* 旧版本记录（只读归档）。 */
 window.XN_CHANGELOG_ARCHIVE = [
   {
+    "version": "1.4.5",
+    "date": "2026-11-09",
+    "title": "自迭代用你选的模型",
+    "fixes": [
+      "云端自迭代只收 Key、不收服务商，选 Moonshot 也照样打 DeepSeek"
+    ],
+    "features": [
+      "自迭代现在用模型条里选的那个模型，并带上对应的服务商地址",
+      "选云端模型时自动走服务器自带推理，不传你的 Key"
+    ],
+    "source": "manual"
+  },
+  {
     "version": "1.4.4",
     "date": "2026-11-09",
     "title": "GLM 关掉思考，25 秒变 14 秒",
