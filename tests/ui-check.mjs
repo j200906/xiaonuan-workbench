@@ -346,7 +346,9 @@ async function runHttpChecks(check, baseUrl, opts) {
  * 模型条在输入框底栏 / 模型条显示当前模型名。
  * 第二件（友好名 + 背景水印）又补了 5 条：模型条不显示原始 @cf/ id /
  * 云端原始 id 渲染成友好名 / 模型下拉显示友好名 /
- * 背景水印存在且 pointer-events:none / 水印不与输入框矩形相交。 */
+ * 背景水印存在且 pointer-events:none / 水印不与输入框矩形相交。
+ * 第三件（迭代页能进得去）再补 4 条：点侧栏「迭代」能进页面 /
+ * 迭代页模型默认跟随模型条 / 网关模型项随网关可用性禁用 / 开始按钮存在且可点。 */
 async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
@@ -377,6 +379,74 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   check('五个视图注册 + 侧栏 6 个入口', boot.views === 5 && boot.side === 6, `${boot.views}/${boot.side}`);
   check('对话页默认可见', boot.chat);
   check('迭代入口不需要解锁', await cdp.evaluate(`(() => { const b = document.querySelector('#navIterate'); return !!b && !b.hidden; })()`));
+
+  /* 第三件：入口可见 ≠ 页面进得去。以前点「迭代」会被 switchView 折回设置页，
+     这里真点一次侧栏，确认 #view-iterate 真的显示出来。 */
+  const iterateNav = await cdp.evaluate(`(async () => {
+    const nav = document.querySelector('#navIterate');
+    if (!nav) return { navExists: false };
+    nav.click();
+    await new Promise((r) => setTimeout(r, 250));
+    const pane = document.querySelector('#view-iterate');
+    return {
+      navExists: true,
+      visible: !!pane && !pane.hidden,
+      admin: !!(window.XN.state && window.XN.state.admin),
+      currentView: (window.XN.state && window.XN.state.view) || ''
+    };
+  })()`);
+  check('点侧栏「迭代」能进页面', iterateNav.navExists === true && iterateNav.visible === true,
+    JSON.stringify(iterateNav).slice(0, 160));
+
+  /* 迭代页模型下拉：默认应是「跟随模型条」，网关项只在服务器下发了网关地址时才可用。 */
+  const itModel = await cdp.evaluate(`(() => {
+    const sel = document.querySelector('#itModel');
+    if (!sel) return { exists: false };
+    const gw = sel.querySelector('option[value="gateway"]');
+    const runtime = window.XN.models && window.XN.models.runtime ? window.XN.models.runtime() : {};
+    return {
+      exists: true,
+      value: sel.value,
+      gatewayDisabled: !!gw && gw.disabled,
+      gatewayReady: !!runtime.gatewayReady,
+      options: [...sel.options].map((o) => ({ v: o.value, d: o.disabled }))
+    };
+  })()`);
+  check('迭代页模型默认跟随模型条', itModel.exists === true && itModel.value === 'follow',
+    JSON.stringify(itModel).slice(0, 220));
+  check('网关模型项随网关可用性禁用',
+    itModel.exists === true && itModel.gatewayDisabled === (itModel.gatewayReady === false),
+    JSON.stringify(itModel).slice(0, 220));
+
+  /* 「开始工作」存在、可点，点下去不立刻抛 JS 异常。本地和 CI 都没锁仓库/没 GitHub Token，
+     正常走 toast 早退；万一真跑起来，下面顺手点停止，别让它拖住后面的断言。 */
+  const itStart = await cdp.evaluate(`(async () => {
+    const btn = document.querySelector('#itStart');
+    if (!btn) return { exists: false };
+    const errsBefore = (window.__errs || []).length;
+    const disabledBefore = btn.disabled;
+    let clickErr = '';
+    try { btn.click(); } catch (e) { clickErr = String((e && e.message) || e); }
+    await new Promise((r) => setTimeout(r, 400));
+    const stop = document.querySelector('#itStop');
+    const started = !!stop && stop.hidden === false;
+    if (started) {
+      try { stop.click(); } catch (e) {}
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    try { btn.disabled = false; } catch (e) {}
+    if (stop) stop.hidden = true;
+    return {
+      exists: true,
+      disabledBefore,
+      clickErr,
+      errsDelta: (window.__errs || []).length - errsBefore,
+      started
+    };
+  })()`);
+  check('迭代开始按钮存在且可点（点下去不报异常）',
+    itStart.exists === true && itStart.disabledBefore === false && itStart.clickErr === '' && itStart.errsDelta === 0,
+    JSON.stringify(itStart).slice(0, 200));
 
   /* 主页改造：那条「小暖会犯错」的免责声明已经删了，DOM 里不该再有 .disclaimer，
      也不该有任何地方把那句话渲染出来（i18n 字典里留不留键不管，只看真实页面）。 */
