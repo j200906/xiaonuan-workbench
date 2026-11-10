@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.7.0",
+    "date": "2026-11-10",
+    "title": "繁中上線：新增繁體中文",
+    "fixes": ["新增完整繁體中文（zh-TW）詞典，126 键与简体一一对应；语言下拉显示「繁體中文」，切换后 html lang 与持久化都跟随"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.6.1",
     "date": "2026-11-10",
     "title": "记忆带上时间与来源",

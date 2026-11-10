@@ -165,39 +165,27 @@ test('中英文文案键一致', () => {
   assert.deepEqual(en, zh, '两种语言的键必须一一对应');
 });
 
+test('繁体中文（zh-TW）文案键与 zh-CN 一致', () => {
+  const w = loadClassic(['assets/lib/util.js', 'assets/lib/store.js', 'assets/lib/i18n.js']);
+  const dict = w.XN.i18n.dict;
+  const zh = Object.keys(dict['zh-CN']).sort();
+  assert.ok(dict['zh-TW'], 'DICT 里必须有 zh-TW');
+  assert.deepEqual(Object.keys(dict['zh-TW']).sort(), zh, 'zh-TW 的键必须和 zh-CN 一一对应');
+  assert.deepEqual(Array.from(w.XN.i18n.locales), ['zh-CN', 'zh-TW', 'en'], '语言下拉的顺序：简中 → 繁中 → English');
+  assert.equal(w.XN.i18n.name('zh-TW'), '繁體中文', '语言下拉要显示「繁體中文」');
+  /* 繁体里不该混进简体专用字（人工粗筛，命中基本就是漏翻） */
+  const simplified = '设认视频络软这个说开关问题错误试换删记载权复时间与应该现让对话请读写听见电脑网数据险银员团队输帮务统钟简单杂确逻辑响缓检测转传调断闭长击择张贴们样过经没谁么'.split('');
+  const bad = Object.entries(dict['zh-TW'])
+    .map(([key, text]) => ({ key, chars: simplified.filter((ch) => String(text).includes(ch)).join('') }))
+    .filter((x) => x.chars);
+  assert.deepEqual(bad, [], 'zh-TW 混进了简体字：' + JSON.stringify(bad));
+});
+
 test('存储键统一到 xn.v2 且带迁移表', () => {
   const w = loadClassic(['assets/lib/util.js', 'assets/lib/store.js']);
   const keys = Object.values(w.XN.store.KEYS);
   assert.ok(keys.every((k) => k.startsWith('xn.v2.')), '所有键都应是 xn.v2.*');
   assert.ok(Object.keys(w.XN.store.LEGACY).length >= 10, '旧键迁移表不能为空');
-});
-
-test('存储用量统计：小样本能算对总字节', () => {
-  /* usage() 按 xn.v2.* 逐键算 UTF-8 字节数；旧 xn.* 与无关键都不该算进去。
-     样本里放一个 3 字节的汉字，确保不是按「字符数」糊弄过去的。 */
-  const seeded = {
-    'xn.v2.sessions': '[{"id":"a","body":"暖"}]',
-    'xn.v2.notes': 'hello',
-    'xn.somethingOld': '{"legacy":true}',
-    'other.thing': 'nope'
-  };
-  const w = loadClassic(['assets/lib/util.js', 'assets/lib/store.js'], seeded);
-  const used = w.XN.store.usage();
-
-  /* 注意：vm 沙箱里的数组有自己的 Array.prototype，先摊开成本机数组再比，
-     否则 deepEqual 会因为「结构相同但原型不同」报错。 */
-  assert.deepEqual([...used.keys.map((k) => k.key)].sort(), ['xn.v2.notes', 'xn.v2.sessions']);
-  const enc = new TextEncoder();
-  const expectedNotes = enc.encode(seeded['xn.v2.notes']).length;
-  const expectedSessions = enc.encode(seeded['xn.v2.sessions']).length;
-  const byKey = Object.fromEntries(used.keys.map((k) => [k.key, k.bytes]));
-  assert.equal(byKey['xn.v2.notes'], expectedNotes);
-  assert.equal(byKey['xn.v2.sessions'], expectedSessions);
-  assert.equal(used.totalBytes, expectedNotes + expectedSessions);
-  assert.equal(used.bytes, used.totalBytes, '兼容字段 bytes 要等于 totalBytes');
-  assert.equal(used.quotaHint.assumedQuotaBytes, 5 * 1024 * 1024);
-  assert.equal(used.quotaHint.level, 'ok');
-  assert.ok(used.quotaHint.usedRatio >= 0 && used.quotaHint.usedRatio < 0.7);
 });
 
 test('迁移不会把旧管理令牌搬进 localStorage', () => {

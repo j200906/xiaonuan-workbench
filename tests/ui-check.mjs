@@ -479,7 +479,7 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
     locales: document.querySelectorAll('#setLocale option').length,
     passwordCard: !!document.querySelector('#adminForm')
   })`);
-  check('设置页控件齐全 + 密码栏已移除', settings.rows === 4 && settings.providers >= 7 && settings.locales === 2 && settings.passwordCard === false,
+  check('设置页控件齐全 + 密码栏已移除', settings.rows === 4 && settings.providers >= 7 && settings.locales >= 3 && settings.passwordCard === false,
     JSON.stringify(settings));
   const persona = await cdp.evaluate(`({ len: document.querySelector('#ctlPrompt').value.length, has: document.querySelector('#ctlPrompt').value.includes('小暖'), meta: document.querySelector('#promptMeta').textContent })`);
   check('人格可见', persona.len > 500 && persona.has && persona.meta.includes('动态'),
