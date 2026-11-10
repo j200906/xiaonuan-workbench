@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.7.1",
+    "date": "2026-11-10",
+    "title": "标题跟随语言切换",
+    "fixes": ["修掉 cfg.labels 把中文默认值锁死的问题：标题不再固定中文，切繁中/英文会跟着变"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "1.7.0",
     "date": "2026-11-10",
     "title": "繁中上線：新增繁體中文",

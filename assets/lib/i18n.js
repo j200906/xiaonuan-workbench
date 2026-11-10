@@ -413,7 +413,12 @@
     return text;
   }
 
-  function apply(scope) {
+  function tFor(locale, key) {
+  var d = DICT[locale];
+  return d && d[key] != null ? d[key] : null;
+}
+
+function apply(scope) {
     var nodes = (scope || document).querySelectorAll('[data-i18n]');
     Array.prototype.forEach.call(nodes, function (el) {
       el.textContent = t(el.getAttribute('data-i18n'));
@@ -454,6 +459,7 @@
     locale: function () { return current; },
     name: function (code) { return LOCALE_NAMES[code] || String(code || ''); },
     locales: Object.keys(DICT),
+    tFor: tFor,
     dict: DICT
   };
   XN.t = t;

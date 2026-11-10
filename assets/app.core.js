@@ -208,14 +208,29 @@
   }
   XN.modelLabel = modelLabel;
 
-  function updateHeader() {
+  /* 标题用的是 cfg.labels；但它的默认值也是中文并已持久化，
+   于是切语言时标题永远不变。这里把「等于任一语言默认值」的存储值当成没改过，改用 t()。 */
+function labelFor(view) {
+  var key = 'nav.' + view;
+  var stored = (state.cfg.labels || {})[view];
+  if (!stored) return t(key);
+  if (root.XN && root.XN.i18n && root.XN.i18n.tFor) {
+    var langs = ['zh-CN', 'zh-TW', 'en'];
+    for (var i = 0; i < langs.length; i++) {
+      if (root.XN.i18n.tFor(langs[i], key) === stored) return t(key);
+    }
+  }
+  return stored;
+}
+
+function updateHeader() {
     var titleEl = $('#mainTitle');
     if (titleEl) {
       if (state.view === 'chat') {
         var s = currentSession();
-        titleEl.textContent = s && s.messages.length ? sessionTitle(s) : (state.cfg.labels.chat || t('nav.chat'));
+        titleEl.textContent = s && s.messages.length ? sessionTitle(s) : labelFor('chat');
       } else {
-        titleEl.textContent = state.cfg.labels[state.view] || t((VIEW_META[state.view] && VIEW_META[state.view].title) || 'nav.chat');
+        titleEl.textContent = labelFor(state.view) || t((VIEW_META[state.view] && VIEW_META[state.view].title) || 'nav.chat');
       }
     }
     $$('.side-link').forEach(function (b) {
