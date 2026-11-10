@@ -129,7 +129,42 @@
       return cfg;
     },
 
-    /* 反馈箱与迭代收进设置：给两个入口按钮 */
+    /* 迭代是管理员功能：先验密码，验过才切过去；取消就什么都不做 */
+  openIterateGuarded() {
+    if (XN.state && XN.state.admin) { XN.switchView('iterate'); return; }
+    var old = document.querySelector('#iteratePwdDialog');
+    if (old) old.remove();
+    var box = document.createElement('div');
+    box.id = 'iteratePwdDialog';
+    box.className = 'modal-mask';
+    box.innerHTML = '<div class="modal-card card" role="dialog" aria-modal="true" aria-labelledby="itPwdTitle">' +
+      '<header class="card-head"><h2 id="itPwdTitle">打开迭代页</h2><span class="card-meta">需要管理员密码</span></header>' +
+      '<label class="field"><span class="label">管理密码</span>' +
+      '<input id="iteratePwd" type="password" autocomplete="off" placeholder="由服务器校验"></label>' +
+      '<p class="hint" id="iteratePwdMsg">密码只发给服务器校验，成功后本次会话内可进入迭代页。</p>' +
+      '<div class="arch-btns"><button class="btn primary sm" id="iteratePwdOk" type="button">打开</button>' +
+      '<button class="btn ghost sm" id="iteratePwdCancel" type="button">取消</button></div>' +
+      '</div>';
+    document.body.appendChild(box);
+    var pwd = box.querySelector('#iteratePwd');
+    var msg = box.querySelector('#iteratePwdMsg');
+    var close = function () { box.remove(); };
+    box.querySelector('#iteratePwdCancel').addEventListener('click', close);
+    box.addEventListener('click', function (e) { if (e.target === box) close(); });
+    var submit = async function () {
+      var v = String(pwd.value || '');
+      if (!v) { msg.textContent = '先填密码。'; return; }
+      msg.textContent = '正在校验…';
+      var r = await XN.unlockAdmin(v);
+      if (r && r.ok) { close(); XN.switchView('iterate'); }
+      else { msg.textContent = (r && r.error) || '密码不对。'; }
+    };
+    box.querySelector('#iteratePwdOk').addEventListener('click', submit);
+    pwd.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+    pwd.focus();
+  },
+
+  /* 反馈箱与迭代收进设置：给两个入口按钮 */
   renderQuickLinks() {
     var board = document.querySelector('#view-settings .board');
     if (!board || board.querySelector('#quickLinksCard')) return;
@@ -146,7 +181,7 @@
     var fb = card.querySelector('#openFeedbackBtn');
     if (fb) fb.addEventListener('click', function () { XN.switchView('feedback'); });
     var it = card.querySelector('#openIterateBtn');
-    if (it) it.addEventListener('click', function () { XN.switchView('iterate'); });
+    if (it) it.addEventListener('click', function () { openIterateGuarded(); });
   },
 
   render() {
