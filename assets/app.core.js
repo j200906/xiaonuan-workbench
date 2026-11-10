@@ -182,10 +182,29 @@
   }
   XN.renderSideLinks = renderSideLinks;
 
-  /* 模型条文案：永远显示一个模型名，配置里为空也不留白。 */
+  /* 模型显示名：给用户看的永远是友好名，绝不露 `@cf/…` 这类云端原始 id。
+   * 取值顺序：调用方给的 name → XN.models 云端清单里的 name → 去掉 `@cf/` 只留末段 → 原始 id。
+   * 注意：只影响显示文案，state.cfg.tutor.model / option 的 value 仍是原始 id。 */
+  function friendlyModel(id, name) {
+    var raw = String(id || '').trim();
+    var given = String(name || '').trim();
+    if (given && given !== raw) return given;
+    var known = '';
+    try { known = String(M.label(raw) || '').trim(); } catch (e) { known = ''; }
+    if (known && known !== raw && known.indexOf('@cf/') !== 0) return known;
+    if (raw.indexOf('@cf/') === 0) {
+      var parts = raw.split('/');
+      var tail = String(parts[parts.length - 1] || '').trim();
+      return tail || raw;
+    }
+    return raw;
+  }
+  XN.friendlyModel = friendlyModel;
+
+  /* 模型条文案：永远显示一个友好的模型名，配置里为空也不留白。 */
   function modelLabel() {
-    var model = String((state.cfg.tutor && state.cfg.tutor.model) || '').trim();
-    return model || defaultConfig().tutor.model || 'deepseek-chat';
+    var model = String((state.cfg.tutor && state.cfg.tutor.model) || '').trim() || defaultConfig().tutor.model;
+    return friendlyModel(model) || 'deepseek-chat';
   }
   XN.modelLabel = modelLabel;
 
@@ -457,7 +476,7 @@
     if (mode === 'busy') text.textContent = t('nav.busy');
     else if (!connected) text.textContent = t('nav.noKey');
     else if (mode === 'off') text.textContent = t('nav.connError');
-    else text.textContent = (state.admin ? t('settings.admin') + ' · ' : '') + (state.cfg.tutor.model || t('nav.connected'));
+    else text.textContent = (state.admin ? t('settings.admin') + ' · ' : '') + (state.cfg.tutor.model ? friendlyModel(state.cfg.tutor.model) : t('nav.connected'));
   }
   XN.updateConn = updateConn;
 
@@ -865,7 +884,7 @@
     var options = [];
     groups.forEach(function (g) {
       g.items.forEach(function (m) {
-        if (!m.disabled && m.id) options.push('<option value="' + U.esc(m.id) + '">' + U.esc(m.name) + '</option>');
+        if (!m.disabled && m.id) options.push('<option value="' + U.esc(m.id) + '">' + U.esc(friendlyModel(m.id, m.name)) + '</option>');
       });
     });
     sel.innerHTML = options.join('');
@@ -880,13 +899,13 @@
           return '<div class="mp-opt' + (m.disabled ? ' disabled' : '') + '" id="' + id + '" role="option" data-id="' + U.esc(m.id) + '" aria-selected="' + on + '"' +
             (m.disabled ? ' aria-disabled="true"' : ' tabindex="-1"') + '>' +
             '<svg class="mp-check" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.4 5 9l4.5-5.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-            '<span class="mp-name">' + U.esc(m.name) + '</span>' +
+            '<span class="mp-name">' + U.esc(friendlyModel(m.id, m.name)) + '</span>' +
             '<span class="mp-tag">' + U.esc(m.note || '') + '</span></div>';
         }).join('') + '</div>';
     }).join('');
 
-    $('#modelPickText').textContent = cur ? M.label(cur) : t('chat.selectModel');
-    trigger.title = cur || '';
+    $('#modelPickText').textContent = cur ? friendlyModel(cur) : t('chat.selectModel');
+    trigger.title = cur ? friendlyModel(cur) : '';
     trigger.disabled = false;
   }
   XN.renderModelPick = renderModelPick;
@@ -915,7 +934,7 @@
     if (old !== id) saveConfig();
     updateHeader();
     renderModelPick();
-    U.toast('换成 ' + M.label(id));
+    U.toast('换成 ' + friendlyModel(id));
   }
   XN.selectModel = selectModel;
 
