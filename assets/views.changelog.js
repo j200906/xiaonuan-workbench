@@ -117,5 +117,11 @@
   };
 
   XN.views = XN.views || {};
-  XN.views.changelog = changelog;
+  /* 视图注册（P1）：有插件运行时就走插件清单一行的 register，没有就退回老路。
+     两条路只登记一次，视图逻辑本身没动。 */
+  if (XN && XN.plugin && typeof XN.plugin.register === 'function') {
+    XN.plugin.register({ id: 'view-changelog', name: '更新日志', version: '2.0.0', view: changelog, nav: { order: 30 } });
+  } else {
+    XN.views.changelog = changelog;
+  }
 })(window);
