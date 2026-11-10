@@ -341,7 +341,9 @@ async function runHttpChecks(check, baseUrl, opts) {
   check('版本号与 package.json 一致', version === opts.version, `version.js=${version} package.json=${opts.version}`);
 }
 
-/* 完整浏览器检查：和改造前 tests/ui-check.mjs 的 18 项一一对应，只是启动等待改成轮询。 */
+/* 完整浏览器检查：和改造前 tests/ui-check.mjs 的 18 项一一对应，只是启动等待改成轮询。
+ * 主页改造后又补了 5 条：空态无问候标题 / 空态无建议条 / 无免责声明 /
+ * 模型条在输入框底栏 / 模型条显示当前模型名。 */
 async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
@@ -373,6 +375,21 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   check('对话页默认可见', boot.chat);
   check('迭代入口不需要解锁', await cdp.evaluate(`(() => { const b = document.querySelector('#navIterate'); return !!b && !b.hidden; })()`));
 
+  /* 主页改造：那条「小暖会犯错」的免责声明已经删了，DOM 里不该再有 .disclaimer，
+     也不该有任何地方把那句话渲染出来（i18n 字典里留不留键不管，只看真实页面）。 */
+  const disclaimer = await cdp.evaluate(`(() => {
+    const els = document.querySelectorAll('.disclaimer');
+    const body = document.body.textContent || '';
+    return {
+      count: els.length,
+      text: els.length ? els[0].textContent.trim() : '',
+      sentence: body.includes('自己再核一遍'),
+      phrase: body.includes('小暖会犯错')
+    };
+  })()`);
+  check('免责声明已删除', disclaimer.count === 0 && disclaimer.sentence === false && disclaimer.phrase === false,
+    JSON.stringify(disclaimer).slice(0, 160));
+
   const views = {};
   for (const v of ['study', 'feedback', 'changelog', 'settings', 'chat']) {
     await cdp.evaluate(`window.XN.switchView(${JSON.stringify(v)})`);
@@ -396,6 +413,29 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
     JSON.stringify(persona));
 
   await cdp.evaluate(`window.XN.switchView('chat')`);
+
+  /* 主页改造：模型条从页头挪进了输入框底栏（.composer-foot），文案要跟着当前模型走。 */
+  const pill = await cdp.evaluate(`(() => {
+    const el = document.querySelector('#modelPill');
+    if (!el) return { exists: false };
+    const parent = el.parentElement;
+    const cfg = (window.XN.state && window.XN.state.cfg) || {};
+    const trigger = document.querySelector('#modelPickText');
+    return {
+      exists: true,
+      parent: parent ? String(parent.className || parent.tagName) : '',
+      inFoot: !!el.closest('.composer-foot'),
+      text: (el.textContent || '').trim(),
+      model: String((cfg.tutor && cfg.tutor.model) || '').trim(),
+      trigger: trigger ? (trigger.textContent || '').trim() : ''
+    };
+  })()`);
+  check('模型条在输入框底栏', pill.exists === true && pill.inFoot === true && /(^|\s)composer-foot(\s|$)/.test(pill.parent),
+    JSON.stringify(pill).slice(0, 160));
+  check('模型条显示当前模型名',
+    pill.exists === true && pill.text.length > 0 && (pill.text === pill.model || (!!pill.trigger && pill.text === pill.trigger)),
+    JSON.stringify(pill).slice(0, 160));
+
   await cdp.evaluate(`document.querySelector('#modelPickTrigger').click()`);
   await sleep(120);
   const menu = await cdp.evaluate(`({ open: document.querySelector('#modelPickWrap').classList.contains('is-open'), opts: document.querySelectorAll('.mp-opt').length })`);
@@ -444,6 +484,20 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   await sleep(150);
   const fresh = await cdp.evaluate(`({ empty: !!document.querySelector('#chatEmpty'), sessions: window.XN.state.sessions.length })`);
   check('新对话按钮有反应', fresh.empty && fresh.sessions >= 2, JSON.stringify(fresh));
+
+  /* 主页改造：空态只留一句说明，不再有「早上好」这类问候标题，也不再有建议条按钮。 */
+  const emptyBox = await cdp.evaluate(`(() => {
+    const box = document.querySelector('#chatEmpty');
+    if (!box) return { exists: false };
+    return {
+      exists: true,
+      h2: box.querySelectorAll('h2').length,
+      chips: box.querySelectorAll('.chip').length,
+      text: (box.textContent || '').trim().slice(0, 60)
+    };
+  })()`);
+  check('空态不再有问候标题', emptyBox.exists === true && emptyBox.h2 === 0, JSON.stringify(emptyBox).slice(0, 160));
+  check('空态不再有建议条', emptyBox.exists === true && emptyBox.chips === 0, JSON.stringify(emptyBox).slice(0, 160));
 
   const pageErrors = await cdp.evaluate('window.__errs || []');
   const consoleErrors = cdp.events

@@ -163,10 +163,6 @@ window.XN_PERSONA = (function () {
     detectEmotion: detectEmotion,
     deriveMode: deriveMode,
     build: build,
-    starters: [
-      '今天数学卷子第 18 题没思路',
-      '帮我看看这段英文翻译得对不对',
-      '我有点学不进去了'
-    ]
+    starters: []
   };
 })();

@@ -308,6 +308,14 @@ textarea { resize: vertical; line-height: 1.65; }
 .empty p { color: var(--ink-3); font-size: .92em; margin-bottom: 22px; }
 .empty .chips { justify-content: center; }
 .empty .chip { padding: 8px 14px; font-size: .85em; }
+/* 空态：问候语/建议条/说明都去掉后只剩空壳，没有实际内容就不占位、不撑 14vh 留白 */
+.empty:empty {
+  display: none;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+}
+.empty:not(:has(*:not(:empty))) { display: none; }
 
 .msg { padding: 14px 0; }
 .msg + .msg { border-top: 1px solid var(--line-soft); }
@@ -435,6 +443,30 @@ textarea { resize: vertical; line-height: 1.65; }
   justify-content: space-between;
   gap: 10px;
   padding: 4px 10px 8px 16px;
+}
+/* 底栏模型条（模型条移到输入框底部后用）：靠右、小号字、次要色；窄屏省略不溢出 */
+.composer-foot .composer-btns { margin-left: auto; }
+.composer-foot .model-pill {
+  margin-left: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(40vw, 180px);
+  padding: 2px 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: .72em;
+  line-height: 1.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--t) var(--ease), border-color var(--t) var(--ease), background var(--t) var(--ease);
+}
+.composer-foot .model-pill:hover,
+.composer-foot .model-pill:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink-4);
+  background: var(--sunk);
 }
 .composer-hint { font-size: .73em; color: var(--ink-4); }
 .composer-btns { display: flex; align-items: center; gap: 6px; }
