@@ -47,6 +47,15 @@ window.XN_MEM = (function () {
   var data = null;
   var buffer = loadBuffer();
 
+  /* 缓冲只活在内存里：旧版本写进本机存储的残留，启动时清掉，
+     读回来的内容也一并丢弃，免得上一轮没总结完的半成品混进新对话。 */
+  buffer = [];
+  try {
+    if (window.localStorage) {
+      window.localStorage.removeItem(BUF_KEY);
+    }
+  } catch (e) { /* 隐私模式下拿不到存储，忽略即可 */ }
+
   /* ---------------------------- 基础工具 ---------------------------- */
 
   function now() {
@@ -818,7 +827,7 @@ window.XN_MEM = (function () {
     if (buffer.length > MAX_BUFFER) {
       buffer = buffer.slice(buffer.length - MAX_BUFFER);
     }
-    saveBuffer();
+    /* 不再写本机存储：缓冲只活在内存里，刷新即清空，避免半成品对话被长期保留。 */
     return true;
   }
 
@@ -851,9 +860,8 @@ window.XN_MEM = (function () {
       if (s && s.length > 6) {
         addImplicit(s, 'consolidate');
       }
-      /* 只清掉本轮已处理的行，等待期间新 push 的保留 */
+      /* 只清掉本轮已处理的行，等待期间新 push 的保留；缓冲不落盘，不用再保存 */
       buffer = buffer.slice(pending);
-      saveBuffer();
       var fresh = load();
       fresh.lastConsolidate = now();
       fresh.msgCount = 0;

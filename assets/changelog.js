@@ -1,6 +1,20 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.6",
+    "date": "2026-11-10",
+    "title": "记忆缓冲不再写盘，刷新即清",
+    "fixes": [
+      "pushBuffer 不再调用 saveBuffer，缓冲只留在内存里，刷新即清空",
+      "睡眠巩固处理完后也不再写盘，改动只保留在内存中的 buffer 变量",
+      "启动时清掉旧版本写下的缓冲键，并丢弃刚读回来的残留，避免上一轮半成品混进下一次总结"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没在真实浏览器里连续刷新观察 localStorage/sessionStorage 的完整写入序列；没跑 npm run ui；没验证 consolidate 的异步 summarizeFn 路径在清空缓冲后是否仍正常返回摘要"
+  },
+  {
     "version": "1.5.5",
     "date": "2026-11-10",
     "title": "令牌只留内存，离开即清空",
@@ -161,18 +175,6 @@ window.XN_CHANGELOG = [
       "等待期间显示「正在想…」，不再一片空白"
     ],
     "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
-    ],
     "source": "manual"
   }
 ];
