@@ -8,10 +8,11 @@
 - Windows 桌面版：<https://github.com/j200906/xiaonuan-workbench/releases/latest>
 
 <!-- XN:VERSION -->
-当前版本 **v1.5.3**
+当前版本 **v1.5.4**
 <!-- /XN:VERSION -->
 
 <!-- XN:RECENT -->
+- **v1.5.4** 反馈输入加长度硬上限
 - **v1.5.3** 修更新日志对比漏版本
 - **v1.5.2** 网关地址每次下发都生效
 - **v1.5.1** 本地版能用了：人格可见、网关直连、迭代写本地

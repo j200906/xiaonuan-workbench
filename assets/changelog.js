@@ -1,6 +1,19 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.4",
+    "date": "2026-11-10",
+    "title": "反馈输入加长度硬上限",
+    "fixes": [
+      "反馈正文输入框加 maxlength=2000，粘贴超长内容自动截断，计数器与实际内容同步",
+      "联系方式输入框加 maxlength=80，和 normalize 里的截断长度对齐，避免提交超长字段"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "服务端 5 次/分钟/IP 限流、16KB 请求体上限、CORS 白名单回显、/api/iterate 与 /api/chat 的配额和 256KB/512KB 上限都在 server/ 与 cloudflare/ 里，不在本次可改白名单，未在真实后端验证；也没在移动端软键盘下试过 maxlength 行为。"
+  },
+  {
     "version": "1.5.3",
     "date": "2026-11-10",
     "title": "修更新日志对比漏版本",

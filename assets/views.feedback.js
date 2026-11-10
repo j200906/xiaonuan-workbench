@@ -47,10 +47,14 @@
       });
 
       var body = $one('#fbBody');
+      body.setAttribute('maxlength', '2000');
       body.addEventListener('input', () => {
+        if (body.value.length > 2000) body.value = body.value.slice(0, 2000);
         $one('#fbCount').textContent = body.value.length + ' / 2000';
       });
 
+      var contact = $one('#fbContact');
+      if (contact) contact.setAttribute('maxlength', '80');
       $one('#fbForm').addEventListener('submit', (e) => { e.preventDefault(); this.submit(); });
       $one('#fbPull').addEventListener('click', () => this.pullCloud());
       $one('#fbExport').addEventListener('click', () => {
