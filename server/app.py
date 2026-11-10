@@ -1407,12 +1407,17 @@ class Handler(BaseHTTPRequestHandler):
     def _iterate(self):
         if not self._same_origin():
             raise HttpError(403, "来源不允许")
-        if not self._admin():
-            raise HttpError(401, "管理员会话无效，请重新解锁")
-        if not rate_ok("iterate", client_ip(self), 3, 3600):
+        # 不再强制先输密码：没解锁就只能试运行，绝不写文件。
+        admin = self._admin()
+        if not rate_ok("iterate", client_ip(self), 3 if admin else 2, 3600):
             raise HttpError(429, "迭代太频繁（3 次/小时）")
         payload = self._read_json(MAX_ITER_BODY)
-        self._json(200, run_local_iteration(payload))
+        if not admin:
+            payload["dryRun"] = True
+        result = run_local_iteration(payload)
+        if not admin:
+            result["publicMode"] = True
+        self._json(200, result)
 
 
 def main():

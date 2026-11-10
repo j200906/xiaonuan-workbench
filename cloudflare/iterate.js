@@ -330,7 +330,7 @@ export async function runIteration(env, opts) {
   if (info.status !== 200) {
     return jsonBody({ ok: false, error: '读仓库失败：' + ((info.data && info.data.message) || info.status), log }, 502);
   }
-  const branch = String(env.XN_ITER_BRANCH || '').trim() || info.data.default_branch || 'main';
+  const branch = String(opts.branch || env.XN_ITER_BRANCH || '').trim() || info.data.default_branch || 'main';
   const trialBranch = branch !== (info.data.default_branch || 'main');
   say('目标分支：' + branch + (trialBranch ? '（试跑分支，不打 tag）' : ''));
 

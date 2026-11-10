@@ -59,7 +59,7 @@
         <span data-i18n="nav.changelog">更新日志</span>
         <em id="verChip">v1.5.0</em>
       </button>
-      <button class="side-link" data-view="iterate" id="navIterate" hidden>
+      <button class="side-link" data-view="iterate" id="navIterate">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6"/><path d="M17.5 3v4h-4M6.5 21v-4h4"/></svg>
         <span data-i18n="nav.iterate">迭代</span>
       </button>
@@ -254,7 +254,7 @@
             <span class="card-meta">在 Cloudflare 上跑，直接改 GitHub 里的文件</span>
           </header>
           <p class="hint">
-            用的是解锁后的会话令牌 + 模型 Key。它会：读反馈 → 出方案 → 校验 → 一次提交 → 打 tag。
+            不需要先输密码：没解锁时改动只提交到试跑分支。它会：读反馈 → 出方案 → 校验 → 一次提交。
             GitHub Actions 随后在 Windows 上打 exe 并创建 release。先「试运行」只看方案、不动仓库。
           </p>
           <div class="grid-2">
@@ -439,7 +439,7 @@
       </div>
     </section>
 
-    <!-- ---------- 自动迭代（解锁后可见） ---------- -->
+    <!-- ---------- 自动迭代（始终可见；未解锁时只提交到试跑分支） ---------- -->
     <section class="pane" id="view-iterate" data-view="iterate" hidden>
       <div class="board">
         <article class="card wide">
@@ -448,8 +448,8 @@
             <span class="card-meta" id="itMeta">待命</span>
           </header>
           <p class="it-lead">
-            整理反馈 → 出方案 → 校验（唯一命中、括号、重复定义）→ 一次提交 → 打 tag。
-            GitHub Actions 会接着打 exe 并发版。试运行不碰仓库。
+            整理反馈 → 出方案 → 校验（唯一命中、括号、重复定义）→ 一次提交。
+            没解锁时改动只进 iterate/public 试跑分支，review 过再合并；解锁后才会直接进 main 并打 tag。
           </p>
           <div class="it-actions">
             <button class="btn primary sm" id="itStart" type="button">开始工作</button>

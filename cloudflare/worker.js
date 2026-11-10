@@ -167,15 +167,28 @@ export default {
       if (path === '/api/iterate') {
         if (method !== 'POST') return json({ ok: false, error: '只接受 POST' }, 405, request, env);
         if (!sameOrigin(request, env)) return json({ ok: false, error: '来源不允许' }, 403, request, env);
-        const token = bearer(request);
-        if (!(await verifyToken(env, token))) return json({ ok: false, error: '管理员会话无效，请重新解锁' }, 401, request, env);
-        const rl = await rateLimit(env, 'iterate', clientIp(request), 10, 3600, true);
-        if (!rl.ok) return json({ ok: false, error: '迭代太频繁（10 次/小时）' }, 429, request, env);
+        /* 迭代界面不再要求先输密码。但公开触发不能直接写 main、更不能发版：
+           没解锁的请求一律落到试跑分支，人是最后那道 merge 关。 */
+        const admin = await verifyToken(env, bearer(request));
+        const publicBranch = String(env.XN_PUBLIC_ITERATE_BRANCH || 'iterate/public').trim();
+        const rlKey = admin ? 'iterate' : 'iterate-pub';
+        const rlMax = admin ? 10 : 4;
+        const rl = await rateLimit(env, rlKey, clientIp(request), rlMax, 3600, true);
+        if (!rl.ok) return json({ ok: false, error: `迭代太频繁（${rlMax} 次/小时）` }, 429, request, env);
         let payload;
         try { payload = await readJson(request, 524288); }
         catch (e) { return json({ ok: false, error: e.message }, e.status || 400, request, env); }
         try {
-          return withHeaders(await runIteration(env, Object.assign({}, payload, { authorized: true })), request, env);
+          const opts = Object.assign({}, payload, {
+            authorized: true,
+            ...(admin ? {} : { branch: publicBranch })
+          });
+          const res = await runIteration(env, opts);
+          /* 公开模式在响应里标明落到了哪个分支，界面照实显示 */
+          if (admin) return withHeaders(res, request, env);
+          const data = await res.clone().json().catch(() => null);
+          const tagged = data ? Object.assign({}, data, { publicMode: true, branch: publicBranch }) : null;
+          return withHeaders(tagged ? Response.json(tagged, { status: res.status }) : res, request, env);
         } catch (e) {
           return json({ ok: false, error: '迭代失败：' + (e.message || String(e)) }, 500, request, env);
         }
