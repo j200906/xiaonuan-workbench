@@ -173,7 +173,8 @@ window.XN_TOOLS = (function () {
 
     var offset = Math.max(0, Math.floor(Number(args.offset) || 0));
     /* offset 必须真的发给服务端：老服务端会忽略它，新服务端按它切片并回 total/nextOffset/truncated。 */
-    var data = await getJSON('api/fetch?url=' + encodeURIComponent(u) + (offset > 0 ? '&offset=' + offset : ''));
+    var fc = (root.XN && XN.services && XN.services.use) ? XN.services.use('fetch') : null;
+  var data = (fc && fc.get) ? await fc.get(u, offset) : await getJSON('api/fetch?url=' + encodeURIComponent(u) + (offset > 0 ? '&offset=' + offset : ''));
 
     var full = String(data.text || '');
     /* 服务端自己切过片（带回 total / nextOffset / truncated）时，full 已经是 offset 之后那一段，

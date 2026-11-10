@@ -168,6 +168,36 @@ var view = (XN.plugin && XN.plugin.view) ? (XN.plugin.view(id) || XN.views[id]) 
 - `register` 没给 `id`：直接抛 `Error('插件必须有 id')` —— 这是开发者错误，早点暴露。
 - **卸载一定跑清理**：`setEnabled(id, false)`、`XN.plugin.unmount(id)` 都会走 `unmount` 钩子 → 所有 `onDispose` → 注销视图 → 从 `mounted()` 移除。
 
+## 5.5 声明式设置（P2）
+
+插件只要声明 `settings`，设置页会自动生成表单项，值存在 `cfg.pluginConfig[id]`：
+
+```js
+settings: [
+  { key: 'prefix', type: 'text', label: '文件名前缀', default: 'xiaonuan-chat' },
+  { key: 'withDate', type: 'checkbox', label: '文件名带日期', default: true }
+]
+```
+
+插件内读取：`ctx.config('prefix', 'xiaonuan-chat')`；写入：`ctx.setConfig('prefix', v)`。
+
+## 5.6 能力接口（P3）
+
+模型、抓网页、搜索、存储都是具名服务，默认实现指向原模块，可整块替换：
+
+```js
+XN.services.use('llm').chatRaw(messages, opts);
+XN.services.register('fetch', { get: async (url, offset) => ({ ok: true, text: '...' }), ready: () => true });
+XN.services.reset('fetch');
+XN.services.list();  // [{name, builtin, ready, methods}]
+```
+
+## 5.7 安装式加载（P4，雏形）
+
+```js
+await XN.plugin.install('/assets/plugins/foo.js');  // 注入脚本，插件自己 register
+```
+
 ## 6. 完整示例：导出当前会话
 
 `assets/plugins/export-session.js`（能力插件，约 30 行）：

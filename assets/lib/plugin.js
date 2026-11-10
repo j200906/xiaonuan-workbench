@@ -49,6 +49,13 @@
     else log('warn', msg);
   }
 
+  function configMap(pluginId) {
+    var cfg = (XN.state && XN.state.cfg) || {};
+    if (!cfg.pluginConfig || typeof cfg.pluginConfig !== 'object') cfg.pluginConfig = {};
+    if (!cfg.pluginConfig[pluginId] || typeof cfg.pluginConfig[pluginId] !== 'object') cfg.pluginConfig[pluginId] = {};
+    return cfg.pluginConfig[pluginId];
+  }
+
   function enabledMap() {
     var cfg = (XN.state && XN.state.cfg) || {};
     if (!cfg.plugins || typeof cfg.plugins !== 'object') cfg.plugins = {};
@@ -77,6 +84,17 @@
       id: p.id,
       toast: toast,
       onDispose: function (fn) { if (typeof fn === 'function') list.push(fn); },
+      /* 声明式设置：插件按 key 读写自己的配置，宿主负责持久化 */
+      config: function (key, fallback) {
+        var m = configMap(p.id);
+        return m[key] === undefined ? fallback : m[key];
+      },
+      setConfig: function (key, value) {
+        configMap(p.id)[key] = value;
+        if (XN.saveConfig) { try { XN.saveConfig(); } catch (e) {} }
+        emit('plugin:config', { id: p.id, key: key, value: value });
+        return value;
+      },
       addSettingsCard: function (card) {
         var state = XN.state || {};
         state.__pluginCards = state.__pluginCards || [];
@@ -207,6 +225,27 @@
     });
   }
 
+  /* 安装式加载（P4）：给一个 URL，注入脚本，插件文件自己 register */
+  function items() {
+    var out = {};
+    plugins.forEach(function (x) { out[x.id] = x; });
+    return out;
+  }
+
+  function install(url) {
+    return new Promise(function (resolve, reject) {
+      if (!url) return reject(new Error('install 需要一个脚本地址'));
+      var doc = root.document;
+      if (!doc) return reject(new Error('没有 document'));
+      var s = doc.createElement('script');
+      s.src = url;
+      s.async = true;
+      s.onload = function () { resolve({ ok: true, url: url, plugins: Object.keys(mounted) }); };
+      s.onerror = function () { reject(new Error('加载失败：' + url)); };
+      doc.head.appendChild(s);
+    });
+  }
+
   XN.plugin = {
     version: 2,
     register: register,
@@ -225,6 +264,19 @@
     views: views,
     mounted: function () { return Object.keys(mounted); },
     list: list,
+    items: items,
+    setConfig: function (id, key, value) {
+      configMap(id)[key] = value;
+      if (XN.saveConfig) { try { XN.saveConfig(); } catch (e) {} }
+      emit('plugin:config', { id: id, key: key, value: value });
+      return value;
+    },
+    getConfig: function (id, key, fallback) {
+      var m = configMap(id);
+      return m[key] === undefined ? fallback : m[key];
+    },
+    install: install,
+    configMap: configMap,
     cards: function () { return (XN.state && XN.state.__pluginCards) || []; }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

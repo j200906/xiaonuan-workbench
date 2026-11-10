@@ -246,7 +246,11 @@ function updateHeader() {
     if (chip) chip.textContent = 'v' + (root.XN_VERSION || '?');
   }
 
-  function switchView(id) {
+  function LLM() {
+  return (root.XN && XN.services && XN.services.use) ? XN.services.use('llm') : API;
+}
+
+function switchView(id) {
   if (VIEW_IDS.indexOf(id) < 0) id = 'chat';
   /* 迭代页只有管理员能进：侧栏默认不挂它，设置页那个按钮验过密码才放行 */
   if (id === 'iterate' && !state.admin) {
@@ -586,7 +590,7 @@ function updateHeader() {
         state.lastEmoAt = Date.now();
         state.emoCalls++;
         chatFn = function (messages) {
-          return API.chatText(messages, { maxTokens: 90, temperature: 0 }).catch(function () { return ''; });
+          return LLM().chatText(messages, { maxTokens: 90, temperature: 0 }).catch(function () { return ''; });
         };
       }
     }
@@ -637,8 +641,8 @@ function updateHeader() {
           messages: msgs,
           specs: root.XN_TOOLS.specsFor(state.web),
           signal: ctrl.signal,
-          chat: function (m, tools) { return API.chatRaw(m, { tools: tools, signal: ctrl.signal }); },
-          textChat: function (m) { return API.chatRaw(m, { signal: ctrl.signal }).then(function (r) { return r.content; }); },
+          chat: function (m, tools) { return LLM().chatRaw(m, { tools: tools, signal: ctrl.signal }); },
+          textChat: function (m) { return LLM().chatRaw(m, { signal: ctrl.signal }).then(function (r) { return r.content; }); },
           onTool: function (name, args, result) {
             bot.tools.push({ name: name, ok: !!(result && result.ok) });
             U.toast('用了工具：' + name + (result && result.ok ? '' : '（没跑通）'));
@@ -649,7 +653,7 @@ function updateHeader() {
         contentEl.textContent = bot.content;
         clearThinking();
       } else if (state.cfg.tutor.stream === false) {
-        var plain = await API.chatRaw(msgs, { signal: ctrl.signal });
+        var plain = await LLM().chatRaw(msgs, { signal: ctrl.signal });
         res = { text: plain.content, reasoning: plain.reasoning };
         bot.content = res.text;
         bot.reasoning = res.reasoning || '';
@@ -657,7 +661,7 @@ function updateHeader() {
         contentEl.textContent = bot.content;
         clearThinking();
       } else {
-        res = await API.streamChat(msgs, {
+        res = await LLM().streamChat(msgs, {
           stream: true,
           signal: ctrl.signal,
           onDelta: function (d) {
@@ -836,7 +840,7 @@ function updateHeader() {
     msg.className = 'keybar-msg';
     msg.textContent = '正在试一下…';
     try {
-      await API.chatText([{ role: 'user', content: '只回一个字：好' }], { key: key, maxTokens: 8, temperature: 0, timeoutMs: 30000 });
+      await LLM().chatText([{ role: 'user', content: '只回一个字：好' }], { key: key, maxTokens: 8, temperature: 0, timeoutMs: 30000 });
     } catch (e) {
       msg.textContent = e.message || '没通。';
       btn.disabled = false;
@@ -970,16 +974,16 @@ function updateHeader() {
   function apiChat(messages, opts) {
     opts = opts || {};
     if (opts.stream) {
-      return API.streamChat(messages, opts).then(function (r) {
+      return LLM().streamChat(messages, opts).then(function (r) {
         return { text: r.text, reasoning: r.reasoning };
       });
     }
-    return API.chatRaw(messages, opts).then(function (r) {
+    return LLM().chatRaw(messages, opts).then(function (r) {
       return { text: r.content, reasoning: r.reasoning };
     });
   }
   function apiChatRaw(messages, opts) {
-    return API.chatRaw(messages, opts).then(function (r) {
+    return LLM().chatRaw(messages, opts).then(function (r) {
       return { content: r.content, toolCalls: r.toolCalls };
     });
   }
@@ -993,7 +997,7 @@ function updateHeader() {
     if (!state.key && !API.isProxy()) return;
     consolidating = true;
     var task = root.XN_MEM.maybeConsolidate(function (text) {
-      return API.chatText([
+      return LLM().chatText([
         { role: 'system', content: '把这段对话压成一句不超过 40 字的中文摘要，只保留对以后有用的偏好、目标或事实。只输出摘要。' },
         { role: 'user', content: String(text).slice(0, 3000) }
       ], { maxTokens: 100, temperature: 0.2 }).then(function (s) { return String(s || '').trim(); });

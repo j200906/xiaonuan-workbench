@@ -39,6 +39,7 @@ const EDITABLE = [
   'assets/lib/api.js',
   'assets/lib/patch.js',
   'assets/lib/plugin.js',
+  'assets/lib/services.js',
   'assets/plugins/export-session.js'
 ];
 

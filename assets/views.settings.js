@@ -169,18 +169,45 @@
     var board = document.querySelector('#view-settings .board');
     if (!board || board.querySelector('#pluginCard')) return;
     var list = (XN.plugin && XN.plugin.list) ? XN.plugin.list() : [];
+    var items = (XN.plugin && XN.plugin.items) ? XN.plugin.items() : {};
     var card = document.createElement('article');
     card.className = 'card wide';
     card.id = 'pluginCard';
-    var html = '<header class="card-head"><h2>插件</h2><span class="card-meta">' + list.length + ' 个</span></header>';
+    var html = '<header class="card-head"><h2>' + XN.esc(XN.t('plugin.title')) + '</h2><span class="card-meta">' + list.length + ' ' + XN.esc(XN.t('plugin.count')) + '</span></header>';
     if (!list.length) {
-      html += '<p class="hint">还没有插件。把 assets/plugins/*.js 加进 index.html 就会出现在这里。</p>';
+      html += '<p class="hint">' + XN.esc(XN.t('plugin.empty')) + '</p>';
     } else {
       html += '<div class="kv">';
       list.forEach(function (p) {
-        html += '<div class="kv-row"><span>' + XN.esc(p.name) + (p.version ? ' <em>v' + XN.esc(p.version) + '</em>' : '') +
+        html += '<div class="kv-row"><span><strong>' + XN.esc(p.name) + '</strong>' +
+          (p.version ? ' <em>v' + XN.esc(p.version) + '</em>' : '') +
           (p.description ? '<br><small class="hint">' + XN.esc(p.description) + '</small>' : '') +
           '</span><label class="switch"><input type="checkbox" data-plugin="' + XN.esc(p.id) + '"' + (p.enabled ? ' checked' : '') + '><i></i></label></div>';
+        var item = items[p.id] || {};
+        var schema = Array.isArray(item.settings) ? item.settings : [];
+        schema.forEach(function (f) {
+          if (!f || !f.key) return;
+          var val = (XN.plugin.getConfig ? XN.plugin.getConfig(p.id, f.key, f.default) : f.default);
+          var id = 'ps-' + p.id + '-' + f.key;
+          html += '<div class="kv-row plugin-setting" data-plugin="' + XN.esc(p.id) + '" data-key="' + XN.esc(f.key) + '"><span>' + XN.esc(f.label || f.key) + '</span><span>';
+          if (f.type === 'checkbox') {
+            html += '<label class="switch"><input type="checkbox" id="' + XN.esc(id) + '"' + (val ? ' checked' : '') + '><i></i></label>';
+          } else if (f.type === 'select') {
+            html += '<select id="' + XN.esc(id) + '">';
+            (f.options || []).forEach(function (o) {
+              var ov = (o && o.value !== undefined) ? o.value : o;
+              var ol = (o && o.label) ? o.label : ov;
+              html += '<option value="' + XN.esc(ov) + '"' + (String(ov) === String(val) ? ' selected' : '') + '>' + XN.esc(ol) + '</option>';
+            });
+            html += '</select>';
+          } else if (f.type === 'number') {
+            html += '<input type="number" id="' + XN.esc(id) + '" value="' + XN.esc(val == null ? '' : val) + '"' +
+              (f.min != null ? ' min="' + f.min + '"' : '') + (f.max != null ? ' max="' + f.max + '"' : '') + '>';
+          } else {
+            html += '<input type="' + (f.type === 'password' ? 'password' : 'text') + '" id="' + XN.esc(id) + '" value="' + XN.esc(val == null ? '' : val) + '">';
+          }
+          html += '</span></div>';
+        });
       });
       html += '</div>';
     }
@@ -191,6 +218,17 @@
         XN.plugin.setEnabled(el.getAttribute('data-plugin'), el.checked);
         card.remove();
         this.renderPlugins();
+      }, false);
+    });
+    card.querySelectorAll('.plugin-setting').forEach(function (row) {
+      var pid = row.getAttribute('data-plugin');
+      var key = row.getAttribute('data-key');
+      var input = row.querySelector('input,select');
+      if (!input) return;
+      input.addEventListener('change', function () {
+        var v = input.type === 'checkbox' ? input.checked : input.value;
+        if (XN.plugin.setConfig) XN.plugin.setConfig(pid, key, v);
+        if (XN.toast) XN.toast(XN.t('plugin.saved'), 'ok');
       }, false);
     });
   },

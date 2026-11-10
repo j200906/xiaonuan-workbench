@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "2.1.0",
+    "date": "2026-11-10",
+    "title": "能力接口层 + 声明式设置",
+    "fixes": ["新增 XN.services（llm/fetch/search/storage 四个具名服务，可整块替换）；插件支持 settings schema，设置页自动生成表单项并存 cfg.pluginConfig；新增 XN.plugin.install() 动态加载；能力接口契约测试 4 条"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "2.0.0",
     "date": "2026-11-10",
     "title": "插件化大改：六个视图全部插件化",

@@ -92,9 +92,9 @@ XN.plugin.register({
 | --- | --- | --- |
 | P0 | 插件运行时 + 清单 + 设置开关 + 一个示例插件 | ✅ v1.10.0 |
 | P1 | 把六个视图（对话/学习/反馈/更新/设置/迭代）各迁成一个插件，`app.core` 只留路由与会话 | ✅ v2.0.0（五个视图已迁，对话页随核心） |
-| P2 | 设置项声明式：插件自带 `settings: [{key,type,label}]`，设置页按 schema 生成 | 待做 |
-| P3 | 能力接口化：模型调用、搜索、存储各定义一个接口，插件可替换实现（对应 DSH 的 `llm-pi-ai` / `web` 行） | 待做 |
-| P4 | 安装式扩展：插件清单改为可远程拉取的 manifest，配 `enabled/version`，支持禁用与回滚 | 待做 |
+| P2 | 设置项声明式：插件自带 `settings: [{key,type,label}]`，设置页按 schema 生成 | ✅ v2.1.0 |
+| P3 | 能力接口化：模型调用、搜索、存储各定义一个接口，插件可替换实现（对应 DSH 的 `llm-pi-ai` / `web` 行） | ✅ v2.1.0（`XN.services`） |
+| P4 | 安装式扩展：插件清单改为可远程拉取的 manifest，配 `enabled/version`，支持禁用与回滚 | 🟡 v2.1.0 有 `XN.plugin.install(url)`，清单仍为本地数组 |
 
 约束两条：
 

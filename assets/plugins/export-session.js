@@ -14,6 +14,11 @@
     version: '1.0.0',
     description: '把正在聊的这个会话导出成 Markdown 文件',
     defaultEnabled: true,
+    /* 声明式设置（P2）：设置页按这个 schema 自动生成表单项 */
+    settings: [
+      { key: 'prefix', type: 'text', label: '文件名前缀', default: 'xiaonuan-chat' },
+      { key: 'withDate', type: 'checkbox', label: '文件名带日期', default: true }
+    ],
 
     mount: function (ctx) {
       var doc = root.document;
@@ -38,7 +43,9 @@
           lines.push('**' + who + '**：' + String(m.content || '').trim());
           lines.push('');
         });
-        var name = 'xiaonuan-chat-' + (XN.util ? XN.util.todayStr() : Date.now()) + '.md';
+        var prefix = (ctx.config && ctx.config('prefix', 'xiaonuan-chat')) || 'xiaonuan-chat';
+        var withDate = (ctx.config && ctx.config('withDate', true)) !== false;
+        var name = prefix + (withDate ? '-' + (XN.util ? XN.util.todayStr() : Date.now()) : '') + '.md';
         if (XN.download) {
           XN.download(name, lines.join('\n'), 'text/markdown;charset=utf-8');
           ctx.toast('已导出 ' + name, 'ok');
