@@ -1,6 +1,20 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.7",
+    "date": "2026-11-10",
+    "title": "拉取云端按钮认本地后端",
+    "fixes": [
+      "「拉取云端」的显示条件从只看相对代理改成「有后端」，本地后端也算",
+      "拉取动作的前置检查同步放宽，本地后端不再被当成静态页面挡掉",
+      "新增 hasBackend() 判断：先看 isProxy，再看页面是本机 origin 且 baseUrl 为空或本机地址"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "没在真实 Cloudflare 云端和公网隧道下验证；也没验证 baseUrl 写成非本机绝对地址的混合配置"
+  },
+  {
     "version": "1.5.6",
     "date": "2026-11-10",
     "title": "六项体检问题一起修",
@@ -165,30 +179,6 @@ window.XN_CHANGELOG = [
     "features": [
       "自迭代现在用模型条里选的那个模型，并带上对应的服务商地址",
       "选云端模型时自动走服务器自带推理，不传你的 Key"
-    ],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.4",
-    "date": "2026-11-09",
-    "title": "GLM 关掉思考，25 秒变 14 秒",
-    "fixes": [
-      "GLM 默认先想一大段（25 秒），中间界面全白，看着像调用失败",
-      "关掉思考（enable_thinking:false）后 14 秒出首字、16 秒完成，且不再输出大段思考",
-      "等待期间显示「正在想…」，不再一片空白"
-    ],
-    "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
     ],
     "source": "manual"
   }

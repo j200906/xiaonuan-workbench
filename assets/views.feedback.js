@@ -51,6 +51,16 @@
     return h;
   }
 
+  /* 本地后端（127.0.0.1 / localhost 上的后端）也算「有后端」：
+     这类页面请求走同源相对路径，反馈接口是通的。 */
+  function hasBackend() {
+    if (API.isProxy()) return true;
+    var origin = String((root.location && root.location.origin) || '');
+    if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return false;
+    var base = String((API.apiBase && API.apiBase()) || '');
+    return !base || /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/i.test(base);
+  }
+
   var feedback = {
     type: '想法',
     cloud: [],
@@ -156,7 +166,7 @@
 
     async pullCloud() {
       if (!state.admin) { XN.toast('先在设置里输密码解锁'); return; }
-      if (!API.isProxy()) { XN.toast('本地静态页面没有云端反馈'); return; }
+      if (!hasBackend()) { XN.toast('本地静态页面没有云端反馈'); return; }
       var btn = $one('#fbPull');
       btn.disabled = true;
       try {
@@ -186,7 +196,7 @@
         ? '提交会同时发到 ' + endpoint + '，本地留一份备份。'
         : t('fb.sinkLocal');
 
-      var pullable = state.admin && API.isProxy();
+      var pullable = state.admin && hasBackend();
       $one('#fbPull').hidden = !pullable;
 
       if (!all.length) {
