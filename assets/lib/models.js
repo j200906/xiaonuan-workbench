@@ -41,6 +41,8 @@
         return { id: String(m.id), name: String(m.name || m.id), note: String(m.note || '') };
       });
       if (!cloudModels.length) cloudModels = DEFAULT_CLOUD.slice();
+      /* 重新赋值后要把全局别名指过去，否则 XN.CLOUD_MODELS 还指着旧数组 */
+      XN.CLOUD_MODELS = cloudModels;
     }
   }
 
@@ -100,11 +102,21 @@
 
   function all() { return { providers: PROVIDERS, models: MODELS, cloud: cloudModels }; }
 
+  /* 模型下拉的分组：从 PROVIDERS 推导，免得新加服务商时忘了改这里（AUDIT #33）。 */
+  function providerGroups() {
+    var ids = Object.keys(PROVIDERS);
+    return [
+      { label: '用自己的 API（推荐）', ids: ids.filter(function (k) { return !PROVIDERS[k].cloud; }) },
+      { label: '云端自带（无需填 Key，质量一般）', ids: ids.filter(function (k) { return !!PROVIDERS[k].cloud; }) }
+    ];
+  }
+
   XN.models = {
     PROVIDERS: PROVIDERS,
     MODELS: MODELS,
     DEFAULT_CLOUD: DEFAULT_CLOUD,
     provider: provider,
+    providerGroups: providerGroups,
     providerOfBase: providerOfBase,
     isCloud: isCloud,
     label: label,

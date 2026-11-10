@@ -326,7 +326,7 @@
       '<dt>改到的文件</dt><dd>' + XN.esc((r.changed || []).join('、') || '—') + '</dd>' +
       '<dt>没验证</dt><dd>' + XN.esc(r.notTried || '—') + '</dd>' +
       (r.skipped && r.skipped.length ? '<dt>跳过的补丁</dt><dd>' + XN.esc(r.skipped.map(function (s) { return '#' + s.index + ' ' + s.reason; }).join('；')) + '</dd>' : '') +
-      (r.attempt ? '<dt>失败时想改</dt><dd>' + XN.esc(r.attempt.title || '—') + '</dd>' : '') +
+      (r.attempt ? ('<dt>失败时想改</dt><dd>' + XN.esc(r.attempt.title || '—') + (r.attempt.files && r.attempt.files.length ? ' · 补丁文件：' + XN.esc(r.attempt.files.join('、')) : '') + (r.attempt.reason ? ' · 原因：' + XN.esc(r.attempt.reason) : '') + '</dd>') : '') +
       '</dl>';
 
     var vbox = $('#itVersion');

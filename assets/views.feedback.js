@@ -14,13 +14,31 @@
     return String(ts || '').slice(0, 16).replace('T', ' ');
   }
 
+  /* 字段清洗：类型与联系方式去掉标签和控制字符再截断；
+     正文只清控制字符、保留换行，长度与服务端上限一致。
+     展示层一律走 XN.esc，这里再挡一道，别让脏数据先进本机存储。 */
+  function cleanText(value, max) {
+    var s = String(value == null ? '' : value);
+    s = s.replace(/<[^>]*>/g, ' ').replace(/[\u0000-\u001f\u007f]+/g, ' ');
+    s = s.replace(/\s{2,}/g, ' ').replace(/^\s+|\s+$/g, '');
+    if (max > 0 && s.length > max) s = s.slice(0, max);
+    return s;
+  }
+
+  function cleanBody(value) {
+    var s = String(value == null ? '' : value);
+    /* 只清掉控制字符，保留制表、换行、回车，正文排版不乱 */
+    s = s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+    return s.trim().slice(0, 2000);
+  }
+
   function normalize(item, origin) {
-    var body = String((item && item.body) || '').trim();
+    var body = cleanBody((item && item.body) || '');
     return {
       id: String((item && item.id) || '') || ('x-' + Math.abs(hash(body + '|' + ((item && item.ts) || '')))),
-      type: String((item && item.type) || '其他').slice(0, 20),
-      body: body.slice(0, 2000),
-      contact: String((item && item.contact) || '').slice(0, 80),
+      type: cleanText((item && item.type) || '其他', 20) || '其他',
+      body: body,
+      contact: cleanText((item && item.contact) || '', 80),
       ts: (item && item.ts) || Date.now(),
       status: String((item && item.status) || 'local'),
       origin: origin || 'local'
@@ -126,7 +144,7 @@
         } catch (e) { item.status = 'local'; }
       }
 
-      state.feedback.unshift(item);
+      state.feedback.unshift(normalize(item, 'local'));
       if (state.feedback.length > 300) state.feedback = state.feedback.slice(0, 300);
       S.set(S.KEYS.feedback, state.feedback);
       $one('#fbBody').value = '';
