@@ -1,6 +1,20 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "1.5.6",
+    "date": "2026-11-10",
+    "title": "反馈字段去标签并截断",
+    "fixes": [
+      "views.feedback.js 新增 cleanText / cleanBody：type 与 contact 去掉 HTML 标签和控制字符后截断到 20 / 80 字，正文只清控制字符并截断到 2000 字",
+      "normalize 改用清洗后的字段，云端拉取与本机读取都走同一条清洗路径",
+      "提交时先 normalize 再入库，避免原始 HTML 直接落到 localStorage"
+    ],
+    "features": [],
+    "source": "cloud",
+    "feedbackCount": 5,
+    "notes": "服务端的 ua 清洗与 IP 只存哈希在 server/、cloudflare/ 里，不在本次可改白名单，未验证；版本号四处同步（package.json、assets/changelog.js、assets/version.js、README.md）不在这批可改文件内，需由发布流程统一升到 1.5.6；没在真机浏览器上试粘贴超长内容的光标行为"
+  },
+  {
     "version": "1.5.5",
     "date": "2026-11-10",
     "title": "令牌只留内存，离开即清空",
@@ -161,18 +175,6 @@ window.XN_CHANGELOG = [
       "等待期间显示「正在想…」，不再一片空白"
     ],
     "features": [],
-    "source": "manual"
-  },
-  {
-    "version": "1.4.3",
-    "date": "2026-11-09",
-    "title": "云端只留 GLM，其余用自己的 Key",
-    "fixes": [
-      "GLM 思考吃掉一千多 token 导致正文为空：额度提到 2400，空正文再放大到 4000 重试"
-    ],
-    "features": [
-      "云端模型只保留 GLM-4.7-Flash 一个；其它模型一律走自己的 API"
-    ],
     "source": "manual"
   }
 ];
