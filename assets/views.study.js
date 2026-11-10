@@ -21,6 +21,7 @@
       /* boot 里 loadState 已经跑完，这里拿到的才是用户配置 */
       this.noteLimit = pageSize();
       this.ensureExportButton();
+      this.ensureFocusStats();
       $('#goalForm').addEventListener('submit', (e) => {
         e.preventDefault();
         this.addGoal();
@@ -67,11 +68,117 @@
       this.renderGoals();
       this.renderNotes();
       this.renderTimer();
+      this.renderFocusStats();
     },
 
     saveTimer() { S.set(S.KEYS.timer, state.timer); },
     saveGoals() { S.set(S.KEYS.goals, state.goals); },
     saveNotes() { S.set(S.KEYS.notes, state.notes); },
+
+    /* ---------- 专注统计 ----------
+       记录跟着计时器一起存（state.timer.focusLog = { 'YYYY-MM-DD': 分钟 }），
+       这样不用新增存储键，设置里「清空数据」也会一起清掉。 */
+    focusLog() {
+      var tm = state.timer || (state.timer = {});
+      var log = tm.focusLog;
+      if (!log || typeof log !== 'object' || Array.isArray(log)) log = {};
+      tm.focusLog = log;
+      return log;
+    },
+
+    /* 只在统计块第一次出现时补一次历史：把「今天已经走完的轮次」折成今日分钟数。
+       放在这里而不是 focusLog() 里，是为了不在 addFocusMinutes 中重复记账。 */
+    seedFocusLog() {
+      var tm = state.timer || {};
+      var log = this.focusLog();
+      if (Object.keys(log).length) return;
+      if ((Number(tm.done) || 0) <= 0) return;
+      log[XN.util.todayStr()] = Math.round((Number(tm.done) || 0) * (Number(tm.min) || 25));
+      tm.focusLog = log;
+      this.saveTimer();
+    },
+
+    focusMinutes() {
+      var log = this.focusLog();
+      var now = new Date();
+      var today = XN.util.todayStr();
+      /* 本周从周一开始算（本地日历日，不走 UTC） */
+      var monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+      var weekStart = XN.util.dayKey(monday.getTime());
+      var out = { today: Number(log[today]) || 0, week: 0, total: 0, days: [] };
+      Object.keys(log).forEach((k) => {
+        var m = Number(log[k]) || 0;
+        out.total += m;
+        if (k >= weekStart) out.week += m;
+      });
+      for (var i = 6; i >= 0; i--) {
+        var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        var key = XN.util.dayKey(d.getTime());
+        out.days.push({
+          key: key,
+          label: (d.getMonth() + 1) + '/' + d.getDate(),
+          minutes: Number(log[key]) || 0
+        });
+      }
+      return out;
+    },
+
+    addFocusMinutes(minutes) {
+      var log = this.focusLog();
+      var day = XN.util.todayStr();
+      log[day] = (Number(log[day]) || 0) + Math.max(1, Math.round(Number(minutes) || 0));
+      state.timer.focusLog = log;
+      this.saveTimer();
+      this.renderFocusStats();
+    },
+
+    /* 统计块也走 JS 注入：挂在计时卡片下面，不改 index.html */
+    ensureFocusStats() {
+      if ($('#focusStats')) return;
+      var num = $('#timerNum');
+      var card = num && num.closest ? num.closest('article.card') : null;
+      if (!card) return;
+      var box = document.createElement('article');
+      box.className = 'card';
+      box.id = 'focusStats';
+      box.innerHTML = '<header class="card-head"><h2>专注统计</h2>' +
+        '<span class="card-meta" id="focusStatsMeta">还没有记录</span></header>' +
+        '<div id="focusStatsBody"></div>';
+      card.parentNode.insertBefore(box, card.nextSibling);
+      this.seedFocusLog();
+      this.renderFocusStats();
+    },
+
+    renderFocusStats() {
+      var body = $('#focusStatsBody');
+      if (!body) return;
+      var s = this.focusMinutes();
+      var meta = $('#focusStatsMeta');
+      if (meta) meta.textContent = s.total ? ('累计 ' + s.total + ' 分钟') : '还没有记录';
+      var row = (label, minutes) => (
+        '<div class="kv"><span>' + label + '</span><b>' + minutes + ' 分钟</b></div>'
+      );
+      var html = '<div class="focus-nums" style="display:grid;gap:2px;margin-bottom:8px">'
+        + row('今日', s.today) + row('本周', s.week) + row('累计', s.total) + '</div>';
+      if (!s.total) {
+        /* 一条柱都不画：直接说还没有记录 */
+        html += '<p class="card-note">还没有记录。走完一轮专注，这里就会出现每天的数字。</p>';
+      } else {
+        var max = 1;
+        s.days.forEach((d) => { if (d.minutes > max) max = d.minutes; });
+        html += '<div class="focus-bars" style="display:flex;align-items:flex-end;gap:6px;height:72px">'
+          + s.days.map((d) => {
+            var h = d.minutes ? Math.max(6, Math.round((d.minutes / max) * 100)) : 2;
+            return '<div class="focus-bar" title="' + XN.esc(d.key) + ' · ' + d.minutes + ' 分钟"'
+              + ' style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px">'
+              + '<i style="display:block;width:100%;max-width:24px;border-radius:4px 4px 0 0;background:var(--accent);opacity:'
+              + (d.minutes ? '.72' : '.18') + ';height:' + h + '%"></i>'
+              + '<em style="font-style:normal;font-size:.66em;color:var(--ink-4)">' + XN.esc(d.label) + '</em></div>';
+          }).join('')
+          + '</div>';
+      }
+      body.innerHTML = html;
+    },
 
     /* 笔记导出：按钮由 JS 注入到笔记列表下方，不改 index.html。
        #noteList 的 innerHTML 每次 renderNotes 都会被重写，所以按钮挂在外层容器上。 */
@@ -277,6 +384,7 @@
         state.timer.left = 0;
         state.timer.endsAt = 0;
         state.timer.done = (state.timer.done || 0) + 1;
+        this.addFocusMinutes(state.timer.min);
         this.saveTimer();
         this.renderTimer();
         XN.toast('一轮走完了。起来动两分钟。');
