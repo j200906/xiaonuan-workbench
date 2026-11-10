@@ -8,45 +8,6 @@
 
   var ARCH_KEYS = ['study', 'feedback', 'changelog', 'settings'];
 
-  /* 主题色预设：点击即时生效，同时存进 cfg.appearance.accent。
-     soft / line 由主色按当前明暗混合出来（和 app.core.applyConfig 同一套算法）。 */
-  var DEFAULT_ACCENT = '#b4553a';
-  var ACCENT_PRESETS = [
-    { color: '#b4553a', name: '砖红' },
-    { color: '#3d5a80', name: '墨蓝' },
-    { color: '#4a7c59', name: '松绿' },
-    { color: '#a9762f', name: '赭石' },
-    { color: '#6b5b95', name: '黛紫' }
-  ];
-
-  function hexToRgb(h) {
-    h = String(h || '#000').replace('#', '');
-    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
-    var n = parseInt(h, 16);
-    if (!isFinite(n)) return [0, 0, 0];
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  }
-
-  function rgbToHex(arr) {
-    return '#' + arr.map(function (v) {
-      v = Math.round(Math.max(0, Math.min(255, v)));
-      return (v < 16 ? '0' : '') + v.toString(16);
-    }).join('');
-  }
-
-  function mixColor(a, b, k) {
-    var A = hexToRgb(a), B = hexToRgb(b);
-    return rgbToHex([A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k, A[2] + (B[2] - A[2]) * k]);
-  }
-
-  function colorLum(hex) {
-    var c = hexToRgb(hex).map(function (v) {
-      v /= 255;
-      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-    });
-    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-  }
-
   function providerOptions() {
     var groups = M.providerGroups();
     var html = '';
@@ -156,12 +117,6 @@
       this.bindConfig();
       this.bindAiPatch();
       this.bindLanguage();
-
-      /* 主题色预设：先注入、再绑定，最后应用已保存的颜色
-         （boot 里 app.core 先按 style.accent 应用过一遍，这里用 appearance.accent 覆盖）。 */
-      this.renderAccentPresets();
-      this.bindAccentPresets();
-      this.applySavedAccent();
     },
 
     onShow() { this.render(); },
@@ -331,12 +286,6 @@
 
     setStyle(key, value) {
       state.cfg.style[key] = value;
-      if (key === 'accent') {
-        /* 老色板 / 自定义取色也走同一条持久化路径，免得 appearance.accent 过期。 */
-        state.cfg.appearance = state.cfg.appearance || {};
-        state.cfg.appearance.accent = value;
-        this.applyAccentVars(value);
-      }
       XN.saveConfig();
       XN.applyConfig();
       this.renderAppearance();
@@ -353,99 +302,6 @@
       $('#outFont').textContent = s.fontSize;
       $$('#ctlTheme button').forEach((b) => b.classList.toggle('on', b.dataset.theme === s.theme));
       $$('#ctlDensity button').forEach((b) => b.classList.toggle('on', b.dataset.density === s.density));
-      this.renderAccentPresets();
-    },
-
-    /* ---------- 主题色预设 ---------- */
-
-    currentAccent() {
-      var appearance = state.cfg.appearance || {};
-      return appearance.accent || (state.cfg.style && state.cfg.style.accent) || DEFAULT_ACCENT;
-    },
-
-    /* 把主色写进 :root 的三个变量（+ ink 保证按钮文字对比度）。 */
-    applyAccentVars(accent) {
-      var el = document.documentElement;
-      var theme = el.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-      var panel = theme === 'dark' ? '#1d1c15' : '#fffefb';
-      el.style.setProperty('--accent', accent);
-      el.style.setProperty('--accent-soft', mixColor(accent, panel, theme === 'dark' ? 0.84 : 0.9));
-      el.style.setProperty('--accent-line', mixColor(accent, panel, theme === 'dark' ? 0.68 : 0.74));
-      el.style.setProperty('--accent-ink', colorLum(accent) > 0.62 ? '#201d18' : '#ffffff');
-    },
-
-    /* 在外观卡片里注入预设行：5 个色板 + 恢复默认。用 JS 建，不动 index.html。 */
-    ensureAccentPresets() {
-      if ($('#accentPresets')) return true;
-      var anchor = $('#ctlAccent');
-      var ctrl = anchor ? anchor.closest('.ctrl') : null;
-      if (!ctrl || !ctrl.parentNode) return false;
-      var row = document.createElement('div');
-      row.className = 'ctrl';
-      row.id = 'accentPresetRow';
-      row.innerHTML = '<label>主题色预设</label>' +
-        '<div class="swatches" id="accentPresets">' +
-        ACCENT_PRESETS.map(function (p) {
-          return '<button type="button" data-preset="' + p.color + '" style="--c:' + p.color +
-            '" aria-label="' + p.name + '" title="' + p.name + '"></button>';
-        }).join('') +
-        '</div>' +
-        '<button class="btn ghost sm" id="accentReset" type="button" title="清空主题色预设，回到默认主色">恢复默认</button>';
-      ctrl.parentNode.insertBefore(row, ctrl.nextSibling);
-      return true;
-    },
-
-    renderAccentPresets() {
-      this.ensureAccentPresets();
-      var cur = String(this.currentAccent()).toLowerCase();
-      $$('#accentPresets button[data-preset]').forEach(function (b) {
-        b.classList.toggle('on', String(b.dataset.preset).toLowerCase() === cur);
-      });
-    },
-
-    bindAccentPresets() {
-      var host = $('#accentPresets');
-      if (!host) return;
-      host.addEventListener('click', (e) => {
-        var b = e.target.closest('button[data-preset]');
-        if (!b) return;
-        this.applyAccentPreset(b.dataset.preset);
-      });
-      var reset = $('#accentReset');
-      if (reset) reset.addEventListener('click', () => this.clearAccentPreset());
-    },
-
-    applyAccentPreset(accent) {
-      if (!/^#[0-9a-fA-F]{6}$/.test(String(accent))) return;
-      state.cfg.appearance = state.cfg.appearance || {};
-      state.cfg.appearance.accent = accent;
-      /* app.core.applyConfig 认的是 style.accent：同步一份，换主题/重载都不会被冲掉。 */
-      state.cfg.style.accent = accent;
-      XN.saveConfig();
-      if (XN.applyConfig) XN.applyConfig();
-      this.applyAccentVars(accent);
-      this.renderAppearance();
-      this.renderAccentPresets();
-    },
-
-    clearAccentPreset() {
-      if (state.cfg.appearance) delete state.cfg.appearance.accent;
-      state.cfg.style.accent = DEFAULT_ACCENT;
-      XN.saveConfig();
-      if (XN.applyConfig) XN.applyConfig();
-      this.applyAccentVars(DEFAULT_ACCENT);
-      this.renderAppearance();
-      this.renderAccentPresets();
-      XN.toast('已恢复默认主色');
-    },
-
-    /* 页面加载时应用已保存的颜色（appearance.accent），并同步给 app.core 的 style.accent。 */
-    applySavedAccent() {
-      var saved = state.cfg.appearance && state.cfg.appearance.accent;
-      if (!/^#[0-9a-fA-F]{6}$/.test(String(saved || ''))) return;
-      state.cfg.style.accent = saved;
-      this.applyAccentVars(saved);
-      this.renderAccentPresets();
     },
 
     /* ---------- 导航 ---------- */

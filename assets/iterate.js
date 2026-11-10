@@ -116,224 +116,6 @@
     return 'https://github.com/' + slug + '/commit/' + encodeURIComponent(sha);
   }
 
-  /* ---------- 一键合并试跑分支 ---------- */
-  /* 试跑分支（iterate/xxx）跑完只能手动去 GitHub 建 PR。这里补一个「合并到 main」按钮：
-   *   1) 先读 GitHub compare（main...branch），没差异直接拦掉，顺便拿改动文件；
-   *   2) 再建 PR（标题带版本号，body 写标题 + 改了哪些文件 + 验证结果）；
-   *   3) 成功/失败都 toast，并在结果区留下 PR 链接或 GitHub 原文错误。
-   *
-   * 为什么先走「浏览器直连 GitHub」：worker 还没有 POST /api/merge-iterate，而本轮只允许改
-   * 这个文件。等 worker 加了那个接口（用服务端 XN_GH_TOKEN 调 GitHub），把下面 ghApi() 的
-   * fetch 换成 fetch('api/merge-iterate', {...}) 即可，compare 预检/建 PR/回显链接都不用动，
-   * 浏览器也就不再需要 token 了。服务端已有 XN_GH_TOKEN 时这里会先试一次那个接口，
-   * 404/405/501 再退回浏览器直连。
-   *
-   * Token 策略：只放 sessionStorage（关掉标签页即清空），不写 localStorage、不进 DOM、不打进日志。 */
-
-  var MERGE = { busy: false, link: '', note: '', error: '', tokenKey: 'xn.v2.ghToken' };
-
-  function mergeTarget(r) {
-    if (!r || !r.publish) return null;
-    var branch = String((r.publish && r.publish.branch) || r.branch || '').trim();
-    var commit = String((r.publish && r.publish.commit) || r.commit || '').trim();
-    if (!branch || !commit || branch === 'main') return null;
-    return { branch: branch, commit: commit };
-  }
-
-  function ensureMergeUI() {
-    var btns = $('#itResultBtns');
-    if (!btns) return null;
-    var btn = $('#itMergeBtn');
-    if (!btn) {
-      btn = document.createElement('button');
-      btn.type = 'button';
-      btn.id = 'itMergeBtn';
-      btn.className = 'btn sm';
-      btn.hidden = true;
-      btn.textContent = '合并到 main';
-      btn.addEventListener('click', mergeToMain);
-      var pr = $('#itPRLink');
-      btns.insertBefore(btn, pr && pr.parentNode === btns ? pr : null);
-    }
-    var note = $('#itMergeNote');
-    if (!note) {
-      note = document.createElement('p');
-      note.id = 'itMergeNote';
-      note.className = 'dim';
-      note.hidden = true;
-      note.style.marginTop = '6px';
-      btns.parentNode.insertBefore(note, btns.nextSibling);
-    }
-    return btn;
-  }
-
-  function updateMergeUI() {
-    var btn = ensureMergeUI();
-    if (!btn) return;
-    var target = mergeTarget(IT.result);
-    btn.hidden = !target;
-    btn.disabled = !target || MERGE.busy;
-    btn.textContent = MERGE.busy ? '合并中…' : '合并到 main';
-    var note = $('#itMergeNote');
-    if (!note) return;
-    var html = '';
-    if (MERGE.link) {
-      html += 'PR：<a href="' + XN.esc(MERGE.link) + '" target="_blank" rel="noopener noreferrer">' + XN.esc(MERGE.link) + '</a>';
-    }
-    if (MERGE.note) html += (html ? '<br>' : '') + XN.esc(MERGE.note);
-    if (MERGE.error) html += (html ? '<br>' : '') + '<span class="it-line fail">' + XN.esc(MERGE.error) + '</span>';
-    note.innerHTML = html;
-    note.hidden = !html;
-  }
-
-  function ghError(res) {
-    var d = (res && res.data) || {};
-    var msg = d.message || ('HTTP ' + (res && res.status));
-    if (d.errors && d.errors.length) {
-      var extra = d.errors.map(function (e) { return e.message || e.code || ''; }).filter(Boolean);
-      if (extra.length) msg += '：' + extra.join('；');
-    }
-    return msg;
-  }
-
-  async function ghApi(method, path, token, payload) {
-    var res = await fetch('https://api.github.com' + path, {
-      method: method,
-      headers: Object.assign({
-        Accept: 'application/vnd.github+json',
-        Authorization: 'Bearer ' + token,
-        'X-GitHub-Api-Version': '2022-11-28'
-      }, payload ? { 'Content-Type': 'application/json' } : {}),
-      body: payload ? JSON.stringify(payload) : undefined
-    });
-    var data = null;
-    try { data = await res.json(); } catch (e) {}
-    return { ok: res.ok, status: res.status, data: data };
-  }
-
-  function mergeToken() {
-    var t = S.sessionGet(MERGE.tokenKey, '') || '';
-    if (t) return t;
-    var ask = typeof root.prompt === 'function' ? root.prompt.bind(root) : function () { return ''; };
-    var input = ask('建 PR 需要一个有 repo 权限的 GitHub Token。\n只留在本标签页（sessionStorage），关掉页面就清空。');
-    t = String(input || '').trim();
-    if (t) S.sessionSet(MERGE.tokenKey, t);
-    return t;
-  }
-
-  function prBody(r, target, files) {
-    var lines = [];
-    lines.push('自动迭代结果' + (r.version ? '：v' + r.version : '') + (r.title ? '「' + r.title + '」' : ''));
-    lines.push('');
-    lines.push('改了 ' + files.length + ' 个文件：');
-    if (files.length) files.forEach(function (f) { lines.push('- ' + f); });
-    else lines.push('- （compare 没有返回文件列表，以 diff 为准）');
-    lines.push('');
-    lines.push('验证：' + (r.verify || '—'));
-    lines.push('来源分支：' + target.branch + ' @ ' + target.commit);
-    lines.push('');
-    lines.push('（由小暖迭代页「合并到 main」生成）');
-    return lines.join('\n');
-  }
-
-  async function mergeToMain() {
-    if (MERGE.busy) return;
-    var r = IT.result;
-    var target = mergeTarget(r);
-    if (!target) return;
-    var slug = repoSlug();
-    if (!slug) { XN.toast('还不知道发布仓库，先跑一次迭代'); return; }
-
-    MERGE.busy = true;
-    MERGE.link = '';
-    MERGE.note = '';
-    MERGE.error = '';
-    updateMergeUI();
-    log('准备合并 ' + target.branch + ' → main（' + target.commit + '）');
-
-    try {
-      /* 服务端有 XN_GH_TOKEN 时优先让服务端做；worker 还没这个接口就退到浏览器直连。 */
-      if ((state.cloudRepo || {}).serverToken) {
-        var srv = await fetch('api/merge-iterate', {
-          method: 'POST',
-          headers: Object.assign({ 'Content-Type': 'application/json' }, XN.adminToken() ? { 'X-Admin-Token': XN.adminToken() } : {}),
-          body: JSON.stringify({
-            base: 'main', branch: target.branch, commit: target.commit,
-            version: r.version || '', title: r.title || '', files: r.changed || []
-          }),
-          credentials: 'same-origin'
-        });
-        if (srv.status !== 404 && srv.status !== 405 && srv.status !== 501) {
-          var srvData = null;
-          try { srvData = await srv.json(); } catch (e) {}
-          if (srv.ok && srvData && srvData.url) {
-            MERGE.link = srvData.url;
-            MERGE.note = '由服务端创建 PR（' + target.branch + ' → main）';
-            XN.toast('PR 已建，链接在结果区');
-            log('服务端已建 PR：' + srvData.url, 'ok');
-            return;
-          }
-          throw new Error((srvData && (srvData.error || srvData.message)) || ('服务端合并失败：HTTP ' + srv.status));
-        }
-        log('服务端还没有 /api/merge-iterate（HTTP ' + srv.status + '），改用浏览器直连 GitHub', 'warn');
-      }
-
-      var token = mergeToken();
-      if (!token) {
-        MERGE.note = '没有提供 GitHub Token，合并已取消';
-        XN.toast('没有 GitHub Token，合并取消');
-        return;
-      }
-
-      /* 1) compare 预检：identical 说明没东西可合；顺便把改动文件拿来写进 PR body。
-         注意：compare 的 {basehead} 是整段路径，分支里的 "/" 不能转成 %2F（实测 GitHub 会 404），
-         直接拼 raw 分支名；这里的分支来自服务端响应（iterate/xxx），不含空格和问号。 */
-      var cmp = await ghApi('GET', '/repos/' + slug + '/compare/main...' + target.branch, token);
-      if (!cmp.ok) throw new Error(ghError(cmp));
-      var commits = (cmp.data && cmp.data.commits) || [];
-      var files = ((cmp.data && cmp.data.files) || []).map(function (f) { return f.filename; });
-      if ((cmp.data && cmp.data.status) === 'identical' || !commits.length) {
-        throw new Error('main 与 ' + target.branch + ' 没有差异，不用合并');
-      }
-      log('compare 预检通过：' + commits.length + ' 个提交 / ' + files.length + ' 个文件（status=' + ((cmp.data && cmp.data.status) || '?') + '）', 'ok');
-
-      /* 2) 建 PR：标题带版本号，body 写标题 + 改了哪些文件 + 验证。 */
-      var title = '合并 ' + target.branch + ' → main' + (r.version ? '（v' + r.version + '）' : '');
-      var pr = await ghApi('POST', '/repos/' + slug + '/pulls', token, {
-        title: title,
-        head: target.branch,
-        base: 'main',
-        body: prBody(r, target, files)
-      });
-
-      if (pr.ok && pr.data && pr.data.html_url) {
-        MERGE.link = pr.data.html_url;
-        MERGE.note = 'PR #' + pr.data.number + '：' + target.branch + ' → main';
-        XN.toast('PR 已建，链接在结果区');
-        log('PR 已建：' + pr.data.html_url, 'ok');
-      } else if (pr.status === 422 && /already exists/i.test(ghError(pr))) {
-        /* GitHub 对同 head/base 已存在 PR 会回 422；这种情况把已有 PR 找回来给用户。 */
-        var head = slug.split('/')[0] + ':' + target.branch;
-        var exist = await ghApi('GET', '/repos/' + slug + '/pulls?state=open&base=main&head=' + encodeURIComponent(head), token);
-        var found = exist.ok && exist.data && exist.data[0];
-        if (!found) throw new Error(ghError(pr));
-        MERGE.link = found.html_url;
-        MERGE.note = 'PR 已存在（#' + found.number + '）：' + target.branch + ' → main';
-        XN.toast('这个分支已经有 PR 了，链接在结果区');
-        log('PR 已存在：' + found.html_url, 'ok');
-      } else {
-        throw new Error(ghError(pr));
-      }
-    } catch (e) {
-      MERGE.error = String((e && e.message) || e);
-      XN.toast('合并失败：' + MERGE.error);
-      log('合并失败：' + MERGE.error, 'fail');
-    } finally {
-      MERGE.busy = false;
-      updateMergeUI();
-    }
-  }
-
   /* 默认模型：网关确实可用才把 gateway 当默认，否则回落到「跟随模型条」。 */
   function applyModelDefault(force) {
     var sel = $('#itModel');
@@ -391,9 +173,6 @@
     IT.result = null;
     IT.stepState = {};
     IT.steps.forEach(function (s) { setStep(s[0], 'idle'); });
-    MERGE.link = '';
-    MERGE.note = '';
-    MERGE.error = '';
     renderLog();
     renderResult();
     setMeta(dryRun ? '试运行' : '云端跑');
@@ -567,7 +346,6 @@
       if (meta) meta.textContent = '还没跑过';
       box.innerHTML = '<p class="it-empty">跑一次「开始工作」，这里会出现版本号、改了哪些、验证过什么。</p>';
       $('#itResultBtns').hidden = true;
-      updateMergeUI();
       return;
     }
     if (meta) meta.textContent = r.version ? 'v' + r.version : '未通过';
@@ -624,7 +402,6 @@
         '<div class="kv"><span>去向</span><b>' + where + '</b></div>';
     }
     $('#itResultBtns').hidden = false;
-    updateMergeUI();
     var link = $('#itPRLink');
     link.hidden = r.publish.mode !== 'tag';
     if (r.publish.mode === 'tag') link.href = r.publish.url;
@@ -671,7 +448,6 @@
       }
       applyModelDefault(true);
       IT.steps.forEach(function (s) { setStep(s[0], 'idle'); });
-      ensureMergeUI();
       renderQueue();
       renderResult();
       renderLog();
@@ -687,5 +463,4 @@
   };
 
   XN.IT.cloudRun = cloudRun;
-  XN.IT.mergeToMain = mergeToMain;
 })(window);

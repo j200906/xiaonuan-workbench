@@ -95,8 +95,6 @@
       });
       /* 「导出 CSV」不发 HTML 里，按钮在这里注入（见 ensureCsvButton） */
       this.ensureCsvButton();
-      /* 搜索/筛选条同样由 JS 注入（见 ensureFilterBar） */
-      this.ensureFilterBar();
       $one('#fbClear').addEventListener('click', () => {
         if (!state.feedback.length && !this.cloud.length) return;
         if (!confirm(t('fb.clearAsk'))) return;
@@ -322,112 +320,11 @@
       XN.toast('云端清空了，删掉 ' + (data.deleted || 0) + ' 条');
     },
 
-    /* ---------- 搜索与筛选（N3） ----------
-       index.html 不改：筛选条和「筛选 M / N 条」都是 JS 注入的。
-       纯前端过滤 merged()，输入/切换即生效；没有匹配时给专门的空态文案。 */
-    filters: { q: '', type: 'all', status: 'all' },
-
-    isFiltering() {
-      return !!(this.filters.q || this.filters.type !== 'all' || this.filters.status !== 'all');
-    },
-
-    /* 状态归组：只在本机（服务端还没收下）算「未处理」；已上传或来自云端算「已处理」。 */
-    statusGroup(f) {
-      if (f.origin === 'cloud') return 'done';
-      var st = String(f.status || '').toLowerCase();
-      return (st === 'local' || st === '') ? 'todo' : 'done';
-    },
-
-    filterList(list) {
-      var self = this;
-      var q = String(this.filters.q || '').trim().toLowerCase();
-      var type = this.filters.type;
-      var status = this.filters.status;
-      return (list || []).filter(function (f) {
-        if (type !== 'all' && f.type !== type) return false;
-        if (status !== 'all' && self.statusGroup(f) !== status) return false;
-        if (!q) return true;
-        return (f.body + ' ' + f.type + ' ' + f.contact).toLowerCase().indexOf(q) >= 0;
-      });
-    },
-
-    /* 列表上方：关键词 + 类型 + 状态。幂等，重复调用不会插第二份。 */
-    ensureFilterBar() {
-      var bar = $one('#fbFilters');
-      if (bar) return bar;
-      var list = $one('#fbList');
-      if (!list || !list.parentNode) return null;
-
-      bar = document.createElement('div');
-      bar.id = 'fbFilters';
-      bar.className = 'fb-filters';
-      bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px';
-      bar.innerHTML =
-        '<input type="search" id="fbSearch" class="search" style="flex:1 1 160px;min-width:120px"' +
-        ' placeholder="搜索正文 / 类型 / 联系方式" aria-label="搜索反馈">' +
-        '<select id="fbFilterType" aria-label="按类型筛选">' +
-          '<option value="all">全部类型</option>' +
-          '<option value="想法">想法</option><option value="故障">故障</option>' +
-          '<option value="内容">内容</option><option value="其他">其他</option>' +
-        '</select>' +
-        '<select id="fbFilterStatus" aria-label="按状态筛选"' +
-          ' title="未处理＝只存在本机；已处理＝已上传或来自云端">' +
-          '<option value="all">全部状态</option>' +
-          '<option value="todo">未处理</option><option value="done">已处理</option>' +
-        '</select>';
-      list.parentNode.insertBefore(bar, list);
-
-      var search = $one('#fbSearch');
-      search.value = this.filters.q || '';
-      search.addEventListener('input', () => {
-        this.filters.q = search.value.trim();
-        this.render();
-      });
-      var typeSel = $one('#fbFilterType');
-      typeSel.value = this.filters.type || 'all';
-      typeSel.addEventListener('change', () => {
-        this.filters.type = typeSel.value || 'all';
-        this.render();
-      });
-      var statusSel = $one('#fbFilterStatus');
-      statusSel.value = this.filters.status || 'all';
-      statusSel.addEventListener('change', () => {
-        this.filters.status = statusSel.value || 'all';
-        this.render();
-      });
-      return bar;
-    },
-
-    /* 列表标题（<h2>已收录</h2>）右边的「筛选 M / N 条」。 */
-    ensureFilterCount() {
-      var el = $one('#fbFilterCount');
-      if (el) return el;
-      var list = $one('#fbList');
-      var head = (list && list.parentNode) ? $one('.card-head', list.parentNode) : null;
-      var h2 = head ? head.querySelector('h2') : null;
-      if (!h2) return null;
-      el = document.createElement('span');
-      el.id = 'fbFilterCount';
-      el.className = 'card-meta';
-      el.style.marginRight = 'auto';
-      el.hidden = true;
-      h2.parentNode.insertBefore(el, h2.nextSibling);
-      return el;
-    },
-
     render() {
       var list = $one('#fbList');
       if (!list) return;
       var all = this.merged();
-      var shown = this.filterList(all);
       $one('#fbMeta').textContent = all.length + ' 条';
-      /* 筛选条 + 「筛选 M / N 条」（都在列表上方/标题旁，第一次调用时创建） */
-      this.ensureFilterBar();
-      var cnt = this.ensureFilterCount();
-      if (cnt) {
-        cnt.hidden = !this.isFiltering();
-        cnt.textContent = this.isFiltering() ? '筛选 ' + shown.length + ' / ' + all.length + ' 条' : '';
-      }
       /* 空列表时 CSV 按钮置灰（按钮是注入的，可能还没建，ensureCsvButton 兼作创建） */
       var csvBtn = this.ensureCsvButton();
       if (csvBtn) csvBtn.disabled = !all.length;
@@ -442,13 +339,12 @@
       var wipeBtn = $one('#fbWipe');
       if (wipeBtn) wipeBtn.hidden = !pullable;
 
-      if (!shown.length) {
-        list.innerHTML = '<p class="fb-empty">' +
-          (all.length ? '没有符合条件的反馈' : XN.esc(t('fb.empty'))) + '</p>';
+      if (!all.length) {
+        list.innerHTML = '<p class="fb-empty">' + XN.esc(t('fb.empty')) + '</p>';
         return;
       }
 
-      list.innerHTML = shown.map((f) => (
+      list.innerHTML = all.map((f) => (
         '<div class="fb-item' + (f.origin === 'cloud' ? ' cloud' : '') + '">' +
         '<div class="top"><span class="type">' + XN.esc(f.type) + '</span>' +
         '<span>' + XN.esc(dateText(f.ts)) + '</span>' +

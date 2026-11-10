@@ -85,33 +85,6 @@ test('Markdown：表格 / 嵌套列表 / 代码块 / XSS', () => {
   assert.match(inline, /<del>删除<\/del>/);
 });
 
-test('Markdown：任务列表 / 脚注 / 目录', () => {
-  const w = loadClassic(['assets/lib/util.js', 'assets/lib/md.js']);
-  const md = w.XN.md.render;
-
-  /* 任务列表：复选框要能点（不再带 disabled），未勾/已勾只差 checked */
-  const task = md('- [ ] 还没做\n- [x] 做完了');
-  assert.match(task, /<label class="md-task"><input type="checkbox">/);
-  assert.match(task, /<input type="checkbox" checked>/);
-  assert.ok(!/md-task[\s\S]{0,40}disabled/.test(task), '任务列表不该再禁用复选框');
-
-  /* 脚注：[^a] 变上标，定义行收进文末列表，且定义文本仍走 inline 转义 */
-  const fn = md('正文有脚注[^a]。\n\n[^a]: 这是**说明**，别漏看。');
-  assert.match(fn, /<sup class="md-fn-ref" id="fnref-a"><a href="#fn-a">1<\/a><\/sup>/);
-  assert.match(fn, /<section class="md-footnotes">/);
-  assert.match(fn, /<li id="fn-a">这是<strong>说明<\/strong>，别漏看。/);
-  assert.ok(!fn.includes('[^a]:'), '定义行不该留在正文里');
-
-  /* 目录：≥3 个标题才生成，标题带锚点；2 个标题不生成 */
-  const three = md('# 一\n\n## 二\n\n### 三\n\n正文');
-  assert.match(three, /<details class="md-toc">/);
-  assert.match(three, /<a href="#一">一<\/a>/);
-  assert.match(three, /<a href="#三">三<\/a>/);
-  assert.match(three, /<h1 id="一">一<\/h1>/);
-  const two = md('# 一\n\n## 二\n\n正文');
-  assert.ok(!two.includes('md-toc'), '少于 3 个标题不该生成目录');
-});
-
 test('补丁规则：括号扫描忽略字符串和注释', () => {
   const w = loadClassic(['assets/lib/patch.js']);
   const P = w.XN.patch;

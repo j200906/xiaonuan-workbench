@@ -1,16 +1,6 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
-    "version": "1.8.0",
-    "date": "2026-11-10",
-    "title": "界面文案可翻译 + 六个新功能",
-    "fixes": ["补 53 处硬编码文案的 i18n（含繁体值）；新增跨会话搜索、专注统计、反馈筛选、主题色预设、记忆管理 API、Markdown 任务列表/脚注/目录、迭代页一键合并"],
-    "features": [],
-    "source": "ship",
-    "feedbackCount": 0,
-    "notes": ""
-  },
-  {
     "version": "1.7.1",
     "date": "2026-11-10",
     "title": "标题跟随语言切换",
