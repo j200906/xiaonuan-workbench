@@ -145,7 +145,7 @@
         break;
       }
     });
-    if (moved.length && XN.console) console.info('[xn] 已迁移本机数据', moved);
+    if (moved.length && root.console && root.console.info) root.console.info('[xn] 已迁移本机数据', moved);
     return moved;
   }
 
