@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "3.1.1",
+    "date": "2026-11-11",
+    "title": "自查修复（重发）：插件卸载残留 + 编码护栏",
+    "fixes": ["插件禁用后连同面板一起移除；新增编码护栏单测（双重编码/BOM/关键中文锚点，已修自匹配）；补 ARCHITECTURE 三节"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "3.1.0",
     "date": "2026-11-11",
     "title": "侧栏直连插件 + DSH 插件兼容层",
