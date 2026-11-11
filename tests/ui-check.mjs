@@ -376,7 +376,7 @@ async function runBrowserChecks(check, cdp, baseUrl, packageVersion) {
   })`);
   check('页面启动', boot.ready && boot.version === packageVersion, 'version=' + boot.version);
   check('代理模式自动识别', boot.proxy === true);
-  check('五个视图注册 + 侧栏 6 个入口', boot.views === 5 && boot.side === 6, `${boot.views}/${boot.side}`);
+  check('六个视图注册（对话也已插件化）+ 侧栏 6 个入口', boot.views >= 6 && boot.side === 6, `${boot.views}/${boot.side}`);
   check('对话页默认可见', boot.chat);
   check('迭代入口默认隐藏（管理员门后）', await cdp.evaluate(`(() => { const b = document.querySelector('#navIterate'); return !!b && b.hidden === true; })()`));
 

@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "2.2.0",
+    "date": "2026-11-11",
+    "title": "对话页也进插件表 + 会话层抽出",
+    "fixes": ["新增 assets/lib/session.js（会话列表/当前/新建/切换/删除/改名/追加/标题推导），app.core 的 currentSession/sessionTitle 改为委托；新增 assets/plugins/view-chat.js 把对话页注册成插件"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "2.1.1",
     "date": "2026-11-10",
     "title": "搜索能力接上",

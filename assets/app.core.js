@@ -288,15 +288,18 @@ function switchView(id) {
 
   /* ---------- 会话 ---------- */
   function sessionTitle(s) {
-    var first = (s.messages || []).filter(function (m) { return m.role === 'user' && m.content; })[0];
-    var text = first ? first.content.replace(/\s+/g, ' ').trim() : t('nav.chat');
-    return text.length > 22 ? text.slice(0, 21) + '…' : text;
-  }
+  /* 会话层抽出后由 XN.session 统一推导标题 */
+  if (root.XN && XN.session && XN.session.title) return XN.session.title(s);
+  var first = (s.messages || []).filter(function (m) { return m.role === 'user' && m.content; })[0];
+  var text = first ? first.content.replace(/\s+/g, ' ').trim() : t('nav.chat');
+  return text.length > 22 ? text.slice(0, 21) + '\u2026' : text;
+}
   XN.sessionTitle = sessionTitle;
 
   function currentSession() {
-    return state.sessions.filter(function (s) { return s.id === state.currentId; })[0] || null;
-  }
+  if (root.XN && XN.session && XN.session.current) return XN.session.current();
+  return state.sessions.filter(function (s) { return s.id === state.currentId; })[0] || null;
+}
   XN.currentSession = currentSession;
 
   var saving = false;
