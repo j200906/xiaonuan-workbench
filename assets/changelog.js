@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "2.3.0",
+    "date": "2026-11-11",
+    "title": "i18n 三视图 + P4 安装式扩展",
+    "fixes": ["学习台/反馈箱/更新日志文案走 i18n（三语补齐 195 行）；插件远程清单 loadManifest、版本锁定 pin、回滚 rollback 与状态查询；设置页新增「检查更新」与待更新提示"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "2.2.0",
     "date": "2026-11-11",
     "title": "对话页也进插件表 + 会话层抽出",
