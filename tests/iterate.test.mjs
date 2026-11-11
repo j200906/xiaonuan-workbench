@@ -63,6 +63,7 @@ const FILES = [
   'assets/lib/session.js',
   'assets/plugins/view-chat.js',
   'assets/plugins/manifest.js',
+  'assets/plugins/view-plugins.js',
   'assets/plugins/export-session.js',
   'README.md',
   'assets/changelog.js',

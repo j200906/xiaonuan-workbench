@@ -8,11 +8,12 @@
   var U = XN.util, S = XN.store, API = XN.api, MD = XN.md, M = XN.models;
   var $ = U.$, $$ = U.$$, t = XN.t;
 
-  var VIEW_IDS = ['chat', 'study', 'feedback', 'settings', 'changelog', 'iterate'];
+  var VIEW_IDS = ['chat', 'study', 'feedback', 'plugins', 'settings', 'changelog', 'iterate'];
   var VIEW_META = {
     chat: { title: 'nav.chat' },
     study: { title: 'nav.study' },
     feedback: { title: 'nav.feedback' },
+  plugins: { title: 'plugins.title' },
     settings: { title: 'nav.settings' },
     changelog: { title: 'nav.changelog' },
     iterate: { title: 'nav.iterate' }
@@ -217,7 +218,8 @@
   /* 标题用的是 cfg.labels；但它的默认值也是中文并已持久化，
    于是切语言时标题永远不变。这里把「等于任一语言默认值」的存储值当成没改过，改用 t()。 */
 function labelFor(view) {
-  var key = 'nav.' + view;
+  /* 视图标题不一定挂在 nav.* 上（插件中心用的是 plugins.title） */
+  var key = (VIEW_META[view] && VIEW_META[view].title) || ('nav.' + view);
   var stored = (state.cfg.labels || {})[view];
   if (!stored) return t(key);
   if (root.XN && root.XN.i18n && root.XN.i18n.tFor) {

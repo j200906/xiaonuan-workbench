@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "3.0.0",
+    "date": "2026-11-11",
+    "title": "插件中心：终于有找插件的地方了",
+    "fixes": ["新增 view-plugins 插件（侧栏第七个入口）：已装列表（启用/版本/锁定/待更新/回滚）、索引源管理（添加/移除 JSON 索引）、从 URL 安装、检查更新、可安装列表；插件中心自己也是插件，可被禁用"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "2.3.1",
     "date": "2026-11-11",
     "title": "i18n 收口（去重版）",

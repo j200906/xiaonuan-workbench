@@ -63,7 +63,10 @@
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6"/><path d="M17.5 3v4h-4M6.5 21v-4h4"/></svg>
         <span data-i18n="nav.iterate">迭代</span>
       </button>
-      <button class="side-link" data-view="settings">
+      <button class="side-link" data-view="plugins" id="navPlugins">
+      <span data-i18n="plugins.title">插件中心</span>
+    </button>
+    <button class="side-link" data-view="settings">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3.1"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>
         <span data-i18n="nav.settings">设置</span>
       </button>
@@ -260,7 +263,11 @@
     </section>
 
     <!-- ---------- 设置 ---------- -->
-    <section class="pane" id="view-settings" data-view="settings" hidden>
+    <section class="pane" id="view-plugins" data-view="plugins" hidden>
+  <div class="board"></div>
+</section>
+
+<section class="pane" id="view-settings" data-view="settings" hidden>
       <div class="board">
         <h3 class="group-title" data-i18n="settings.appearance">外观与布局</h3>
         <article class="card wide">
@@ -510,6 +517,7 @@
 <script defer src="assets/plugins/manifest.js" data-asset></script>
 <script defer src="assets/plugins/view-chat.js" data-asset></script>
 <script defer src="assets/plugins/export-session.js" data-asset></script>
+<script defer src="assets/plugins/view-plugins.js" data-asset></script>
 <script defer src="assets/app.core.js" data-asset></script>
 <script defer src="assets/views.study.js" data-asset></script>
 <script defer src="assets/views.feedback.js" data-asset></script>
