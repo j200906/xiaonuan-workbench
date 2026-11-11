@@ -165,8 +165,9 @@ try {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'user', content: '你好' }] })
     });
-    assert.equal(res.status, 200);
-    const j = await res.json();
+    const raw = await res.text();
+    assert.equal(res.status, 200, '响应体：' + raw.slice(0, 300));
+    const j = JSON.parse(raw);
     assert.match(j.choices[0].message.content, /假上游/);
   });
 
@@ -196,8 +197,9 @@ try {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: PASSWORD })
     });
-    assert.equal(res.status, 200);
-    const j = await res.json();
+    const raw = await res.text();
+    assert.equal(res.status, 200, '响应体：' + raw.slice(0, 300));
+    const j = JSON.parse(raw);
     assert.ok(j.token && j.token.includes('.'));
     token = j.token;
   });
@@ -214,8 +216,9 @@ try {
     });
     assert.equal(post.status, 200);
     const res = await fetch(base + '/api/feedback', { headers: { 'X-Admin-Token': token } });
-    assert.equal(res.status, 200);
-    const j = await res.json();
+    const raw = await res.text();
+    assert.equal(res.status, 200, '响应体：' + raw.slice(0, 300));
+    const j = JSON.parse(raw);
     assert.ok(j.items.some((x) => x.body === '冒烟测试反馈'));
   });
 
@@ -303,8 +306,9 @@ try {
     const res = await fetch(base + '/api/iterate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
     });
-    assert.equal(res.status, 200);
-    const j = await res.json();
+    const raw = await res.text();
+    assert.equal(res.status, 200, '响应体：' + raw.slice(0, 300));
+    const j = JSON.parse(raw);
     assert.equal(j.publicMode, true);
     assert.equal(j.dryRun, true);
   });
@@ -315,8 +319,9 @@ try {
       headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
       body: JSON.stringify({ dryRun: true })
     });
-    assert.equal(res.status, 200);
-    const j = await res.json();
+    const raw = await res.text();
+    assert.equal(res.status, 200, '响应体：' + raw.slice(0, 300));
+    const j = JSON.parse(raw);
     assert.equal(j.ok, true);
     assert.equal(j.dryRun, true);
     assert.match(j.version, /^\d+\.\d+\.\d+$/);

@@ -116,7 +116,9 @@
       card(T('plugins.fromUrl'),
         '<div class="field"><span class="label">' + esc(T('plugins.urlLabel')) + '</span>' +
         '<input id="pluginInstallUrl" type="url" placeholder="/assets/plugins/foo.js"></div>' +
-        '<div class="arch-btns"><button class="btn sm" id="pluginInstall">' + esc(T('plugins.installFromUrl')) + '</button></div>') +
+        '<div class="arch-btns"><button class="btn sm" id="pluginInstall">' + esc(T('plugins.installFromUrl')) + '</button>' +
+        '<button class="btn ghost sm" id="pluginInstallDsh">' + esc(T('plugins.installDsh')) + '</button></div>' +
+        '<p class="hint">' + esc(T('plugins.dshHint')) + '</p>') +
 
       '<div id="pluginMarket">' + card(T('plugins.available'), '<p class="hint">' + esc(T('plugins.marketHint')) + '</p>') + '</div>';
 
@@ -178,6 +180,18 @@
         if (XN.toast) XN.toast(r && r.ok ? T('plugins.checkDone', { loaded: (r.loaded || []).length }) : T('plugins.checkFail'), r && r.ok ? 'ok' : 'error');
         render();
       }).catch(function () { check.disabled = false; });
+    });
+
+    var dsh = $('#pluginInstallDsh', board);
+    if (dsh) dsh.addEventListener('click', function () {
+      var v = String(($('#pluginInstallUrl', board) || {}).value || '').trim();
+      if (!v) return;
+      dsh.disabled = true;
+      (XN.dsh && XN.dsh.load ? XN.dsh.load(v, { reload: true }) : Promise.reject(new Error('兼容层不可用'))).then(function (r) {
+        if (XN.toast) XN.toast(r && r.ok ? T('plugins.installedOk') : T('plugins.installFail') + '：' + ((r && r.error) || ''), r && r.ok ? 'ok' : 'error');
+        dsh.disabled = false;
+        render();
+      }).catch(function (e) { dsh.disabled = false; if (XN.toast) XN.toast(T('plugins.installFail') + '：' + e.message, 'error'); });
     });
 
     var inst = $('#pluginInstall', board);

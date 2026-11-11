@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "3.1.0",
+    "date": "2026-11-11",
+    "title": "侧栏直连插件 + DSH 插件兼容层",
+    "fixes": ["插件注册的视图自动出现在侧栏（静态视图保持原有显隐规则）；新增 assets/lib/dsh-compat.js：ESM/经典脚本加载、cordis ctx 垫片（on/effect/set/get/command/view/tool）、错误隔离与超时；插件中心支持「DSH 兼容安装」；新增 dsh-hello 示例与 8 条契约测试"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "3.0.1",
     "date": "2026-11-11",
     "title": "CI 预检对齐七个视图",

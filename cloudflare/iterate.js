@@ -39,6 +39,7 @@ const EDITABLE = [
   'assets/lib/api.js',
   'assets/lib/patch.js',
   'assets/lib/plugin.js',
+  'assets/lib/dsh-compat.js',
   'assets/lib/services.js',
   'assets/lib/session.js',
   'assets/plugins/view-chat.js',

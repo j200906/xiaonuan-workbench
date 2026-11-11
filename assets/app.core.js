@@ -153,7 +153,55 @@
   }
   XN.applyConfig = applyConfig;
 
-  function renderSideLinks() {
+  /* 插件里的视图也要在侧栏出现：静态 HTML 里没有的，这里动态补按钮与面板 */
+function syncPluginLinks() {
+  if (!root.XN || !XN.plugin || !XN.plugin.views) return;
+  var side = $('.side-foot');
+  if (!side) return;
+  var conn = side.querySelector('.conn');
+  var list = XN.plugin.views() || [];
+  var alive = {};
+  list.forEach(function (v) {
+    if (!v || !v.id) return;
+    /* 静态视图（chat/iterate/...）有自己的显隐规则，这里只管插件新增的视图 */
+    if (VIEW_IDS.indexOf(v.id) >= 0) return;
+    alive[v.id] = true;
+    /* 面板：没有就建一个 */
+    var pane = document.getElementById('view-' + v.id);
+    if (!pane) {
+      var host = document.querySelector('#view-chat') && document.querySelector('#view-chat').parentNode;
+      if (!host) return;
+      pane = document.createElement('section');
+      pane.className = 'pane';
+      pane.id = 'view-' + v.id;
+      pane.setAttribute('data-view', v.id);
+      pane.hidden = true;
+      pane.innerHTML = '<div class="board"></div>';
+      host.appendChild(pane);
+    }
+    /* 侧栏按钮：没有就建一个 */
+    var btn = side.querySelector('.side-link[data-view="' + v.id + '"]');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'side-link';
+      btn.setAttribute('data-view', v.id);
+      btn.innerHTML = '<span></span>';
+      btn.addEventListener('click', function () { switchView(v.id); });
+      side.insertBefore(btn, conn || null);
+    }
+    var span = btn.querySelector('span');
+    if (span) span.textContent = labelFor(v.id) || v.title || v.id;
+    btn.hidden = false;
+  });
+  /* 插件卸掉了，按钮也收走 */
+  side.querySelectorAll('.side-link[data-view]').forEach(function (btn) {
+    var id = btn.getAttribute('data-view');
+    if (VIEW_IDS.indexOf(id) >= 0) return;
+    if (!alive[id]) btn.remove();
+  });
+}
+
+function renderSideLinks() {
     var labels = state.cfg.labels || {};
     $$('.side-link').forEach(function (btn) {
       var id = btn.dataset.view;
@@ -185,6 +233,7 @@
         if (btn) side.insertBefore(btn, conn || null);
       });
     }
+  syncPluginLinks();
   }
   XN.renderSideLinks = renderSideLinks;
 
@@ -970,7 +1019,6 @@ function switchView(id) {
     if (old !== id) saveConfig();
     updateHeader();
     renderModelPick();
-    if (XN.plugin && XN.plugin.boot) XN.plugin.boot();
     U.toast('换成 ' + friendlyModel(id));
   }
   XN.selectModel = selectModel;
@@ -1245,6 +1293,10 @@ function switchView(id) {
     bind();
     renderModelPick();
   if (XN.plugin && XN.plugin.boot) XN.plugin.boot();
+    if (XN.on) {
+      XN.on('plugin:mounted', function () { renderSideLinks(); });
+      XN.on('plugin:unmounted', function () { renderSideLinks(); });
+    }
 
     if (XN.views) {
       Object.keys(XN.views).forEach(function (k) {
@@ -1268,7 +1320,7 @@ function switchView(id) {
     updateConn(state.key || API.isProxy() ? 'ok' : 'idle');
 
     var want = S.sessionGet(S.KEYS.view, 'chat');
-    switchView(VIEW_IDS.indexOf(want) >= 0 ? want : 'chat');
+    switchView((VIEW_IDS.indexOf(want) >= 0 || (XN.plugin && XN.plugin.view && XN.plugin.view(want))) ? want : 'chat');
     XN.ready = true;
     if (XN.emit) XN.emit('ready');
   }

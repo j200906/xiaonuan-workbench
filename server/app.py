@@ -482,7 +482,8 @@ EDITABLE = [
     "assets/lib/services.js",
     "assets/lib/session.js", "assets/plugins/view-chat.js",
     "assets/plugins/manifest.js",
-    "assets/plugins/view-plugins.js", "assets/plugins/export-session.js",
+    "assets/plugins/view-plugins.js",
+    "assets/lib/dsh-compat.js", "assets/plugins/export-session.js",
 ]
 VERSION_FILE = "assets/version.js"
 CHANGELOG_FILE = "assets/changelog.js"
