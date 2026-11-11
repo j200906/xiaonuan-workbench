@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "2.3.1",
+    "date": "2026-11-11",
+    "title": "i18n 收口（去重版）",
+    "fixes": ["学习台/反馈箱/更新日志 78 处文案走 t()，三语各 194 键；修掉 plugin.* 重复键（no-dupe-keys）"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "2.3.0",
     "date": "2026-11-11",
     "title": "i18n 三视图 + P4 安装式扩展",
