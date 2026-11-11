@@ -193,11 +193,16 @@ function syncPluginLinks() {
     if (span) span.textContent = labelFor(v.id) || v.title || v.id;
     btn.hidden = false;
   });
-  /* 插件卸掉了，按钮也收走 */
+  /* 插件卸掉了，按钮和面板一起收走（面板留着会在切视图时闪一下空壳） */
   side.querySelectorAll('.side-link[data-view]').forEach(function (btn) {
     var id = btn.getAttribute('data-view');
     if (VIEW_IDS.indexOf(id) >= 0) return;
     if (!alive[id]) btn.remove();
+  });
+  $$('.pane').forEach(function (pane) {
+    var id = pane.getAttribute('data-view');
+    if (!id || VIEW_IDS.indexOf(id) >= 0) return;
+    if (!alive[id]) pane.remove();
   });
 }
 
