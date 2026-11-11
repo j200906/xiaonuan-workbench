@@ -213,6 +213,40 @@
     }
     card.innerHTML = html;
     board.appendChild(card);
+    /* P4：检查插件更新（手动触发，不在 boot 里偷偷装东西） */
+    var head = card.querySelector('.card-head');
+    if (head && XN.plugin && XN.plugin.loadManifest) {
+      var chk = document.createElement('button');
+      chk.type = 'button';
+      chk.id = 'pluginCheckUpdates';
+      chk.className = 'btn ghost sm';
+      chk.textContent = XN.t('plugin.check');
+      chk.addEventListener('click', function () {
+        chk.disabled = true;
+        chk.textContent = XN.t('plugin.checking');
+        XN.plugin.loadManifest().then(function (r) {
+          var msg = r && r.ok
+            ? XN.t('plugin.checkDone', { loaded: (r.loaded || []).length, skipped: (r.skipped || []).length, errors: (r.errors || []).length })
+            : XN.t('plugin.checkFail');
+          if (XN.toast) XN.toast(msg, r && r.ok ? 'ok' : 'error');
+          card.remove();
+          this.renderPlugins();
+        }.bind(this)).catch(function () {
+          chk.disabled = false;
+          chk.textContent = XN.t('plugin.check');
+        });
+      }.bind(this));
+      head.appendChild(chk);
+    }
+    /* 待更新 / 可回滚的角标 */
+    var pending = (XN.plugin && XN.plugin.pendingUpdates) ? XN.plugin.pendingUpdates() : {};
+    var pendIds = Object.keys(pending || {});
+    if (pendIds.length) {
+      var tip = document.createElement('p');
+      tip.className = 'hint';
+      tip.textContent = XN.t('plugin.pending', { ids: pendIds.join('、') });
+      card.appendChild(tip);
+    }
     card.querySelectorAll('input[data-plugin]').forEach(function (el) {
       el.addEventListener('change', function () {
         XN.plugin.setEnabled(el.getAttribute('data-plugin'), el.checked);

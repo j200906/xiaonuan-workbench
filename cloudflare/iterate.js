@@ -42,6 +42,7 @@ const EDITABLE = [
   'assets/lib/services.js',
   'assets/lib/session.js',
   'assets/plugins/view-chat.js',
+  'assets/plugins/manifest.js',
   'assets/plugins/export-session.js'
 ];
 

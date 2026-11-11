@@ -13,6 +13,11 @@
 
   var DICT = {
     'zh-CN': {
+    'plugin.check': '检查更新',
+    'plugin.checking': '检查中…',
+    'plugin.checkDone': '已检查：新装 {loaded}，跳过 {skipped}，失败 {errors}',
+    'plugin.checkFail': '检查更新失败',
+    'plugin.pending': '有新版本：{ids}',
     'plugin.title': '插件',
     'plugin.count': '个',
     'plugin.empty': '还没有插件。把 assets/plugins/*.js 加进清单就会出现在这里。',
@@ -147,6 +152,11 @@
     /* 繁體中文（台灣用語）：键必须与 zh-CN 一一对应，改 zh-CN 时记得同步这里。
        用词按台灣習慣：設定／預設／自訂／儲存／影片／網路／資訊／軟體／列印… */
     'zh-TW': {
+    'plugin.check': '檢查更新',
+    'plugin.checking': '檢查中…',
+    'plugin.checkDone': '已檢查：新裝 {loaded}，跳過 {skipped}，失敗 {errors}',
+    'plugin.checkFail': '檢查更新失敗',
+    'plugin.pending': '有新版本：{ids}',
     'plugin.title': '外掛',
     'plugin.count': '個',
     'plugin.empty': '還沒有外掛。把 assets/plugins/*.js 加進清單就會出現在這裡。',
@@ -279,6 +289,11 @@
       'error.localOnly': '這個功能要部署在雲端才能用。'
     },
     'en': {
+    'plugin.check': 'Check updates',
+    'plugin.checking': 'Checking…',
+    'plugin.checkDone': 'Checked: {loaded} new, {skipped} skipped, {errors} failed',
+    'plugin.checkFail': 'Update check failed',
+    'plugin.pending': 'New version: {ids}',
     'plugin.title': 'Plugins',
     'plugin.count': 'total',
     'plugin.empty': 'No plugins yet. Add assets/plugins/*.js to the manifest.',
