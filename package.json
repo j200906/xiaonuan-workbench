@@ -1,6 +1,6 @@
 {
   "name": "xiaonuan-workbench",
-  "version": "3.1.1",
+  "version": "3.1.0",
   "private": true,
   "type": "module",
   "description": "小暖：可以对话、记笔记、收反馈、自迭代的学习工作台",
@@ -8,7 +8,7 @@
     "build": "node scripts/build-pages.mjs",
     "build:worker": "node cloudflare/build.mjs",
     "check:pages": "node scripts/build-pages.mjs --check",
-    "test": "node --test tests/unit.test.mjs tests/iterate.test.mjs tests/pipeline.test.mjs tests/security.test.mjs tests/security-adversarial.test.mjs tests/plugin.test.mjs tests/services.test.mjs tests/dsh-compat.test.mjs tests/encoding.test.mjs",
+    "test": "node --test tests/unit.test.mjs tests/iterate.test.mjs tests/pipeline.test.mjs tests/security.test.mjs tests/security-adversarial.test.mjs tests/plugin.test.mjs tests/services.test.mjs tests/dsh-compat.test.mjs",
     "smoke": "node tests/smoke.mjs",
     "ui": "node tests/ui-check.mjs",
     "ui:ci": "node tests/ui-ci.mjs",
