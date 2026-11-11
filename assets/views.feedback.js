@@ -39,6 +39,7 @@
       /* 服务器记录的真 id（worker.js 里的 record.id）。没有真 id 的云端条目就不给删除按钮，
          免得拿本地合成 id 去删。二次 normalize 时要保住空串，不能被上面合成的 id 覆盖。 */
       serverId: String(((item && item.serverId != null) ? item.serverId : (item && item.id)) || ''),
+      /* 兜底类型是数据值（对齐 index.html 的 chip data-type），不翻译；展示走 typeLabel */
       type: cleanText((item && item.type) || '其他', 20) || '其他',
       body: body,
       contact: cleanText((item && item.contact) || '', 80),
@@ -54,6 +55,20 @@
     return h;
   }
 
+  /* 类型是数据而不是文案：本地存量、云端记录、index.html 里 chip 的 data-type
+     都用中文值（想法/故障/内容/其他），所以只在展示层按当前语言翻标签，值本身不动。 */
+  var TYPE_KEYS = {
+    '想法': 'fb.typeIdea',
+    '故障': 'fb.typeBug',
+    '内容': 'fb.typeContent',
+    '其他': 'fb.typeOther'
+  };
+
+  function typeLabel(type) {
+    var key = TYPE_KEYS[type];
+    return key ? t(key) : String(type == null ? '' : type);
+  }
+
   /* 本地后端（127.0.0.1 / localhost 上的后端）也算「有后端」：
      这类页面请求走同源相对路径，反馈接口是通的。 */
   function hasBackend() {
@@ -65,6 +80,7 @@
   }
 
   var feedback = {
+    /* 默认类型同样是对齐 index.html 的数据值，不翻译（展示层用 typeLabel） */
     type: '想法',
     cloud: [],
 
@@ -90,7 +106,7 @@
       $one('#fbPull').addEventListener('click', () => this.pullCloud());
       $one('#fbExport').addEventListener('click', () => {
         var all = this.merged();
-        if (!all.length) { XN.toast('还是空的'); return; }
+        if (!all.length) { XN.toast(t('fb.emptyToast')); return; }
         XN.download('xiaonuan-feedback-' + XN.util.todayStr() + '.json', JSON.stringify(all, null, 2));
       });
       /* 「导出 CSV」不发 HTML 里，按钮在这里注入（见 ensureCsvButton） */
@@ -157,8 +173,8 @@
       btn.type = 'button';
       btn.id = 'fbExportCsv';
       btn.className = 'btn ghost sm';
-      btn.textContent = '导出 CSV';
-      btn.title = '把当前列表导出成 CSV（Excel 能直接打开）';
+      btn.textContent = t('fb.exportCsv');
+      btn.title = t('fb.exportCsvTitle');
       btn.addEventListener('click', () => this.exportCsv());
       if (anchor && anchor.parentNode === head) head.insertBefore(btn, anchor.nextSibling);
       else head.appendChild(btn);
@@ -182,14 +198,14 @@
 
     toCsv(list) {
       var self = this;
-      var rows = [['时间', '类型', '正文', '联系方式', '状态']];
+      var rows = [[t('fb.csvTime'), t('fb.csvType'), t('fb.csvBody'), t('fb.csvContact'), t('fb.csvStatus')]];
       (list || []).forEach(function (f) {
         rows.push([
           self.csvTime(f.ts),
-          f.type,
+          typeLabel(f.type),
           f.body,
           f.contact,
-          f.origin === 'cloud' ? '云端' : (f.status === 'sent' ? '已上传' : '仅本机')
+          f.origin === 'cloud' ? t('fb.srcCloud') : (f.status === 'sent' ? t('fb.statusSent') : t('fb.statusLocal'))
         ]);
       });
       return rows.map(function (cells) {
@@ -199,15 +215,15 @@
 
     exportCsv() {
       var all = this.merged();
-      if (!all.length) { XN.toast('还是空的'); return; }
+      if (!all.length) { XN.toast(t('fb.emptyToast')); return; }
       XN.download('xiaonuan-feedback-' + XN.util.todayStr() + '.csv',
         '\ufeff' + this.toCsv(all), 'text/csv;charset=utf-8');
-      XN.toast('已导出 ' + all.length + ' 条（CSV）');
+      XN.toast(t('fb.exportedCsv', { n: all.length }));
     },
 
     async submit() {
       var body = $one('#fbBody').value.trim();
-      if (!body) { XN.toast('写点东西再投'); $one('#fbBody').focus(); return; }
+      if (!body) { XN.toast(t('fb.needBody')); $one('#fbBody').focus(); return; }
       var item = {
         id: XN.uid('f'),
         type: this.type,
@@ -247,22 +263,22 @@
     },
 
     async pullCloud() {
-      if (!state.admin) { XN.toast('先在设置里输密码解锁'); return; }
-      if (!hasBackend()) { XN.toast('本地静态页面没有云端反馈'); return; }
+      if (!state.admin) { XN.toast(t('fb.needAdmin')); return; }
+      if (!hasBackend()) { XN.toast(t('fb.noCloud')); return; }
       var btn = $one('#fbPull');
       btn.disabled = true;
       try {
         var r = await API.adminFetch('api/feedback?limit=200');
-        if (r.res.status === 401) { XN.lockAdmin(); throw new Error('会话失效，请重新解锁'); }
+        if (r.res.status === 401) { XN.lockAdmin(); throw new Error(t('fb.sessionExpired')); }
         if (!r.res.ok || !r.data || !r.data.ok) {
           throw new Error((r.data && r.data.error) || ('HTTP ' + r.res.status));
         }
         this.cloud = (r.data.items || []).map(function (x) { return normalize(x, 'cloud'); });
         this.render();
-        XN.toast('云端 ' + this.cloud.length + ' 条');
+        XN.toast(t('fb.cloudCount', { n: this.cloud.length }));
       } catch (e) {
         if (e && e.status === 401) XN.lockAdmin();
-        XN.toast(e.message || '拉不到');
+        XN.toast(e.message || t('fb.pullFailed'));
       }
       btn.disabled = false;
     },
@@ -272,27 +288,27 @@
     async removeFromServer(path) {
       try {
         var r = await API.adminFetch(path, { method: 'DELETE' });
-        if (r.res.status === 401) { XN.lockAdmin(); throw new Error('会话失效，请重新解锁'); }
+        if (r.res.status === 401) { XN.lockAdmin(); throw new Error(t('fb.sessionExpired')); }
         if (!r.res.ok || !r.data || !r.data.ok) {
           throw new Error((r.data && r.data.error) || ('HTTP ' + r.res.status));
         }
         return r.data;
       } catch (e) {
         if (e && e.status === 401) XN.lockAdmin();
-        XN.toast(e.message || '删不掉');
+        XN.toast(e.message || t('fb.deleteFailed'));
         return null;
       }
     },
 
     /* 删一条云端反馈。id 用服务器给的 record.id（normalize 里存成 serverId）。 */
     async deleteCloud(id, btn) {
-      if (!state.admin) { XN.toast('先在设置里输密码解锁'); return; }
-      if (!API.isProxy()) { XN.toast('本地静态页面没有云端反馈'); return; }
+      if (!state.admin) { XN.toast(t('fb.needAdmin')); return; }
+      if (!API.isProxy()) { XN.toast(t('fb.noCloud')); return; }
       var key = String(id || '');
       if (!key) return;
       var item = (this.cloud || []).filter(function (x) { return x.serverId === key; })[0];
-      if (!item) { XN.toast('云端列表里没有这条了，先拉一次'); return; }
-      if (!confirm('从云端删掉这条反馈？删了就找不回来。')) return;
+      if (!item) { XN.toast(t('fb.cloudMissing')); return; }
+      if (!confirm(t('fb.deleteCloudAsk'))) return;
 
       if (btn) btn.disabled = true;
       var data = await this.removeFromServer('api/feedback?id=' + encodeURIComponent(key));
@@ -300,14 +316,14 @@
 
       this.cloud = (this.cloud || []).filter(function (x) { return x.serverId !== key; });
       this.render();
-      XN.toast(data.deleted ? '云端删掉了 ' + data.deleted + ' 条' : '云端没找到这条，本地列表已同步');
+      XN.toast(data.deleted ? t('fb.cloudDeleted', { n: data.deleted }) : t('fb.cloudNotFound'));
     },
 
     /* 清空云端全部反馈（?all=1）。确认后一次删干净。 */
     async wipeCloud() {
-      if (!state.admin) { XN.toast('先在设置里输密码解锁'); return; }
-      if (!API.isProxy()) { XN.toast('本地静态页面没有云端反馈'); return; }
-      if (!confirm('清空服务器上的全部反馈？删了就找不回来，先导出再删比较稳。')) return;
+      if (!state.admin) { XN.toast(t('fb.needAdmin')); return; }
+      if (!API.isProxy()) { XN.toast(t('fb.noCloud')); return; }
+      if (!confirm(t('fb.wipeAsk'))) return;
 
       var btn = $one('#fbWipe');
       if (btn) btn.disabled = true;
@@ -317,21 +333,21 @@
 
       this.cloud = [];
       this.render();
-      XN.toast('云端清空了，删掉 ' + (data.deleted || 0) + ' 条');
+      XN.toast(t('fb.wiped', { n: data.deleted || 0 }));
     },
 
     render() {
       var list = $one('#fbList');
       if (!list) return;
       var all = this.merged();
-      $one('#fbMeta').textContent = all.length + ' 条';
+      $one('#fbMeta').textContent = t('fb.count', { n: all.length });
       /* 空列表时 CSV 按钮置灰（按钮是注入的，可能还没建，ensureCsvButton 兼作创建） */
       var csvBtn = this.ensureCsvButton();
       if (csvBtn) csvBtn.disabled = !all.length;
 
       var endpoint = ((state.cfg.feedback && state.cfg.feedback.endpoint) || '').trim() || (API.isProxy() ? 'api/feedback' : '');
       $one('#fbSink').textContent = endpoint
-        ? '提交会同时发到 ' + endpoint + '，本地留一份备份。'
+        ? t('fb.sinkRemote', { u: endpoint })
         : t('fb.sinkLocal');
 
       var pullable = state.admin && hasBackend();
@@ -346,16 +362,16 @@
 
       list.innerHTML = all.map((f) => (
         '<div class="fb-item' + (f.origin === 'cloud' ? ' cloud' : '') + '">' +
-        '<div class="top"><span class="type">' + XN.esc(f.type) + '</span>' +
+        '<div class="top"><span class="type">' + XN.esc(typeLabel(f.type)) + '</span>' +
         '<span>' + XN.esc(dateText(f.ts)) + '</span>' +
-        '<span>' + (f.origin === 'cloud' ? '云端' : (f.status === 'sent' ? '已上传' : '仅本机')) + '</span>' +
+        '<span>' + (f.origin === 'cloud' ? t('fb.srcCloud') : (f.status === 'sent' ? t('fb.statusSent') : t('fb.statusLocal'))) + '</span>' +
         (f.origin === 'cloud' && pullable && f.serverId
           ? '<button type="button" class="btn ghost sm danger" style="margin-left:auto" data-fb-del="' +
-            XN.esc(f.serverId) + '" title="从云端删除这条">删除</button>'
+            XN.esc(f.serverId) + '" title="' + t('fb.deleteCloudTitle') + '">' + t('fb.delete') + '</button>'
           : '') +
         '</div>' +
         '<p>' + XN.esc(f.body) + '</p>' +
-        (f.contact ? '<div class="contact">联系：' + XN.esc(f.contact) + '</div>' : '') +
+        (f.contact ? '<div class="contact">' + t('fb.contactLine') + XN.esc(f.contact) + '</div>' : '') +
         '</div>'
       )).join('');
     }
@@ -364,7 +380,7 @@
   XN.views = XN.views || {};
   /* 视图改成插件注册：插件运行时注册清单，没装插件系统就退回老的直接挂载。 */
   if (XN && XN.plugin) {
-    XN.plugin.register({ id: 'view-feedback', name: '反馈箱', version: '2.0.0', view: feedback, nav: { order: 50 } });
+    XN.plugin.register({ id: 'view-feedback', name: t('nav.feedback'), version: '2.0.0', view: feedback, nav: { order: 50 } });
   } else {
     XN.views.feedback = feedback;
   }

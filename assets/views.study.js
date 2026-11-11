@@ -39,7 +39,7 @@
       });
 
       $$('#timerPreset button').forEach((b) => b.addEventListener('click', () => {
-        if (state.timer.running) { XN.toast('先暂停再换时长'); return; }
+        if (state.timer.running) { XN.toast(t('study.pauseFirst')); return; }
         state.timer.min = Number(b.dataset.min);
         state.timer.left = state.timer.min * 60;
         this.saveTimer();
@@ -81,7 +81,8 @@
       var wrap = document.createElement('div');
       wrap.className = 'note-export';
       wrap.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin:2px 0 10px';
-      wrap.innerHTML = '<button class="btn ghost sm" id="noteExportMd" type="button">导出 Markdown</button>';
+      wrap.innerHTML = '<button class="btn ghost sm" id="noteExportMd" type="button">' +
+        t('study.exportMd') + '</button>';
       list.parentNode.insertBefore(wrap, list.nextSibling);
       var btn = wrap.querySelector('#noteExportMd');
       btn.addEventListener('click', () => this.exportNotesMarkdown());
@@ -93,35 +94,35 @@
       if (!btn) return;
       var n = (state.notes || []).length;
       btn.disabled = !n;
-      btn.title = n ? ('把 ' + n + ' 条笔记导出成一个 .md 文件') : '还没有笔记可以导出';
+      btn.title = n ? t('study.exportTitle', { n: n }) : t('study.exportNone');
     },
 
     exportNotesMarkdown() {
       var notes = state.notes || [];
       if (!notes.length) {
-        XN.toast('还没有笔记，先写一条再导出');
+        XN.toast(t('study.exportEmpty'));
         this.syncExportButton();
         return;
       }
       var day = XN.util.todayStr();
-      var lines = ['# 小暖笔记（共 ' + notes.length + ' 条，导出于 ' + day + '）', ''];
+      var lines = [t('study.mdTitle', { n: notes.length, date: day }), ''];
       notes.forEach((n) => {
         var date = XN.util.dayKey(n.updated || n.ts) || XN.fmtDate(n.updated || n.ts);
-        lines.push('## ' + (n.title || '无标题') + ' · ' + date);
+        lines.push('## ' + (n.title || t('study.untitled')) + ' · ' + date);
         lines.push('');
         lines.push(String(n.body || '').trim());
         lines.push('');
       });
       XN.download('xiaonuan-notes-' + day + '.md', lines.join('\n').replace(/\n{3,}/g, '\n\n'), 'text/markdown;charset=utf-8');
-      XN.toast('导出 ' + notes.length + ' 条笔记');
+      XN.toast(t('study.exported', { n: notes.length }));
     },
 
     addGoal() {
       var input = $('#goalInput');
       var text = input.value.trim();
       if (!text) return;
-      if (state.goals.items.some((g) => g.text === text)) { XN.toast('这条已经在了'); return; }
-      if (state.goals.items.length >= 12) { XN.toast('今天的目标已经够多了，先做完一条'); return; }
+      if (state.goals.items.some((g) => g.text === text)) { XN.toast(t('study.goalExists')); return; }
+      if (state.goals.items.length >= 12) { XN.toast(t('study.goalFull')); return; }
       state.goals.date = XN.util.todayStr();
       state.goals.items.push({ id: XN.uid('g'), text: text.slice(0, 80), done: false, ts: Date.now() });
       input.value = '';
@@ -134,13 +135,14 @@
       if (!list) return;
       var items = state.goals.items;
       if (!items.length) {
-        list.innerHTML = '<p class="goal-empty">今天还没写目标。一条就够，写「必须做完」的那条。</p>';
+        list.innerHTML = '<p class="goal-empty">' + t('study.goalEmpty') + '</p>';
       } else {
         list.innerHTML = items.map((g) => (
           '<label class="goal' + (g.done ? ' done' : '') + '" data-id="' + XN.esc(g.id) + '">' +
           '<input type="checkbox"' + (g.done ? ' checked' : '') + '>' +
           '<span>' + XN.esc(g.text) + '</span>' +
-          '<button type="button" class="del" title="删掉" aria-label="删掉目标">×</button>' +
+          '<button type="button" class="del" title="' + t('study.deleteTitle') +
+          '" aria-label="' + t('study.deleteGoalLabel') + '">×</button>' +
           '</label>'
         )).join('');
       }
@@ -181,24 +183,24 @@
       var title = $('#noteTitle').value.trim();
       var body = $('#noteBody').value.trim();
       var tag = $('#noteTag').value.trim();
-      if (!title && !body) { XN.toast('标题或正文至少写一个'); return; }
+      if (!title && !body) { XN.toast(t('study.needContent')); return; }
       var id = form.dataset.id;
       if (id) {
         var note = state.notes.filter((n) => n.id === id)[0];
         if (note) {
-          note.title = (title || '无标题').slice(0, 60);
+          note.title = (title || t('study.untitled')).slice(0, 60);
           note.body = body.slice(0, 20000);
           note.tag = tag.slice(0, 16);
           note.updated = Date.now();
         }
-        XN.toast('改好了');
+        XN.toast(t('study.updated'));
       } else {
         state.notes.unshift({
-          id: XN.uid('n'), title: (title || '无标题').slice(0, 60),
+          id: XN.uid('n'), title: (title || t('study.untitled')).slice(0, 60),
           body: body.slice(0, 20000), tag: tag.slice(0, 16),
           ts: Date.now(), updated: Date.now()
         });
-        XN.toast('存下了');
+        XN.toast(t('study.saved'));
       }
       this.saveNotes();
       form.hidden = true;
@@ -223,7 +225,7 @@
 
       if (!all.length) {
         list.innerHTML = '<p class="note-empty">' + (($('#noteSearch').value || '').trim()
-          ? '没搜到。' : '还没有笔记。把今天错的题、想通的点，用自己的话写一条。') + '</p>';
+          ? t('study.searchNone') : t('study.noteEmpty')) + '</p>';
         $('#noteMoreWrap').hidden = true;
         return;
       }
@@ -231,14 +233,15 @@
       list.innerHTML = items.map((n) => (
         '<article class="note" data-id="' + XN.esc(n.id) + '" tabindex="0" role="button">' +
         '<h3>' + XN.esc(n.title) + '</h3>' +
-        '<p>' + XN.esc(String(n.body || '（空）').slice(0, 180)) + '</p>' +
+        '<p>' + XN.esc(String(n.body || t('study.noteBlank')).slice(0, 180)) + '</p>' +
         '<div class="meta"><span>' + XN.fmtDate(n.updated || n.ts) + '</span>' +
         (n.tag ? '<span class="tag">' + XN.esc(n.tag) + '</span>' : '') +
         '</div></article>'
       )).join('');
 
       $('#noteMoreWrap').hidden = all.length <= this.noteLimit;
-      $('#noteMore').textContent = t('study.more') + '（还剩 ' + Math.max(0, all.length - this.noteLimit) + ' 条）';
+      $('#noteMore').textContent = t('study.more') +
+        t('study.remaining', { n: Math.max(0, all.length - this.noteLimit) });
 
       $$('.note', list).forEach((el) => {
         var open = () => {
@@ -279,7 +282,7 @@
         state.timer.done = (state.timer.done || 0) + 1;
         this.saveTimer();
         this.renderTimer();
-        XN.toast('一轮走完了。起来动两分钟。');
+        XN.toast(t('study.roundDone'));
         return;
       }
       state.timer.left = left;
@@ -307,7 +310,7 @@
   if (XN.plugin && XN.plugin.register) {
     XN.plugin.register({
       id: 'view-study',
-      name: '学习台',
+      name: t('nav.study'),
       version: '2.0.0',
       view: study,
       nav: { order: 20 }
