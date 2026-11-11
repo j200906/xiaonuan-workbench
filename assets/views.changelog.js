@@ -4,6 +4,7 @@
 
   var XN = root.XN;
   var $ = XN.$;
+  var t = XN.t;
 
   function versionTuple(v) {
     return String(v || '0.0.0').split('.').map(function (n) { return Number(n) || 0; });
@@ -19,9 +20,9 @@
       '<div class="cl-head"><strong>v' + XN.esc(c.version) + '</strong>' +
       '<span class="cl-title">' + XN.esc(c.title || '') + '</span>' +
       '<span class="cl-date">' + XN.esc(c.date || '') + '</span></div>' +
-      ((c.fixes && c.fixes.length) ? '<div class="cl-sec"><h4>修掉的</h4><ul>' +
+      ((c.fixes && c.fixes.length) ? '<div class="cl-sec"><h4>' + t('cl.fixes') + '</h4><ul>' +
         c.fixes.map(function (x) { return '<li>' + XN.esc(x) + '</li>'; }).join('') + '</ul></div>' : '') +
-      ((c.features && c.features.length) ? '<div class="cl-sec"><h4>新增的</h4><ul>' +
+      ((c.features && c.features.length) ? '<div class="cl-sec"><h4>' + t('cl.features') + '</h4><ul>' +
         c.features.map(function (x) { return '<li>' + XN.esc(x) + '</li>'; }).join('') + '</ul></div>' : '') +
       (c.notes ? '<p class="cl-note">' + XN.esc(c.notes) + '</p>' : '') +
       '</article>';
@@ -29,8 +30,8 @@
 
   function toggleHtml(collapsed, rest) {
     var label = collapsed
-      ? '展开全部（还有 ' + rest + ' 条）'
-      : '收起（只看最近 ' + PAGE + ' 条）';
+      ? t('cl.expandAll', { n: rest })
+      : t('cl.collapse', { n: PAGE });
     return '<div class="cl-more" style="display:flex;justify-content:center;padding-top:2px">' +
       '<button type="button" class="btn ghost sm" id="clToggle" aria-controls="clList" aria-expanded="' +
       (collapsed ? 'false' : 'true') + '">' + XN.esc(label) + '</button></div>';
@@ -78,7 +79,7 @@
         to.dataset.filled = '1';
       }
       var meta = $('#clMeta');
-      if (meta) meta.textContent = '当前 v' + (root.XN_VERSION || '?') + ' · 共 ' + list.length + ' 个版本';
+      if (meta) meta.textContent = t('cl.meta', { v: root.XN_VERSION || '?', n: list.length });
     },
 
     render() {
@@ -94,12 +95,14 @@
       var range = iFrom === iTo ? [list[iTo]] : list.slice(iTo, iFrom + 1);
       var fixes = range.reduce(function (n, c) { return n + (c.fixes || []).length; }, 0);
       var feats = range.reduce(function (n, c) { return n + (c.features || []).length; }, 0);
-      var scope = iFrom === iTo ? 'v' + toV + ' 这一个版本' : 'v' + fromV + ' 到 v' + toV + ' · ' + range.length + ' 个版本';
-      $('#clSum').textContent = scope + ' · 修复 ' + fixes + ' 项 · 新增 ' + feats + ' 项';
+      var scope = iFrom === iTo
+        ? t('cl.scopeOne', { v: toV })
+        : t('cl.scopeRange', { a: fromV, b: toV, n: range.length });
+      $('#clSum').textContent = scope + t('cl.sum', { f: fixes, n: feats });
 
       var box = $('#clList');
       if (!range.length) {
-        box.innerHTML = '<p class="it-empty">这段区间没有记录。</p>';
+        box.innerHTML = '<p class="it-empty">' + t('cl.empty') + '</p>';
         return;
       }
       var collapsed = !expanded && range.length > PAGE;
@@ -120,7 +123,7 @@
   /* 视图注册（P1）：有插件运行时就走插件清单一行的 register，没有就退回老路。
      两条路只登记一次，视图逻辑本身没动。 */
   if (XN && XN.plugin && typeof XN.plugin.register === 'function') {
-    XN.plugin.register({ id: 'view-changelog', name: '更新日志', version: '2.0.0', view: changelog, nav: { order: 30 } });
+    XN.plugin.register({ id: 'view-changelog', name: t('nav.changelog'), version: '2.0.0', view: changelog, nav: { order: 30 } });
   } else {
     XN.views.changelog = changelog;
   }
