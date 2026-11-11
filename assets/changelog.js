@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "3.0.1",
+    "date": "2026-11-11",
+    "title": "CI 预检对齐七个视图",
+    "fixes": ["ui-check 静态预检里的视图清单与侧栏计数同步到 7 个（含插件中心）"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "3.0.0",
     "date": "2026-11-11",
     "title": "插件中心：终于有找插件的地方了",

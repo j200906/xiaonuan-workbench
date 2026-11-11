@@ -329,12 +329,12 @@ async function runHttpChecks(check, baseUrl, opts) {
     broken.slice(0, 6).join(', '));
 
   const viewIds = [...new Set([...html.matchAll(/id="view-([a-z]+)"/g)].map((m) => m[1]))];
-  const expectedViews = ['chat', 'study', 'feedback', 'settings', 'changelog'];
+  const expectedViews = ['chat', 'study', 'feedback', 'plugins', 'settings', 'changelog', 'iterate'];
   const missingViews = expectedViews.filter((v) => !viewIds.includes(v));
-  check('页面含五个视图容器', missingViews.length === 0, missingViews.length ? '缺 ' + missingViews.join(',') : viewIds.join(','));
+  check('页面含七个视图容器', missingViews.length === 0, missingViews.length ? '缺 ' + missingViews.join(',') : viewIds.join(','));
 
   const sideLinks = (html.match(/class="side-link"/g) || []).length;
-  check('侧栏 6 个入口', sideLinks === 6, String(sideLinks));
+  check('侧栏 7 个入口', sideLinks === 7, String(sideLinks));
 
   const versionJs = await (await fetch(`${baseUrl}/assets/version.js`)).text();
   const version = (versionJs.match(/\|\|\s*"([0-9]+\.[0-9]+\.[0-9]+)"/) || [])[1];
