@@ -257,7 +257,32 @@
   /* 智能安装：先按 ESM/DSH 方式试（能跑 apply(ctx) 的插件），
      再判断有没有插件自己 register 上来（经典脚本也可以被 import 执行），
      最后才退回经典 <script> 注入。 */
+  /* 插件地址策略（代码级防线）：
+     - 只允许 http(s)
+     - 默认只允许同源；跨源必须在 cfg.pluginTrustedHosts 里显式信任
+     为什么必须做：CSP script-src 'self' 能挡跨源脚本，但静态托管（GitHub Pages）
+     没有 CSP 头，同一条链路就完全不设防。 */
+  function resolvePluginUrl(url) {
+    var loc = root.location || {};
+    var base = loc.href || 'http://localhost/';
+    var u;
+    try { u = new URL(String(url || ''), base); } catch (e) { throw new Error('插件地址不合法'); }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      throw new Error('插件地址只支持 http(s)，拒绝 ' + u.protocol);
+    }
+    var sameOrigin = loc.origin ? u.origin === loc.origin : true;
+    if (!sameOrigin) {
+      var trusted = (XN.state && XN.state.cfg && Array.isArray(XN.state.cfg.pluginTrustedHosts))
+        ? XN.state.cfg.pluginTrustedHosts : [];
+      if (trusted.indexOf(u.host) < 0) {
+        throw new Error('跨源插件需要先信任域名：' + u.host + '（设置里加 pluginTrustedHosts）');
+      }
+    }
+    return u.href;
+  }
+
   function installAuto(url, opts) {
+    url = resolvePluginUrl(url);
     var snapshot = plugins.length;
     var esm = (root.XN && XN.dsh && typeof XN.dsh.load === 'function')
       ? XN.dsh.load(url, opts).catch(function () { return { ok: false }; })
@@ -682,6 +707,7 @@
     },
     install: install,
     installAuto: installAuto,
+    resolveUrl: resolvePluginUrl,
     /* P4 安装式扩展 */
     loadManifest: loadManifest,
     pin: pin,

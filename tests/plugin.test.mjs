@@ -53,6 +53,7 @@ function makeHost(opts = {}) {
     setTimeout,
     clearTimeout,
     JSON,
+    URL,
     Math,
     Date,
     Object,
@@ -512,4 +513,28 @@ test('13) 本地默认清单 manifest.js → loadManifest() 装上 export-sessio
   assert.equal(st.version, '1.0.0');
   assert.equal(st.url, 'assets/plugins/export-session.js');
   assert.equal(st.status, 'ok');
+});
+
+/* ---------- 插件地址策略（红队演练后补的回归） ---------- */
+function hostWithOrigin(origin) {
+  const h = makeHost();
+  h.sandbox.location = { href: origin + '/index.html', origin };
+  return h;
+}
+
+test('地址策略：data:/javascript:/file: 一律拒绝', () => {
+  const h = hostWithOrigin('https://app.example');
+  for (const bad of ['data:text/javascript,export function apply(){}', 'javascript:alert(1)', 'file:///C:/x.js']) {
+    assert.throws(() => h.XN.plugin.resolveUrl(bad), /只支持 http\(s\)/, bad);
+  }
+});
+
+test('地址策略：同源放行，跨源默认拒绝，信任后放行', () => {
+  const h = hostWithOrigin('https://app.example');
+  assert.match(h.XN.plugin.resolveUrl('/assets/plugins/x.js'), /^https:\/\/app\.example\/assets\/plugins\/x\.js$/, '同源要放行');
+  assert.throws(() => h.XN.plugin.resolveUrl('https://evil.example/x.js'), /跨源插件需要先信任/, '默认拒绝跨源');
+
+  h.state.cfg.pluginTrustedHosts = ['evil.example'];
+  assert.match(h.XN.plugin.resolveUrl('https://evil.example/x.js'), /evil\.example\/x\.js$/, '信任后放行');
+  assert.throws(() => h.XN.plugin.resolveUrl('https://other.example/x.js'), /跨源插件需要先信任/, '别的主机仍拒绝');
 });

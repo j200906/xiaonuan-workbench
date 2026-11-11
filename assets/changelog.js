@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "3.2.0",
+    "date": "2026-11-11",
+    "title": "攻防演练与插件供应链加固",
+    "fixes": ["新增可复跑的红队套件（服务端 28 项 / 客户端插件注入 5 类）与演练报告 docs/REDTEAM.md；插件地址策略：只允许 http(s) + 同源默认 + 跨源需信任域名，索引拉取同策略；CSP 补 object-src none；新增 2 条地址策略回归测试"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "3.1.3",
     "date": "2026-11-11",
     "title": "插件中心开箱可逛：官方索引 + 智能安装",

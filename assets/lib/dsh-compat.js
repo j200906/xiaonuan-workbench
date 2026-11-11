@@ -159,7 +159,14 @@
 
     /* 动态 import 只认完整 URL：裸相对路径会当成模块说明符直接失败 */
     var absUrl = url;
-    try { absUrl = new URL(url, root.location && root.location.href ? root.location.href : 'http://localhost/').href; } catch (e) {}
+    try {
+      absUrl = (XN.plugin && XN.plugin.resolveUrl)
+        ? XN.plugin.resolveUrl(url)
+        : new URL(url, root.location && root.location.href ? root.location.href : 'http://localhost/').href;
+    } catch (e) {
+      loaded[url] = { ok: false, error: e.message };
+      return loaded[url];
+    }
     try {
       mod = await import(/* @vite-ignore */ absUrl);
     } catch (e) {

@@ -26,7 +26,8 @@
 
   /* 拉一个索引 JSON：{ version:1, plugins:[{id,name,version,url,description}] } */
   async function fetchIndex(url) {
-    var res = await fetch(url, { headers: { Accept: 'application/json' } });
+    var target = (XN.plugin && XN.plugin.resolveUrl) ? XN.plugin.resolveUrl(url) : url;
+    var res = await fetch(target, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var data = await res.json();
     if (!data || !Array.isArray(data.plugins)) throw new Error(T('plugins.badIndex'));
