@@ -94,8 +94,6 @@
       if (!btn) return;
       var n = (state.notes || []).length;
       btn.disabled = !n;
-      /* 按钮文案也在这里刷：运行中切语言后重渲染能跟上（按钮本身只注入一次） */
-      btn.textContent = t('study.exportMd');
       btn.title = n ? t('study.exportTitle', { n: n }) : t('study.exportNone');
     },
 

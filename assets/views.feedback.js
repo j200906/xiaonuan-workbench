@@ -341,14 +341,9 @@
       if (!list) return;
       var all = this.merged();
       $one('#fbMeta').textContent = t('fb.count', { n: all.length });
-      /* 空列表时 CSV 按钮置灰（按钮是注入的，可能还没建，ensureCsvButton 兼作创建）。
-         文案也在这里刷：运行中切语言后重渲染能跟上。 */
+      /* 空列表时 CSV 按钮置灰（按钮是注入的，可能还没建，ensureCsvButton 兼作创建） */
       var csvBtn = this.ensureCsvButton();
-      if (csvBtn) {
-        csvBtn.disabled = !all.length;
-        csvBtn.textContent = t('fb.exportCsv');
-        csvBtn.title = t('fb.exportCsvTitle');
-      }
+      if (csvBtn) csvBtn.disabled = !all.length;
 
       var endpoint = ((state.cfg.feedback && state.cfg.feedback.endpoint) || '').trim() || (API.isProxy() ? 'api/feedback' : '');
       $one('#fbSink').textContent = endpoint
