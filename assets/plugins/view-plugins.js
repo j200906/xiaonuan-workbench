@@ -14,9 +14,13 @@
   var esc = function (s) { return (XN.esc ? XN.esc(s) : String(s)); };
   var T = function (k, v) { return XN.t ? XN.t(k, v) : k; };
 
+  /* 官方索引：用户可以额外加自己的源，但这条永远在（只增不减） */
+  var OFFICIAL_INDEX = 'assets/plugins/index.json';
+
   function indexSources() {
     var cfg = (XN.state && XN.state.cfg) || {};
     cfg.pluginIndexes = Array.isArray(cfg.pluginIndexes) ? cfg.pluginIndexes : [];
+    if (cfg.pluginIndexes.indexOf(OFFICIAL_INDEX) < 0) cfg.pluginIndexes.unshift(OFFICIAL_INDEX);
     return cfg.pluginIndexes;
   }
 
@@ -77,7 +81,10 @@
     if (!available.length) return '<p class="hint">' + esc(T('plugins.noIndex')) + '</p>';
     var html = '<div class="kv">';
     available.forEach(function (p) {
-      var installed = (XN.plugin && XN.plugin.list ? XN.plugin.list() : []).some(function (x) { return x.id === p.id; });
+      /* 索引里的 id 可能是 dsh-hello，注册后是 view-dsh-hello；两种都算已装 */
+      var installed = (XN.plugin && XN.plugin.list ? XN.plugin.list() : []).some(function (x) {
+        return x.id === p.id || x.id === 'view-' + p.id;
+      }) || !!(XN.views && XN.views[p.id]);
       html += '<div class="kv-row"><span><strong>' + esc(p.name || p.id) + '</strong> ' +
         (p.version ? '<em>v' + esc(p.version) + '</em>' : '') +
         (p.description ? '<br><small class="hint">' + esc(p.description) + '</small>' : '') +
@@ -143,7 +150,7 @@
     board.querySelectorAll('[data-install]').forEach(function (el) {
       el.addEventListener('click', function () {
         el.disabled = true;
-        XN.plugin.install(el.getAttribute('data-install')).then(function () {
+        XN.plugin.installAuto(el.getAttribute('data-install')).then(function () {
           if (XN.toast) XN.toast(T('plugins.installedOk'), 'ok');
           render();
         }).catch(function (e) {
@@ -155,6 +162,7 @@
     board.querySelectorAll('[data-remove-index]').forEach(function (el) {
       el.addEventListener('click', function () {
         var u = el.getAttribute('data-remove-index');
+        if (u === OFFICIAL_INDEX) { if (XN.toast) XN.toast(T('plugins.officialFixed')); return; }
         var list = indexSources();
         var i = list.indexOf(u);
         if (i >= 0) list.splice(i, 1);
@@ -199,7 +207,7 @@
       var v = String(($('#pluginInstallUrl', board) || {}).value || '').trim();
       if (!v) return;
       inst.disabled = true;
-      XN.plugin.install(v).then(function () {
+      XN.plugin.installAuto(v).then(function () {
         if (XN.toast) XN.toast(T('plugins.installedOk'), 'ok');
         render();
       }).catch(function (e) {

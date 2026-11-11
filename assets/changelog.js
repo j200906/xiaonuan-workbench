@@ -1,6 +1,16 @@
 /* 版本记录（最近 12 条）。 */
 window.XN_CHANGELOG = [
   {
+    "version": "3.1.3",
+    "date": "2026-11-11",
+    "title": "插件中心开箱可逛：官方索引 + 智能安装",
+    "fixes": ["新增 assets/plugins/index.json 官方索引（默认源，不可移除）；安装自动识别加载器（ESM/DSH → 经典脚本兜底），索引 id 与注册 id 双匹配"],
+    "features": [],
+    "source": "ship",
+    "feedbackCount": 0,
+    "notes": ""
+  },
+  {
     "version": "3.1.2",
     "date": "2026-11-11",
     "title": "插件中心回到侧栏",

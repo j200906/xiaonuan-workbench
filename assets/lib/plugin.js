@@ -254,6 +254,21 @@
     return out;
   }
 
+  /* 智能安装：先按 ESM/DSH 方式试（能跑 apply(ctx) 的插件），
+     再判断有没有插件自己 register 上来（经典脚本也可以被 import 执行），
+     最后才退回经典 <script> 注入。 */
+  function installAuto(url, opts) {
+    var snapshot = plugins.length;
+    var esm = (root.XN && XN.dsh && typeof XN.dsh.load === 'function')
+      ? XN.dsh.load(url, opts).catch(function () { return { ok: false }; })
+      : Promise.resolve({ ok: false });
+    return esm.then(function (r) {
+      if (r && r.ok) return { ok: true, mode: 'esm' };
+      if (plugins.length > snapshot) return { ok: true, mode: 'esm-registered' };
+      return install(url).then(function () { return { ok: true, mode: 'classic' }; });
+    });
+  }
+
   function install(url) {
     return new Promise(function (resolve, reject) {
       if (!url) return reject(new Error('install 需要一个脚本地址'));
@@ -666,6 +681,7 @@
       return m[key] === undefined ? fallback : m[key];
     },
     install: install,
+    installAuto: installAuto,
     /* P4 安装式扩展 */
     loadManifest: loadManifest,
     pin: pin,

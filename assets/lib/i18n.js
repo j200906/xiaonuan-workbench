@@ -13,6 +13,8 @@
 
   var DICT = {
     'zh-CN': {
+    'plugins.officialFixed': '官方索引不能移除',
+    'plugins.official': '官方',
     'plugins.installDsh': 'DSH 兼容安装',
     'plugins.dshHint': 'DSH 风格插件（export function apply(ctx)）走兼容层加载；不支持 cordis 容器与 YAML bundle。',
     'plugins.title': '插件中心',
@@ -253,6 +255,8 @@
     /* 繁體中文（台灣用語）：键必须与 zh-CN 一一对应，改 zh-CN 时记得同步这里。
        用词按台灣習慣：設定／預設／自訂／儲存／影片／網路／資訊／軟體／列印… */
     'zh-TW': {
+    'plugins.officialFixed': '官方索引不能移除',
+    'plugins.official': '官方',
     'plugins.installDsh': 'DSH 相容安裝',
     'plugins.dshHint': 'DSH 風格外掛（export function apply(ctx)）走相容層載入；不支援 cordis 容器與 YAML bundle。',
     'plugins.title': '外掛中心',
@@ -488,6 +492,8 @@
       'error.localOnly': '這個功能要部署在雲端才能用。'
     },
     'en': {
+    'plugins.officialFixed': 'The official index cannot be removed',
+    'plugins.official': 'official',
     'plugins.installDsh': 'Install (DSH compat)',
     'plugins.dshHint': 'DSH-style plugins (export function apply(ctx)) load through a shim; cordis containers and YAML bundles are not supported.',
     'plugins.title': 'Plugin Center',

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "小暖官方插件索引",
+  "updated": "2026-11-11",
+  "plugins": [
+    {
+      "id": "dsh-hello",
+      "name": "DSH 示例插件",
+      "version": "1.0.0",
+      "url": "assets/plugins/dsh-hello.js",
+      "description": "用 DSH 风格（export function apply(ctx)）写的示例：注册一个命令和一个视图，验证兼容层",
+      "author": "xiaonuan",
+      "official": true
+    }
+  ]
+}
