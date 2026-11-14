@@ -199,12 +199,54 @@ window.XN_TOOLS = (function () {
     return { ok: true, text: text };
   }
 
+  /* 浏览器能给的只有时区，不是精确城市。这里把它翻成一句人话给模型，
+     并且明确标注「推测」，避免模型把它当既定事实去编。 */
+  var TZ_CITY = {
+    'Asia/Shanghai': '中国大陆（北京时间）',
+    'Asia/Chongqing': '中国大陆（北京时间）',
+    'Asia/Harbin': '中国大陆（北京时间）',
+    'Asia/Urumqi': '中国大陆新疆（乌鲁木齐时间）',
+    'Asia/Hong_Kong': '中国香港',
+    'Asia/Macau': '中国澳门',
+    'Asia/Taipei': '中国台湾（台北）',
+    'Asia/Tokyo': '日本（东京）',
+    'Asia/Seoul': '韩国（首尔）',
+    'Asia/Singapore': '新加坡',
+    'America/New_York': '美国东部',
+    'America/Chicago': '美国中部',
+    'America/Denver': '美国山地',
+    'America/Los_Angeles': '美国西部',
+    'Europe/London': '英国（伦敦）',
+    'Europe/Paris': '欧洲中部',
+    'Europe/Berlin': '德国（柏林）',
+    'Australia/Sydney': '澳大利亚（悉尼）'
+  };
+
+  function guessPlace() {
+    var tz = '';
+    try {
+      tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+    } catch (e) {
+      tz = '';
+    }
+    if (!tz) return { timeZone: '', hint: '' };
+    var hint = TZ_CITY[tz] || '';
+    /* 大陆各城市都落在 Asia/Shanghai，具体是哪个市浏览器不告诉，只能到省/国级 */
+    if (!hint && tz.indexOf('Asia/') === 0) hint = '亚洲（时区 ' + tz + '）';
+    return { timeZone: tz, hint: hint };
+  }
+
   function toolNow() {
     var d = new Date();
     var text = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
       + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds())
       + ' 星期' + WEEK[d.getDay()];
-    return { ok: true, text: '当前本地时间是 ' + text + '。' };
+    var place = guessPlace();
+    var placeText = place.timeZone
+      ? '\n设备时区：' + place.timeZone + (place.hint ? '（大致对应' + place.hint + '）' : '')
+        + '\n注意：时区只说明「大概在哪一片」，不等于精确城市。问天气、温度、本地新闻这类需要具体城市的事，必须让用户说出城市，不要自己猜。'
+      : '\n拿不到设备时区；问天气这类本地信息时，必须让用户说出城市。';
+    return { ok: true, text: '当前本地时间是 ' + text + '。' + placeText };
   }
 
   /* ---------------- 对外：执行单个工具 ---------------- */
@@ -343,13 +385,29 @@ window.XN_TOOLS = (function () {
     return '';
   }
 
+  /* 需要具体地点的词：这类问题如果用户没说是哪，搜索结果会混进多个城市 */
+  var PLACE_NEEDED = /天气|气温|温度|下雨|下雪|空气质量|限行|路况|本地新闻|附近/;
+  var CITY_WORDS = ["北京", "上海", "广州", "深圳", "杭州", "南京", "成都", "重庆", "武汉", "西安",
+    "天津", "苏州", "郑州", "长沙", "青岛", "沈阳", "大连", "厦门", "福州", "昆明", "合肥",
+    "济南", "哈尔滨", "长春", "石家庄", "太原", "南昌", "贵阳", "南宁", "兰州", "海口",
+    "香港", "澳门", "台北", "日本", "韩国", "美国", "英国", "德国", "法国", "新加坡"];
+
+  function hasCity(s) {
+    for (var i = 0; i < CITY_WORDS.length; i++) {
+      if (s.indexOf(CITY_WORDS[i]) >= 0) return true;
+    }
+    return false;
+  }
+
+  /* 返回 { query, needPlace } 或 null。needPlace=true 表示「要地点但用户没说」*/
   function needSearch(messages) {
     var s = lastUserText(messages);
     if (!s) return null;
     for (var i = 0; i < AUTO_KEYWORDS.length; i++) {
       if (s.indexOf(AUTO_KEYWORDS[i]) >= 0) {
-        /* 搜索词就取这句原话，太长的话砍到 60 字，避免 URL 爆长 */
-        return s.length > 60 ? s.slice(0, 60) : s;
+        var q = s.length > 60 ? s.slice(0, 60) : s;
+        if (PLACE_NEEDED.test(s) && !hasCity(s)) return { query: q, needPlace: true };
+        return { query: q, needPlace: false };
       }
     }
     return null;
@@ -399,16 +457,25 @@ window.XN_TOOLS = (function () {
 
     /* ---- 降级路线：关键词判断 + 普通对话 ---- */
     var calls = [];
-    var query = needSearch(messages);
+    var need = needSearch(messages);
 
-    if (query && toolSpecs.some(function (s) { return s.function && s.function.name === 'web_search'; })) {
-      var result = await run('web_search', { query: query });
-      calls.push({ name: 'web_search', args: { query: query }, ok: result.ok });
-      if (onTool) onTool('web_search', { query: query }, result);
+    /* 要地点但用户没说：不搜索（搜了也是一堆城市混在一起），直接要求先问清 */
+    if (need && need.needPlace) {
+      messages.push({
+        role: "system",
+        content: "用户问的是需要具体地点的信息（天气/本地情况），但这句话里没有城市。" +
+          "绝对不要猜城市，也不要把多个城市的数据混在一起说。" +
+          "只用一句话问清「你在哪个城市」，问完就停，不要附带任何天气数据。"
+      });
+    } else if (need && toolSpecs.some(function (s) { return s.function && s.function.name === "web_search"; })) {
+      var result = await run("web_search", { query: need.query });
+      calls.push({ name: "web_search", args: { query: need.query }, ok: result.ok });
+      if (onTool) onTool("web_search", { query: need.query }, result);
 
       messages.push({
-        role: 'system',
-        content: '以下是刚刚联网查到的实时资料，请优先参考它回答，不要凭记忆编造：\n' + result.text
+        role: "system",
+        content: "以下是刚刚联网查到的实时资料，请优先参考它回答，不要凭记忆编造。" +
+          "如果资料里出现多个城市，只挑用户问到的那一个说；用户没指定城市就别给具体数值：\n" + result.text
       });
     }
 
@@ -422,7 +489,7 @@ window.XN_TOOLS = (function () {
     if (!content) content = '（这次没能生成回复，要不要再说一次？）';
     if (typeof opts.onText === 'function') opts.onText(content);
 
-    return { content: content, calls: calls, rounds: query ? 0 : 1 };
+    return { content: content, calls: calls, rounds: need ? 0 : 1 };
   }
 
   return {

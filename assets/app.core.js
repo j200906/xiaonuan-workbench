@@ -633,9 +633,18 @@ function switchView(id) {
   }
 
   /* ---------- 发送 ---------- */
+  /* 什么时候值得走工具循环。
+     之前把「现在」「最新」都算进来，结果「我现在好累」这种普通聊天也会触发一轮工具探索，
+     白白多一次请求（慢）而且容易连着弹提示。现在只认真正要查外部事实的说法。 */
   function needsTools(text) {
-    if (state.web) return true;
-    return /今天|现在|几点|几号|星期|日期|今年|新闻|天气|最新/.test(String(text || ''));
+    var s = String(text || '');
+    /* 联网开关只表示「允许联网」，不等于「每条消息都要联网」：
+       之前这里是 return true，结果开了联网以后每句闲聊都走一遍工具循环，
+       一次发送变成两三次请求，还连着弹提示——用户看到的就是「发一条出两个」。 */
+    if (/几点了|几点|现在时间|今天几号|几月几号|星期几|今天星期/.test(s)) return true;
+    if (/天气|气温|温度|下雨|下雪|空气质量|限行|路况/.test(s)) return true;
+    if (/新闻|热搜|发生了什么|最新版本|出了吗|发布了吗/.test(s)) return true;
+    return false;
   }
 
   async function detectEmotion(text) {
@@ -705,7 +714,13 @@ function switchView(id) {
           textChat: function (m) { return LLM().chatRaw(m, { signal: ctrl.signal }).then(function (r) { return r.content; }); },
           onTool: function (name, args, result) {
             bot.tools.push({ name: name, ok: !!(result && result.ok) });
-            U.toast('用了工具：' + name + (result && result.ok ? '' : '（没跑通）'));
+            /* 一次回答里可能连着调好几个工具：只提示第一条，其余静默，
+               否则右下角会叠出两条一样的提示，看着像「出了两个问题」。 */
+            if (!bot.toolsToasted) {
+              bot.toolsToasted = true;
+              U.toast('正在查资料…');
+            }
+            if (!(result && result.ok)) bot.toolFailed = true;
           }
         });
         res = { text: (loopRes && loopRes.content) || '', reasoning: '' };
