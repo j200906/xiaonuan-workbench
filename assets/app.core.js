@@ -576,7 +576,6 @@ function switchView(id) {
 
   function systemPromptFor(session) {
     var custom = String(state.cfg.tutor.systemPrompt || '').trim();
-    if (custom) return custom;
     if (!root.XN_PERSONA || !root.XN_PERSONA.build) return '你叫小暖。';
 
     var q = lastUserText(session);
@@ -586,6 +585,9 @@ function switchView(id) {
     var trails = mem && mem.activate ? mem.activate(q, 6) : [];
 
     var prompt = root.XN_PERSONA.build({
+      /* 把「真实可用能力」传进去：联网开关是活的，人设不能写死 */
+      capabilities: { web: !!state.web, time: true },
+      coreOverride: custom || "",
       query: q,
       emo: state.lastEmo || root.XN_PERSONA.detectEmotion(q),
       memories: memories,
