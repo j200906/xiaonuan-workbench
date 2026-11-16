@@ -16,7 +16,8 @@
     "lint": "eslint .",
     "check": "node scripts/check.mjs",
     "redteam": "node tests/redteam.mjs",
-    "redteam:client": "node tests/redteam-client.mjs cloudflare/.pages"
+    "redteam:client": "node tests/redteam-client.mjs cloudflare/.pages",
+    "compare:origin": "node scripts/compare-origin.cjs"
   },
   "devDependencies": {
     "eslint": "^9.17.0"
