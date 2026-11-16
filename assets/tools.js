@@ -24,6 +24,10 @@
 window.XN_TOOLS = (function () {
   'use strict';
 
+  /* 模块内部要用到 root.XN（能力层、上下文消解、记忆扩展），
+     原来的 IIFE 没有参数，直接用 root 会 ReferenceError。 */
+  var root = typeof window !== 'undefined' ? window : globalThis;
+
   /* 搜索结果最多回填几条，网页正文最多回填多少字。
      3500 字对长文问答太短，关键段落经常刚好在截断线后面；提到 12000。 */
   var SEARCH_LIMIT = 5;
@@ -63,6 +67,43 @@ window.XN_TOOLS = (function () {
             }
           },
           required: ['query']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'recall_memory',
+        description: '回查自己的长期记忆。上下文里显式记忆只展示前 20 条；出现「另有 N 条」时、用户问起以前提过的事但上下文没写全时、或想确认某条记忆是否还在，就调它。mode=expand 取全部显式记忆；mode=history 要 topic，查这个话题的记忆流水（含已淡出/被取代）；mode=stats 只看记忆库状态。',
+        parameters: {
+          type: 'object',
+          properties: {
+            mode: {
+              type: 'string',
+              enum: ['expand', 'history', 'stats'],
+              description: 'expand=展开全部显式记忆（默认）；history=按 topic 查流水；stats=记忆库统计'
+            },
+            topic: {
+              type: 'string',
+              description: 'mode=history 时的检索关键词，尽量用记忆里的原词'
+            }
+          }
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'weather',
+        description: '查某个城市的天气实况和未来三天预报。用户只问「今天天气怎么样」而没说城市时，city 留空——程序会自动用 IP 定位猜一个，并把「按 IP 推测」写进结果里。不要为了填 city 自己编一个城市名。',
+        parameters: {
+          type: 'object',
+          properties: {
+            city: {
+              type: 'string',
+              description: '城市名，如「杭州」「北京」。用户没说就留空。'
+            }
+          }
         }
       }
     },
@@ -141,7 +182,23 @@ window.XN_TOOLS = (function () {
 
   async function toolSearch(args) {
     var q = args && args.query ? String(args.query).trim() : '';
+    var raw = args && args.raw_query ? String(args.raw_query).trim() : '';
     if (!q) return { ok: false, text: '工具没跑通：web_search 缺少 query' };
+
+    /* 上下文消解：把「那个」「它」还原成上文的具体对象。
+       没这层的话，「那明天呢」会被原样丢进搜索，搜回来一堆无关的东西。 */
+    if (root.XN && XN.context && XN.context.resolve) {
+      var r = XN.context.resolve(q, raw);
+      if (r.blocked) {
+        return {
+          ok: false,
+          text: '用户这句里只有代词或疑问词，上文也没有可指代的对象，搜了也只会跑题。请直接问清「它」具体指什么，不要猜。'
+        };
+      }
+      if (r.resolved) {
+        q = r.query || r.fallbackQuery || q;
+      }
+    }
 
     var data = await getJSON('api/search?q=' + encodeURIComponent(q));
     var items = data.items || [];
@@ -159,9 +216,90 @@ window.XN_TOOLS = (function () {
       lines.push('   ' + (it.url || ''));
       lines.push('   ' + (it.snippet || '(无摘要)'));
     }
+    if (root.XN && XN.context && XN.context.rememberFocus) XN.context.rememberFocus(q);
     var source = data.source === 'wikipedia' ? '维基百科' : (data.source === 'duckduckgo' ? 'DuckDuckGo' : '网页');
     var head = '搜索「' + q + '」（来源：' + source + '）获得 ' + total + ' 条，给出前 ' + n + ' 条：';
     return { ok: true, text: head + '\n' + lines.join('\n') };
+  }
+
+  /* 记忆回溯：上下文里塞不下的记忆，让模型自己来翻。
+     没有这层，用户说「上次那个项目」，模型只能装不记得。 */
+  function toolRecall(args) {
+    var mp = root.XN && XN.memPlus;
+    var m = root.XN_MEM;
+    if (!mp || !m) return { ok: false, text: '记忆库还没就绪，暂时查不到。' };
+
+    var mode = String((args && args.mode) || 'expand').toLowerCase();
+
+    try {
+      if (mode === 'history') {
+        var topic = String((args && args.topic) || '').trim();
+        if (!topic) return { ok: false, text: '查历史需要给出 topic（记忆里的关键词）。' };
+        var rows = mp.history(topic);
+        if (!rows.length) return { ok: true, text: '没有找到包含「' + topic + '」的记忆。' };
+        var out = ['【「' + topic + '」的记忆流水】'];
+        rows.slice(0, 20).forEach(function (r) {
+          var when = r.from ? new Date(r.from).toISOString().slice(0, 10) : '?';
+          out.push('- ' + r.content + '（状态 ' + r.status + '，' + when + ' 起）');
+        });
+        return { ok: true, text: out.join('\n') };
+      }
+
+      if (mode === 'stats') {
+        var st = mp.stageStats();
+        return {
+          ok: true,
+          text: '【记忆库状态】待巩固 ' + (st.buffer || 0) + ' 条；长期 active ' + (st.active || 0) +
+            ' / faded ' + (st.faded || 0) + ' / superseded ' + (st.superseded || 0) + ' / deleted ' + (st.deleted || 0)
+        };
+      }
+
+      var all = (m.getActiveMemories ? m.getActiveMemories() : null) || {};
+      var items = all.explicit || [];
+      if (!items.length) return { ok: true, text: '当前没有需要展开的显式记忆。' };
+      return { ok: true, text: '【全部显式记忆（共 ' + items.length + ' 条）】\n' + items.map(function (c) { return '- ' + c; }).join('\n') };
+    } catch (e) {
+      return { ok: false, text: '查询记忆出错：' + (e && e.message ? e.message : e) };
+    }
+  }
+
+  /* 天气：v5.8 的做法——给了城市就查；没给就用 IP 猜，并把「推测」说出来。
+     绝不自己编城市，也不把多个城市混在一起答。 */
+  async function toolWeather(args) {
+    var city = String((args && args.city) || '').trim();
+    var guessed = false;
+
+    if (!city) {
+      if (!root.XN || !XN.location || !XN.location.locate) {
+        return { ok: false, text: '问天气需要城市。程序没有定位能力，请直接问用户「你在哪个城市」。' };
+      }
+      var loc = await XN.location.locate();
+      city = (loc && loc.city) || '';
+      guessed = !!city;
+      if (!city) {
+        return {
+          ok: false,
+          text: '用户没说城市，IP 定位也失败了。请直接问一句「你在哪个城市呀」，不要猜城市，也不要给任何天气数据。'
+        };
+      }
+    }
+
+    if (!root.XN || !XN.location || !XN.location.weather) {
+      return { ok: false, text: '天气服务没接上，直接告诉用户查不了。' };
+    }
+
+    var text = await XN.location.weather(city);
+    if (!text) {
+      return { ok: false, text: '天气接口没返回数据。告诉用户天气服务暂时挂了，别编。' };
+    }
+
+    var head = guessed
+      ? '（用户没说城市，按 IP 推测在「' + city + '」；回答时要说明这是推测，让他确认一下）\n'
+      : '';
+    if (root.XN && XN.context && XN.context.markIntent) XN.context.markIntent('weather');
+    if (root.XN && XN.context && XN.context.rememberFocus) XN.context.rememberFocus(city);
+
+    return { ok: true, text: head + text };
   }
 
   async function toolFetch(args) {
@@ -254,6 +392,8 @@ window.XN_TOOLS = (function () {
   async function run(name, args) {
     var a = toArgs(args);
     try {
+      if (name === 'recall_memory') return toolRecall(a);
+      if (name === 'weather') return await toolWeather(a);
       if (name === 'web_search') return await toolSearch(a);
       if (name === 'fetch_page') return await toolFetch(a);
       if (name === 'now') return toolNow();

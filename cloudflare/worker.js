@@ -36,6 +36,33 @@ function baseHeaders(request, env, extra) {
   return Object.assign({}, SECURITY_HEADERS, corsHeaders(request, env), extra || {});
 }
 
+/* Bing 中文检索：中文长尾内容比 DuckDuckGo 覆盖好（v5.8 的多引擎之一）。
+   返回空数组表示这家没给结果（限流/验证页/真没有），由上层换下一家。 */
+async function bingSearch(q) {
+  try {
+    const u = 'https://cn.bing.com/search?q=' + encodeURIComponent(q) + '&setlang=zh-CN&ensearch=0';
+    const res = await fetchWithTimeout(u, {
+      headers: { 'User-Agent': UA, 'Accept-Language': 'zh-CN,zh;q=0.9' }
+    }, 15000);
+    if (!res || !res.ok) return [];
+    const page = await res.text();
+    if (page.indexOf('b_algo') < 0 && /验证|captcha/i.test(page.slice(0, 3000))) return [];
+
+    const out = [];
+    const re = /<li class="b_algo"[\s\S]*?<h2>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]*?)<\/li>/gi;
+    let m;
+    while ((m = re.exec(page)) && out.length < 6) {
+      const link = decodeEntities(m[1]);
+      const title = stripTags(m[2]);
+      const snippet = stripTags(m[3]).slice(0, 220);
+      if (title && /^https?:/i.test(link)) out.push({ title: title, url: link, snippet: snippet });
+    }
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+
 function json(obj, status, request, env) {
   return new Response(JSON.stringify(obj), {
     status: status || 200,
@@ -348,8 +375,12 @@ async function webSearch(q, env) {
     } catch (e) { /* 缓存坏了不影响搜索 */ }
   }
 
-  let items = [];
-  let source = 'duckduckgo';
+
+  /* 先试 Bing：中文长尾内容覆盖比 DuckDuckGo 好 */
+  let items = await bingSearch(q);
+  let source = items.length ? "bing" : "duckduckgo";
+  if (!items.length) {
+  items = [];
   try {
     const res = await fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q), {
       headers: { 'User-Agent': UA, 'Accept-Language': 'zh-CN,zh;q=0.9' }
@@ -371,6 +402,7 @@ async function webSearch(q, env) {
     while ((s2 = re2.exec(html)) && snips.length < 6) snips.push(stripTags(s2[1]));
     items.forEach((it, i) => { it.snippet = snips[i] || ''; });
   } catch (e) { items = []; }
+  }
 
   if (!items.length) {
     items = await wikiSearch(q);

@@ -545,6 +545,35 @@ function switchView(id) {
     input.style.height = Math.min(input.scrollHeight, 200) + 'px';
   }
 
+  /* 主动引擎：它自己会想起你。
+     门槛全在 proactive.check 里（间隔 / 每日配额 / 用户刚说完话不打扰）。
+     这里只负责定时问一句「该不该开口」，以及把话说出去。 */
+  var proactiveTimer = null;
+  function fireProactive() {
+    if (!root.XN || !XN.proactive || !XN.proactive.check) return;
+    if (state.sending) return;            /* 正在聊就不插嘴 */
+    var hit = null;
+    try { hit = XN.proactive.check(); } catch (e) { return; }
+    if (!hit || !hit.text) return;
+
+    var s = currentSession();
+    if (!s) return;
+    var msg = { id: U.uid('m'), role: 'assistant', content: hit.text, ts: Date.now(), proactive: hit.kind };
+    s.messages.push(msg);
+    s.ts = Date.now();
+    if (state.view === 'chat') renderThread();
+    saveSessions();
+    renderSessions();
+    try { XN.proactive.commit(hit); } catch (e) {}
+  }
+
+  function startProactive() {
+    if (proactiveTimer) return;
+    /* 首次延迟 1 分钟再开始，避免刚打开就插一句 */
+    setTimeout(fireProactive, 60 * 1000);
+    proactiveTimer = setInterval(fireProactive, 5 * 60 * 1000);
+  }
+
   function setSending(on) {
     state.sending = on;
     var send = $('#btnSend'), stop = $('#btnStop');
@@ -595,6 +624,15 @@ function switchView(id) {
       goals: ((state.goals && state.goals.items) || []).filter(function (g) { return !g.done; }).map(function (g) { return g.text; }),
       name: mem && mem.name ? mem.name() : ''
     });
+
+    /* 这一轮该拿什么姿态：安慰 / 正常聊 / 推一把（v5.8 的 derive_goal） */
+    if (root.XN && XN.proactive && XN.proactive.deriveGoal) {
+      try {
+        var goalNow = XN.proactive.deriveGoal(state.lastEmo);
+        var goalLine = XN.proactive.goalLine(goalNow);
+        if (goalLine) prompt += "\n" + goalLine;
+      } catch (e) {}
+    }
 
     if (act && act.implicit && act.implicit.length) {
     prompt += '\n【我印象里（不一定对，别当成他说过）】' + act.implicit.slice(0, 8).join('；');
@@ -764,7 +802,13 @@ function switchView(id) {
       }
 
       if (!bot.content.trim()) {
+      /* 模型一个字都没吐出来：别显示"空回复"，用兜底文案接一句 */
+      if (root.XN && XN.fallback && XN.fallback.reply) {
+        bot.content = XN.fallback.reply(state.lastEmo && state.lastEmo.emo, root.XN_MEM, { reason: 'empty' });
         bot.error = t('chat.emptyReply');
+      } else {
+        bot.error = t('chat.emptyReply');
+      }
       }
       clearThinking();
       node.classList.remove('streaming');
@@ -783,13 +827,15 @@ function switchView(id) {
         bot.incomplete = !!bot.content;
         contentEl.innerHTML = MD.render(bot.content);
       } else {
+        /* 模型挂了不要只丢一条红字：按这轮情绪挑一句本地文案接住，
+           用户几乎感觉不到失败，还能接着说（v5.8 的 rule_reply 就是这个用意）。 */
+        var fb = (root.XN && XN.fallback && XN.fallback.reply)
+          ? XN.fallback.reply(state.lastEmo && state.lastEmo.emo, root.XN_MEM, { reason: 'network' })
+          : t('common.failed');
+        bot.content = bot.content || fb;
         bot.error = (e && e.message) || t('common.failed');
-        contentEl.innerHTML = bot.content ? MD.render(bot.content) : '';
-        var pe = document.createElement('p');
-        pe.className = 'err';
-        pe.textContent = bot.error;
-        bodyEl.appendChild(pe);
-        if (e && (e.status === 401 || e.status === 403)) updateConn('off');
+        bot.errorFriendly = true;
+        contentEl.innerHTML = MD.render(bot.content);
       }
     } finally {
       bot.pending = false;
@@ -799,6 +845,7 @@ function switchView(id) {
       renderSessions();
       updateHeader();
       if (root.XN_MEM && root.XN_MEM.pushBuffer && bot.content) {
+      if (root.XN && XN.context && XN.context.rememberDialog) XN.context.rememberDialog('assistant', bot.content);
         root.XN_MEM.pushBuffer('小暖：' + bot.content.slice(0, 200));
       }
     }
@@ -816,14 +863,20 @@ function switchView(id) {
 
     var mRemember = text.match(/^记住[，,：:\s]*(.+)$/);
     var mForget = text.match(/^忘(?:了|掉)[，,：:\s]*(.+)$/);
+    var mRevive = text.match(/^(?:撤回|恢复|undo|取消遗忘)[，,：:\s]*(.*)$/i);
     if (mRemember) {
       var item = mRemember[1].trim();
       if (item && root.XN_MEM) root.XN_MEM.addExplicit(item);
       if (item) U.toast('记住了：' + item.slice(0, 30));
     } else if (mForget) {
       var topic = mForget[1].trim();
+      /* 先拍个快照：说错了能撤回（v5.8 的 detect_revive） */
+      if (root.XN && XN.memPlus && XN.memPlus.snapshotForget) XN.memPlus.snapshotForget(topic);
       var removed = root.XN_MEM ? root.XN_MEM.forget(topic) : 0;
       U.toast(removed ? '忘了 ' + removed + ' 条' : '没找到相关的记忆');
+    } else if (mRevive) {
+      var back = (root.XN && XN.memPlus && XN.memPlus.revive) ? XN.memPlus.revive() : 0;
+      U.toast(back ? ('恢复了 ' + back + ' 条记忆') : '没有可撤回的遗忘（超过 10 分钟就找不回了）');
     }
 
     state.lastEmo = await detectEmotion(text);
@@ -840,6 +893,10 @@ function switchView(id) {
     var s = currentSession() || newSession(true);
     var userMsg = { id: U.uid('m'), role: 'user', content: text, ts: Date.now() };
     s.messages.push(userMsg);
+    /* 记进对话尾巴：上下文消解靠它把「那明天呢」接回「杭州天气」 */
+    if (root.XN && XN.context && XN.context.rememberDialog) XN.context.rememberDialog('user', text);
+    state.lastUserAt = Date.now();
+    state.turnCount = (state.turnCount || 0) + 1;
     s.ts = Date.now();
     if (!s.title) s.title = sessionTitle(s);
     /* 关系只按"用户真的发了一条新消息"计数：重试、重新生成都不会重复加 */
@@ -1319,6 +1376,14 @@ function switchView(id) {
     if (XN.on) {
       XN.on('plugin:mounted', function () { renderSideLinks(); });
       XN.on('plugin:unmounted', function () { renderSideLinks(); });
+
+    /* 记忆衰减：旧事淡出、重要的留住（v5.8 的 _maybe_decay） */
+    if (root.XN && XN.memPlus && XN.memPlus.decay) {
+      try { XN.memPlus.decay(); } catch (e) {}
+    }
+
+    /* 主动引擎：每 5 分钟看一眼该不该主动开口 */
+    startProactive();
     }
 
     if (XN.views) {

@@ -330,13 +330,57 @@ def strip_tags(value):
     return re.sub(r"\s+", " ", text).strip()
 
 
+def bing_search(q):
+    """Bing 中文检索。比 DuckDuckGo 更容易搜到中文长尾内容（v5.8 的多引擎之一）。
+
+    返回 [] 表示这家引擎没给结果（被限流、验证页、或者真的没有），
+    由上层换下一家，不要让用户看到异常。
+    """
+    try:
+        req = urllib.request.Request(
+            "https://cn.bing.com/search?q=" + urllib.parse.quote(q) + "&setlang=zh-CN&ensearch=0",
+            headers={"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as res:
+            page = res.read().decode("utf-8", "ignore")
+        # 反爬/验证页特征：没有 b_algo 又出现这些字，说明被挡了
+        if "b_algo" not in page and ("验证" in page[:3000] or "captcha" in page[:3000].lower()):
+            return []
+        out = []
+        for m in re.finditer(
+            r'<li class="b_algo"[\s\S]*?<h2>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)</a>([\s\S]*?)</li>',
+            page, re.I,
+        ):
+            link = html.unescape(m.group(1))
+            title = strip_tags(m.group(2))
+            snippet = strip_tags(m.group(3))[:220]
+            if title and link.startswith("http"):
+                out.append({"title": title, "url": link, "snippet": snippet})
+            if len(out) >= 6:
+                break
+        return out
+    except Exception:
+        return []
+
+
 def web_search(q):
     now = time.time()
     hit = _search_cache.get(q)
     if hit and now - hit[0] < 600:
         return hit[1]
 
-    items, source = [], "duckduckgo"
+    items, source = [], "bing"
+
+    # 先试 Bing：中文内容覆盖比 DDG 好
+    items = bing_search(q)
+    if items:
+        payload = {"ok": True, "q": q, "count": len(items), "items": items, "source": source}
+        _search_cache[q] = (now, payload)
+        if len(_search_cache) > 200:
+            _search_cache.clear()
+        return payload
+
+    source = "duckduckgo"
     try:
         req = urllib.request.Request(
             "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(q),
@@ -483,7 +527,12 @@ EDITABLE = [
     "assets/lib/session.js", "assets/plugins/view-chat.js",
     "assets/plugins/manifest.js",
     "assets/plugins/view-plugins.js",
-    "assets/lib/dsh-compat.js", "assets/plugins/export-session.js",
+    "assets/lib/dsh-compat.js",
+    "assets/lib/fallback.js",
+    "assets/lib/context.js",
+    "assets/lib/location.js", "assets/plugins/export-session.js",
+    "assets/lib/memory-ext.js",
+    "assets/lib/proactive.js",
 ]
 VERSION_FILE = "assets/version.js"
 CHANGELOG_FILE = "assets/changelog.js"
