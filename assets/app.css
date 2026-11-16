@@ -1173,3 +1173,11 @@ textarea.prompt {
 .modal-card .card-head { margin: 8px 0 4px; }
 .modal-card .field { margin: 10px 0 6px; }
 .modal-card .arch-btns { margin-top: 10px; }
+
+
+/* 运行状态卡（设置页） */
+.status-list { display: grid; grid-template-columns: 7.5em 1fr; gap: 6px 12px; margin: 0 0 12px; font-size: 13px; }
+.status-list dt { color: var(--muted); }
+.status-list dd { margin: 0; word-break: break-word; }
+.status-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.status-hint { margin: 0; font-size: 12px; color: var(--muted); }

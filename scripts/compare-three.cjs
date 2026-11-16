@@ -67,8 +67,8 @@ const MATRIX = [
   ['兜底：规则回复', /def rule_reply/, /def rule_reply/, /XN\.fallback\.reply|fallback\.reply/],
   ['兜底：情绪文案表', /FALLBACK\s*=/, /FALLBACK\s*=/, /FALLBACK\s*=\s*\{/],
   ['运维：后台守护线程', /def start_daemon/, /def start_memory_daemon/, /daemon/],
-  ['运维：仪表盘/看板（Pages 无进程，不适用）', null, /def dashboard_server/, /dashboardServer|dashboard_server/],
-  ['运维：快照同步', null, /def _sync_snapshot/, /sync_snapshot|syncSnapshot/]
+  ['运维：仪表盘/看板', null, /def dashboard_server/, /XN\.dashboard|exportSnapshot/],
+  ['运维：快照同步', null, /def _sync_snapshot/, /exportSnapshot|syncSnapshot/]
 ];
 
 function has(text, re) {

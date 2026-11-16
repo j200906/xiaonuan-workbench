@@ -533,6 +533,7 @@ EDITABLE = [
     "assets/lib/location.js", "assets/plugins/export-session.js",
     "assets/lib/memory-ext.js",
     "assets/lib/proactive.js",
+    "assets/lib/dashboard.js",
 ]
 VERSION_FILE = "assets/version.js"
 CHANGELOG_FILE = "assets/changelog.js"

@@ -65,6 +65,7 @@ const FILES = [
   'assets/lib/location.js',
   'assets/lib/memory-ext.js',
   'assets/lib/proactive.js',
+  'assets/lib/dashboard.js',
   'assets/lib/services.js',
   'assets/lib/session.js',
   'assets/plugins/view-chat.js',
